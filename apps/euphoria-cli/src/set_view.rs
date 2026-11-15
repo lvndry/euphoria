@@ -375,7 +375,7 @@ fn deviation_messages(view: &SetView<'_>) -> Vec<String> {
                 let from = plan.tracks[position - 1].key;
                 let to = plan.tracks[position].key;
                 let what = match relation {
-                    Some(relation) => format!("a {} move", relation.label().to_lowercase()),
+                    Some(relation) => relation.label().to_lowercase(),
                     None => "no harmonic move".to_string(),
                 };
                 messages.push(format!(
@@ -410,6 +410,7 @@ fn deviation_messages(view: &SetView<'_>) -> Vec<String> {
 
 #[derive(Serialize)]
 struct JsonSet<'set> {
+    schema_version: u32,
     curve: &'set [f32],
     requested_tracks: usize,
     duration_seconds: f32,
@@ -519,6 +520,7 @@ pub fn write_json(
 ) -> io::Result<()> {
     let plan = view.plan;
     let set = JsonSet {
+        schema_version: output::JSON_SCHEMA_VERSION,
         curve: view.options.curve.levels(),
         requested_tracks: view.options.track_count,
         duration_seconds: round_to_tenths(view.total_seconds()),
@@ -612,7 +614,7 @@ pub fn write_json(
                 let error = result.outcome.as_ref().err()?;
                 Some(JsonFailure {
                     path: &result.path,
-                    error: error.chain().to_string(),
+                    error: output::describe(error),
                 })
             })
             .collect(),
@@ -718,6 +720,35 @@ mod tests {
             .unwrap()
             .1;
         assert!(second_in_table.contains("+1.0"));
+    }
+
+    #[test]
+    fn a_step_on_the_wheel_is_named_so_in_the_table_and_the_warnings() {
+        let pool = vec![
+            pool_track("8A", 124.0, 5, "A", "One"),
+            pool_track("9A", 125.0, 6, "B", "Two"),
+        ];
+        let mut options = SetOptions::new(2, "5,6".parse().unwrap());
+        options.relations = vec![euphoria_core::Relation::Same];
+        let table = with_set(&pool, &options, |view| {
+            let mut buffer = Vec::new();
+            write_table(&mut buffer, &Theme::PLAIN, view).unwrap();
+            String::from_utf8(buffer).unwrap()
+        });
+        assert!(table.contains("One step on the wheel"), "{table}");
+        assert!(!table.contains("Adjacent"), "{table}");
+        let messages = with_set(&pool, &options, deviation_messages);
+        assert!(
+            messages.iter().any(|message| message.contains(
+                "goes from 8A to 9A, one step on the wheel, which --moves does not allow."
+            )),
+            "{messages:?}"
+        );
+        assert!(
+            messages
+                .iter()
+                .all(|message| !message.contains("a adjacent"))
+        );
     }
 
     #[test]

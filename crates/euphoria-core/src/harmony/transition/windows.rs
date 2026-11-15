@@ -173,10 +173,13 @@ pub(super) fn search(input: &SearchInput<'_>, keep: usize) -> Vec<CandidateWindo
             }
         }
     }
+    // A window with bars nobody checked never outranks one whose bars were
+    // all checked, whatever its score: an unknown clash is not a clear one.
     windows.sort_by(|first, second| {
-        second
-            .score
-            .total_cmp(&first.score)
+        let is_unchecked = |window: &CandidateWindow| window.clash_counts.unknown > 0;
+        is_unchecked(first)
+            .cmp(&is_unchecked(second))
+            .then(second.score.total_cmp(&first.score))
             .then(first.clash_counts.vocals.cmp(&second.clash_counts.vocals))
             .then(first.a_start_bar.cmp(&second.a_start_bar))
             .then(first.b_start_bar.cmp(&second.b_start_bar))
@@ -282,8 +285,16 @@ fn evaluate(
         key: key_score,
         room: if a_has_room { 1.0 } else { 0.0 },
     };
+    // Bars that could not be checked earn no clash credit, so an unchecked
+    // window scores below the same window checked and found clear.
+    // Bars past the end of A hold no clash to check, so they are not counted.
+    let bars_of_a = bars.min(a_bars.saturating_sub(a_start)).max(1);
+    let checked_share = (bars_of_a - counts.unknown.min(bars_of_a)) as f32 / bars_of_a as f32;
     let parts = [
-        (breakdown.clash, CLASH_SCORE_WEIGHT),
+        (
+            Some(breakdown.clash.unwrap_or(0.0) * checked_share),
+            CLASH_SCORE_WEIGHT,
+        ),
         (breakdown.energy, ENERGY_SCORE_WEIGHT),
         (breakdown.key, KEY_SCORE_WEIGHT),
         (Some(breakdown.room), ROOM_SCORE_WEIGHT),

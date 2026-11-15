@@ -9,7 +9,9 @@ mod support;
 use std::path::{Path, PathBuf};
 use std::process::Output;
 
-use support::{Euphoria, TemporaryFolder, fixtures_directory, standard_error};
+use support::{
+    Euphoria, TemporaryFolder, fixtures_directory, standard_error, write_kick_track, write_kicks,
+};
 
 const AUDIO_FIXTURES: [&str; 10] = [
     "sine-440hz-mono-alac.m4a",
@@ -414,11 +416,14 @@ fn a_file_that_fails_is_reported_and_the_others_are_exported() {
     assert!(exported.stdout.is_empty());
     let errors = standard_error(&exported);
     let lines: Vec<&str> = errors.lines().collect();
-    assert!(
-        lines[0].starts_with(&format!("error: {}: cannot decode ", readme.display())),
+    assert_eq!(
+        lines[0],
+        format!(
+            "error: {}: cannot be read as audio (not a supported or valid audio file)",
+            readme.display()
+        ),
         "{errors}"
     );
-    assert!(lines[0].contains("unsupported format"), "{errors}");
     assert!(
         lines[1].starts_with("Exported 10 tracks in 1 playlist to "),
         "{errors}"
@@ -985,54 +990,6 @@ fn paths_that_cannot_be_used_are_errors() {
     let no_output = euphoria.run(&["export", "rekordbox", text(&fixture)]);
     assert_eq!(no_output.status.code(), Some(2));
     assert!(standard_error(&no_output).contains("--output <FILE>"));
-}
-
-/// Writes 30 seconds of a 16 bit mono WAV file holding a decaying low tone
-/// on every beat at `tempo`, starting `first_beat` seconds in.
-fn write_kick_track(path: &Path, tempo: f64, first_beat: f64) {
-    write_kicks(path, first_beat, |_| tempo);
-}
-
-/// Writes 30 seconds of a 16 bit mono WAV file holding a decaying low tone
-/// on every beat from `first_beat`, each beat following the one before at
-/// `tempo_at` its time.
-fn write_kicks(path: &Path, first_beat: f64, tempo_at: impl Fn(f64) -> f64) {
-    const SAMPLE_RATE: u32 = 44_100;
-    let sample_count = 30 * SAMPLE_RATE as usize;
-    let mut samples = vec![0.0_f64; sample_count];
-    let mut beat_start = first_beat;
-    while beat_start < 30.0 {
-        let first_sample = (beat_start * f64::from(SAMPLE_RATE)) as usize;
-        for (offset, sample) in samples
-            .iter_mut()
-            .skip(first_sample)
-            .take(8_000)
-            .enumerate()
-        {
-            let time = offset as f64 / f64::from(SAMPLE_RATE);
-            *sample += (std::f64::consts::TAU * 60.0 * time).sin() * (-time / 0.04).exp();
-        }
-        beat_start += 60.0 / tempo_at(beat_start);
-    }
-    let data_length = (sample_count * 2) as u32;
-    let mut bytes = Vec::with_capacity(44 + sample_count * 2);
-    bytes.extend_from_slice(b"RIFF");
-    bytes.extend_from_slice(&(36 + data_length).to_le_bytes());
-    bytes.extend_from_slice(b"WAVEfmt ");
-    bytes.extend_from_slice(&16_u32.to_le_bytes());
-    bytes.extend_from_slice(&1_u16.to_le_bytes());
-    bytes.extend_from_slice(&1_u16.to_le_bytes());
-    bytes.extend_from_slice(&SAMPLE_RATE.to_le_bytes());
-    bytes.extend_from_slice(&(SAMPLE_RATE * 2).to_le_bytes());
-    bytes.extend_from_slice(&2_u16.to_le_bytes());
-    bytes.extend_from_slice(&16_u16.to_le_bytes());
-    bytes.extend_from_slice(b"data");
-    bytes.extend_from_slice(&data_length.to_le_bytes());
-    for sample in samples {
-        let scaled = (sample.clamp(-1.0, 1.0) * 0.8 * f64::from(i16::MAX)) as i16;
-        bytes.extend_from_slice(&scaled.to_le_bytes());
-    }
-    std::fs::write(path, bytes).expect("the track is written");
 }
 
 #[test]
@@ -2102,6 +2059,7 @@ fn engine_writes_key_tempo_and_grid_and_keeps_a_backup() {
         "--library",
         text(&library),
         "--beat-grid",
+        "--yes",
         text(&track),
     ]);
 
@@ -2122,6 +2080,39 @@ fn engine_writes_key_tempo_and_grid_and_keeps_a_backup() {
     assert_eq!(backups.len(), 1, "{backups:?}");
     assert!(backups[0].join("Database2").join("m.db").is_file());
     assert!(standard_error(&exported).contains("Updated 1 track in"));
+}
+
+#[test]
+fn engine_without_yes_and_without_a_terminal_writes_nothing() {
+    let euphoria = Euphoria::new();
+    let music_folder = TemporaryFolder::new();
+    let track = resolved(music_folder.path()).join("kicks.wav");
+    write_kick_track(&track, 120.0, 0.25);
+    let (_folder, library, database) = engine_library(&track);
+    let before = std::fs::read(&database).expect("the library is read");
+
+    let exported = euphoria.run(&[
+        "export",
+        "engine",
+        "--library",
+        text(&library),
+        text(&track),
+    ]);
+
+    assert_eq!(exported.status.code(), Some(1));
+    let errors = standard_error(&exported);
+    assert!(errors.contains("1 track of"), "{errors}");
+    assert!(errors.contains("will be updated"), "{errors}");
+    assert!(
+        errors.contains("error: nothing was written: standard input is not a terminal"),
+        "{errors}"
+    );
+    assert!(errors.contains("--yes"), "{errors}");
+    assert_eq!(
+        std::fs::read(&database).expect("the library is read"),
+        before
+    );
+    assert!(engine_backups(&library).is_empty());
 }
 
 #[test]
@@ -2222,6 +2213,7 @@ fn virtualdj_updates_the_song_of_a_track_and_keeps_a_backup() {
         "--database",
         text(&database),
         "--beat-grid",
+        "--yes",
         text(&track),
     ]);
 
@@ -2256,6 +2248,36 @@ fn virtualdj_updates_the_song_of_a_track_and_keeps_a_backup() {
         original
     );
     assert!(standard_error(&exported).contains("Updated 1 song in"));
+}
+
+#[test]
+fn virtualdj_without_yes_and_without_a_terminal_writes_nothing() {
+    let euphoria = Euphoria::new();
+    let music_folder = TemporaryFolder::new();
+    let track = resolved(music_folder.path()).join("kicks.wav");
+    write_kick_track(&track, 120.0, 0.25);
+    let (_database_folder, database, original) = virtualdj_database(&track);
+
+    let exported = euphoria.run(&[
+        "export",
+        "virtualdj",
+        "--database",
+        text(&database),
+        text(&track),
+    ]);
+
+    assert_eq!(exported.status.code(), Some(1));
+    let errors = standard_error(&exported);
+    assert!(errors.contains("will be updated"), "{errors}");
+    assert!(
+        errors.contains("error: nothing was written: standard input is not a terminal"),
+        "{errors}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&database).expect("the database is read"),
+        original
+    );
+    assert!(backups_next_to(&database).is_empty());
 }
 
 #[test]

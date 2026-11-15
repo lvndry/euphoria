@@ -48,7 +48,7 @@ A window is 16, 32 or 64 bars. It starts on a phrase boundary of A, every 8 bars
 | Key | 0.20 | 1 for the same key, adjacent or relative; 0.8 for diagonal, 0.7 for an energy boost, 0.5 for a mood change or a semitone boost; 0 for a clash of keys. |
 | Room | 0.15 | 1 when A lasts through the window. A window that outlasts A also has its score halved. |
 
-A part that cannot be measured, such as the clashes without stems or the energy of a track without a curve, is left out and the others share its weight, so a plan without stems ranks on energy, key and room alone and says "stems missing, clashes not checked". Clashes weigh most because they are what a listener notices first; vocals weigh double because a bass clash can be fixed with an EQ and a vocal clash cannot.
+A part that cannot be measured, such as the energy of a track without a curve, is left out and the others share its weight. Bars whose clash was not checked, because a stem is missing, are not left out: they earn no clash credit, so a plan without stems scores at most 55 of 100, ranks on energy, key and room alone, and says "stems missing, clashes not checked". A window with unchecked bars never ranks above one whose bars were all checked, and the command marks it `(N of M bars not checked)`. Clashes weigh most because they are what a listener notices first; vocals weigh double because a bass clash can be fixed with an EQ and a vocal clash cannot.
 
 Each window comes with its steps: start B, swap the bass at a bar, bring in B's vocals at a bar, and A ends. The first cues for the best window are suggested for both tracks and are not written anywhere until you set them.
 

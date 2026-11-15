@@ -51,6 +51,7 @@ class Euphoria < Formula
   def install
     bin.install "bin/euphoria"
     lib.install Dir["lib/*.dylib"]
+    generate_completions_from_executable(bin/"euphoria", "completions", shells: [:bash, :zsh, :fish])
   end
 
   test do

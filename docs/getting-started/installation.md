@@ -27,6 +27,8 @@ and the app:
 brew install --cask euphoria
 ```
 
+The formula also installs tab completion for bash, zsh and fish. Without Homebrew, see [`euphoria completions`](../reference/cli.md#euphoria-completions).
+
 The tap, [lvndry/homebrew-euphoria](https://github.com/lvndry/homebrew-euphoria), is updated after each release. Releases are signed with a Developer ID and notarized by Apple, so Homebrew installs and upgrades open without a warning. Only releases made before notarization need the steps [below](#opening-the-app-for-the-first-time).
 
 ## Download for macOS

@@ -33,8 +33,8 @@ use crate::error::EuphoriaError;
 use crate::key::Key;
 pub use edit::{EditableTags, FieldEdit, TagField, TextChange, plan_edit, read_editable_tags};
 pub use history::{
-    LoggedWrite, RewriteStage, UndoneWrite, WriteLog, WrittenValues, default_write_log_directory,
-    undo_last_write, undo_last_write_with_observer,
+    LoggedWrite, LoggedWriteSummary, RewriteStage, UndoneWrite, WriteLog, WrittenValues,
+    default_write_log_directory, undo_last_write, undo_last_write_with_observer, write_history,
 };
 use id3v2::COMMENT as ID3_COMMENT;
 pub use label::LabelPlacement;

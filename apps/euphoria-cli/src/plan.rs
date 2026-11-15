@@ -14,7 +14,7 @@ use anyhow::{Context, Result, bail};
 use clap::Args;
 use euphoria_core::harmony::transition::{
     AutomaticCues, CandidateWindow, Clash, PlanOptions, PlanTrack, SectionSource, TransitionPlan,
-    plan_transition,
+    WINDOW_LENGTHS, plan_transition,
 };
 #[cfg(feature = "stems")]
 use euphoria_core::plan_signals::stem_signature;
@@ -57,6 +57,7 @@ struct Loaded {
 
 #[derive(Serialize)]
 struct PlanJson<'plan> {
+    schema_version: u32,
     a: String,
     b: String,
     elapsed_milliseconds: f64,
@@ -129,11 +130,14 @@ pub fn run(arguments: &PlanArguments) -> Result<ExitCode> {
     let mut standard_output = std::io::stdout().lock();
     if arguments.json {
         let document = PlanJson {
+            schema_version: crate::output::JSON_SCHEMA_VERSION,
             a: loaded[0].path.display().to_string(),
             b: loaded[1].path.display().to_string(),
             elapsed_milliseconds: elapsed.as_secs_f64() * 1000.0,
             plan: &plan,
         };
+        let mut document = serde_json::to_value(&document)?;
+        round_floats(&mut document, None);
         serde_json::to_writer_pretty(&mut standard_output, &document)?;
         writeln!(standard_output)?;
     } else {
@@ -141,6 +145,37 @@ pub fn run(arguments: &PlanArguments) -> Result<ExitCode> {
     }
     standard_output.flush()?;
     Ok(ExitCode::SUCCESS)
+}
+
+/// Rounds every number in `value` to three decimals, and the tempos to two,
+/// so the JSON carries what the tracks can be told to, not float noise.
+fn round_floats(value: &mut serde_json::Value, key: Option<&str>) {
+    match value {
+        serde_json::Value::Number(number) if number.is_f64() => {
+            let decimals = if key.is_some_and(|key| key.starts_with("bpm")) {
+                100.0
+            } else {
+                1000.0
+            };
+            if let Some(float) = number.as_f64()
+                && let Some(rounded) =
+                    serde_json::Number::from_f64((float * decimals).round() / decimals)
+            {
+                *number = rounded;
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                round_floats(item, key);
+            }
+        }
+        serde_json::Value::Object(fields) => {
+            for (name, field) in fields.iter_mut() {
+                round_floats(field, Some(name));
+            }
+        }
+        _ => {}
+    }
 }
 
 fn signals_of(cache: &SignalsCache, path: &Path, analysis: &TrackAnalysis) -> Result<TrackSignals> {
@@ -182,6 +217,28 @@ fn strip_text(theme: &Theme, window: &CandidateWindow) -> String {
             Clash::Unknown => theme.dim("?"),
         })
         .collect()
+}
+
+/// Why the two tracks have no window, from what is known of their bars.
+fn no_window_reason(plan: &TransitionPlan) -> String {
+    let shortest = WINDOW_LENGTHS[0];
+    let (a_bars, b_bars) = (plan.lanes_a.bars.len(), plan.lanes_b.bars.len());
+    let short: Vec<String> = [("A", a_bars), ("B", b_bars)]
+        .into_iter()
+        .filter(|(_, bars)| *bars < shortest)
+        .map(|(name, bars)| format!("{name} has {bars} bars"))
+        .collect();
+    if short.is_empty() {
+        format!(
+            "no bar of A that ends a phrase meets a section start of B with {shortest} bars left \
+             (A has {a_bars} bars, B has {b_bars})"
+        )
+    } else {
+        format!(
+            "{}, and the smallest window needs {shortest}",
+            short.join(" and ")
+        )
+    }
 }
 
 fn file_name(path: &Path) -> String {
@@ -240,7 +297,8 @@ fn write_plan(
     if plan.windows.is_empty() {
         writeln!(
             writer,
-            "\nNo window of 16, 32 or 64 bars fits these two tracks."
+            "\nNo window of 16, 32 or 64 bars fits these two tracks: {}.",
+            no_window_reason(plan)
         )?;
         return Ok(());
     }
@@ -257,9 +315,10 @@ fn write_plan(
         let section = |label: Option<euphoria_core::harmony::transition::SectionLabel>| {
             label.map_or("-", |label| label.name())
         };
+        let unchecked = window.clash_counts.unknown;
         writeln!(
             writer,
-            "{} {}  score {:.0}, {} bars: A {} from bar {}, B {} from bar {}",
+            "{} {}  score {:.0}{}, {} bars: A {} from bar {}, B {} from bar {}",
             theme.bold(format!("#{}", window.rank)),
             if window.clean {
                 theme.good("clean")
@@ -267,6 +326,14 @@ fn write_plan(
                 String::new()
             },
             window.score,
+            if unchecked == 0 {
+                String::new()
+            } else {
+                theme.dim(format!(
+                    " ({unchecked} of {} bars not checked)",
+                    window.bars
+                ))
+            },
             window.bars,
             section(window.a_section),
             window.a_start_bar + 1,

@@ -53,7 +53,7 @@ impl Relation {
     pub fn label(&self) -> &'static str {
         match self {
             Relation::Same => "Same key",
-            Relation::Adjacent => "Adjacent",
+            Relation::Adjacent => "One step on the wheel",
             Relation::Relative => "Relative",
             Relation::Diagonal => "Diagonal",
             Relation::EnergyBoost => "Energy boost",
@@ -395,6 +395,7 @@ mod tests {
         labels.sort_unstable();
         labels.dedup();
         assert_eq!(labels.len(), Relation::ALL.len());
+        assert_eq!(Relation::Adjacent.label(), "One step on the wheel");
 
         for relation in Relation::ALL {
             let description = relation.description();

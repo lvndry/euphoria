@@ -353,6 +353,69 @@ pub struct UndoneWrite {
     pub failed: Vec<(PathBuf, EuphoriaError)>,
 }
 
+/// A tag write that can still be undone, as the history lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoggedWriteSummary {
+    /// When the write started, in seconds since the Unix epoch.
+    pub written_at_seconds: u64,
+    /// The files whose tags the write replaced, in the order written.
+    pub files: Vec<PathBuf>,
+}
+
+fn logs_newest_first(directory: &Path) -> Result<Vec<PathBuf>, EuphoriaError> {
+    let entries = match std::fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(log_error(directory, error)),
+    };
+    let mut logs = Vec::new();
+    for entry in entries {
+        let path = entry.map_err(|error| log_error(directory, error))?.path();
+        let is_log = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with(LOG_NAME_START) && name.ends_with(LOG_NAME_END));
+        if is_log {
+            logs.push(path);
+        }
+    }
+    logs.sort_by(|first, second| second.cmp(first));
+    Ok(logs)
+}
+
+fn written_at_seconds(log_path: &Path) -> u64 {
+    log_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_prefix(LOG_NAME_START))
+        .and_then(|rest| rest.split('-').next())
+        .and_then(|seconds| seconds.parse().ok())
+        .unwrap_or(0)
+}
+
+/// The writes that can still be undone in `directory`, newest first. The
+/// first is the one [`undo_last_write`] restores. Nothing is changed.
+/// A write in which every file was given up is not listed.
+pub fn write_history(directory: &Path) -> Result<Vec<LoggedWriteSummary>, EuphoriaError> {
+    let mut history = Vec::new();
+    for log_path in logs_newest_first(directory)? {
+        let planned = index_log(&log_path)?;
+        if planned.is_empty() {
+            continue;
+        }
+        let mut log = File::open(&log_path).map_err(|error| log_error(&log_path, error))?;
+        let mut files = Vec::with_capacity(planned.len());
+        for write in &planned {
+            files.push(read_backup(&mut log, &log_path, write.offset)?.path);
+        }
+        history.push(LoggedWriteSummary {
+            written_at_seconds: written_at_seconds(&log_path),
+            files,
+        });
+    }
+    Ok(history)
+}
+
 /// The newest log in `directory`, if there is one.
 fn last_log(directory: &Path) -> Result<Option<PathBuf>, EuphoriaError> {
     let entries = match std::fs::read_dir(directory) {
@@ -652,6 +715,22 @@ mod tests {
         let undone = undo_last_write(&logs).unwrap().unwrap();
         assert_eq!(undone.restored, std::slice::from_ref(&track));
         assert!(std::fs::read(&track).unwrap() == original);
+        std::fs::remove_dir_all(track.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn the_history_lists_writes_newest_first_without_changing_anything() {
+        let (track, logs) = scratch("history");
+        assert!(write_history(&logs).unwrap().is_empty());
+        let _ = WriteLog::new(&logs).apply(&plan(&track)).unwrap();
+        let tagged = std::fs::read(&track).unwrap();
+
+        let history = write_history(&logs).unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].files, std::slice::from_ref(&track));
+        assert!(history[0].written_at_seconds > 0);
+        assert!(std::fs::read(&track).unwrap() == tagged);
+        assert_eq!(write_history(&logs).unwrap(), history);
         std::fs::remove_dir_all(track.parent().unwrap()).unwrap();
     }
 

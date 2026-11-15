@@ -212,6 +212,11 @@ fn build(arguments: &BuildArguments) -> Result<ExitCode> {
             audio_files.push(pinned.clone());
         }
     }
+    for file in &mut audio_files {
+        if let Ok(canonical) = file.canonicalize() {
+            *file = canonical;
+        }
+    }
     if let Some(m3u_file) = &m3u_file {
         check_output_is_not_an_input(m3u_file, &audio_files, &[])?;
     }

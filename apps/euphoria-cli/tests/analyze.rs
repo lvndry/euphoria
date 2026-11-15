@@ -28,6 +28,7 @@ fn analyzes_a_folder_as_json() {
     );
     for track in tracks {
         assert!(track["error"].is_null(), "{track}");
+        assert_eq!(track["schema_version"], 1, "{track}");
         let duration = track["duration_seconds"].as_f64().expect("a duration");
         assert!((duration - 1.0).abs() < 0.1, "{track}");
         let path = track["path"].as_str().expect("a path");
@@ -544,7 +545,7 @@ fn a_literal_path_after_double_dash_cannot_change_the_colour_policy() {
         .current_dir(folder.path())
         .output()
         .unwrap();
-    assert!(output.status.success());
+    assert_eq!(output.status.code(), Some(3));
     assert!(
         !output.stderr.contains(&0x1b),
         "{:?}",
@@ -649,5 +650,112 @@ fn skipped_formats_are_reported_and_do_not_change_the_exit_status() {
     assert!(
         stderr.contains("3 files skipped: 2 .opus, 1 .wma, which Euphoria can't decode yet"),
         "{stderr}"
+    );
+}
+
+fn write_fake_mp3(folder: &TemporaryFolder) -> std::path::PathBuf {
+    let path = folder.path().join("fake.mp3");
+    std::fs::write(&path, "this is not audio").expect("the file is written");
+    path
+}
+
+#[test]
+fn a_file_that_is_not_audio_gets_a_plain_error_without_the_decoder_wording() {
+    let folder = TemporaryFolder::new();
+    let fake = write_fake_mp3(&folder);
+    let output = Euphoria::new().run(&["analyze", "--no-cache", fake.to_str().expect("UTF-8")]);
+    assert_eq!(output.status.code(), Some(1));
+    let errors = standard_error(&output);
+    assert_eq!(
+        errors.lines().next(),
+        Some(
+            format!(
+                "error: {}: cannot be read as audio (not a supported or valid audio file)",
+                fake.display()
+            )
+            .as_str()
+        ),
+        "{errors}"
+    );
+    assert!(!errors.contains("probe"), "{errors}");
+    assert_eq!(errors.matches("fake.mp3").count(), 1, "{errors}");
+}
+
+#[test]
+fn verbose_keeps_the_decoders_own_reason() {
+    let folder = TemporaryFolder::new();
+    let fake = write_fake_mp3(&folder);
+    let output = Euphoria::new().run(&[
+        "--verbose",
+        "analyze",
+        "--no-cache",
+        fake.to_str().expect("UTF-8"),
+    ]);
+    let errors = standard_error(&output);
+    assert!(errors.contains("cannot be read as audio"), "{errors}");
+    assert!(errors.contains("cannot decode"), "{errors}");
+}
+
+#[test]
+fn zero_jobs_is_refused_in_plain_words() {
+    let fixture = fixtures_directory().join("sine-440hz-mono.wav");
+    let output = Euphoria::new().run(&[
+        "analyze",
+        "--jobs",
+        "0",
+        fixture.to_str().expect("UTF-8 path"),
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    let errors = standard_error(&output);
+    assert!(errors.contains("must be at least 1"), "{errors}");
+    assert!(!errors.contains("non-zero"), "{errors}");
+}
+
+#[test]
+fn an_empty_folder_exits_with_status_3() {
+    let folder = TemporaryFolder::new();
+    let output = Euphoria::new().run(&["analyze", folder.path().to_str().expect("UTF-8 path")]);
+    assert_eq!(output.status.code(), Some(3));
+    assert!(output.stdout.is_empty());
+    assert!(standard_error(&output).contains("no audio files found"));
+}
+
+#[test]
+fn a_run_where_everything_is_missing_prints_no_table_header() {
+    let output = Euphoria::new().run(&["analyze", "/definitely/not/here.mp3"]);
+    assert_eq!(output.status.code(), Some(3));
+    assert!(output.stdout.is_empty(), "{:?}", output.stdout);
+}
+
+#[test]
+fn the_plain_table_follows_the_key_notation() {
+    let fixture = fixtures_directory().join("sine-440hz-mono.wav");
+    let path = fixture.to_str().expect("UTF-8 path");
+    let camelot = Euphoria::new().run(&["analyze", "--no-cache", path]);
+    let musical =
+        Euphoria::new().run(&["analyze", "--no-cache", "--key-notation", "musical", path]);
+    let first_cell = |output: &std::process::Output| {
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .nth(1)
+            .and_then(|row| row.split_whitespace().next().map(str::to_string))
+            .expect("a row")
+    };
+    assert_eq!(first_cell(&camelot), "11B");
+    assert_eq!(first_cell(&musical), "A");
+}
+
+#[test]
+fn completions_are_written_for_each_shell() {
+    for shell in ["bash", "zsh", "fish", "powershell"] {
+        let output = Euphoria::new().run(&["completions", shell]);
+        assert!(output.status.success(), "{shell}");
+        let script = String::from_utf8_lossy(&output.stdout);
+        assert!(script.contains("euphoria"), "{shell}");
+        assert!(script.contains("completions"), "{shell}");
+    }
+    assert_eq!(
+        Euphoria::new().run(&["completions", "tcsh"]).status.code(),
+        Some(2)
     );
 }

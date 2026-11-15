@@ -15,6 +15,7 @@ use euphoria_core::tags::{
     DjSoftware, KeyNotation, LabelPlacement, LoggedWrite, SeratoMarkers, SeratoReport,
     TagWriteOptions, WriteLog, WritePlan, WrittenValues, add_serato_markers,
     default_write_log_directory, plan_write_with_history, undo_last_write_with_observer,
+    write_history,
 };
 use euphoria_core::{CachedBatch, EuphoriaError, TrackAnalysis, default_cache_path};
 
@@ -35,7 +36,19 @@ pub enum TagsCommand {
     Set(crate::tag_edit::SetArguments),
     /// Put back the tags that the last `tags write` or `tags set`
     /// replaced.
-    Undo,
+    Undo(UndoArguments),
+}
+
+#[derive(Debug, Args)]
+pub struct UndoArguments {
+    /// Show which files the undo would restore, and when they were
+    /// written, and change nothing.
+    #[arg(long, conflicts_with = "list")]
+    dry_run: bool,
+    /// List the tag writes that can be undone, newest first, with how many
+    /// files each changed, and change nothing. An undo restores the first.
+    #[arg(long)]
+    list: bool,
 }
 
 #[derive(Debug, Args)]
@@ -151,6 +164,14 @@ impl WriteArguments {
     }
 }
 
+fn energy_label_example(notation: KeyNotation) -> &'static str {
+    match notation {
+        KeyNotation::Camelot => "\"8A - Energy 7\"",
+        KeyNotation::Musical => "\"Am - Energy 7\"",
+        KeyNotation::OpenKey => "\"1m - Energy 7\"",
+    }
+}
+
 /// The label of a preset when `--label` is not given: none for the generic
 /// preset, which does not know where a program shows it, and in front of the
 /// comment for the programs whose users sort and search by it.
@@ -165,7 +186,7 @@ pub fn run(command: TagsCommand) -> Result<ExitCode> {
     match command {
         TagsCommand::Write(arguments) => write(&arguments),
         TagsCommand::Set(arguments) => crate::tag_edit::set(&arguments),
-        TagsCommand::Undo => undo(),
+        TagsCommand::Undo(arguments) => undo(&arguments),
     }
 }
 
@@ -283,6 +304,16 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
         unchanged_count,
         failures.len(),
     )?;
+    if matches!(options.label, LabelPlacement::None) && !plans.is_empty() {
+        output::write_hint(
+            &mut standard_error,
+            &theme,
+            format_args!(
+                "the energy is not written. Add --label comment-start to write {}.",
+                energy_label_example(options.key_notation)
+            ),
+        )?;
+    }
 
     let program_open = !plans.is_empty()
         && !arguments.dry_run
@@ -413,6 +444,28 @@ pub(crate) fn decide(
     theme: &Theme,
     standard_error: &mut impl Write,
 ) -> Result<Decision> {
+    decide_with_prompt(
+        plan_count,
+        dry_run,
+        yes,
+        theme,
+        standard_error,
+        format_args!(
+            "Write these changes to {}? [y/N]",
+            output::counted_files(plan_count)
+        ),
+    )
+}
+
+/// Like [`decide`], asking `question` on a terminal.
+pub(crate) fn decide_with_prompt(
+    plan_count: usize,
+    dry_run: bool,
+    yes: bool,
+    theme: &Theme,
+    standard_error: &mut impl Write,
+    question: impl std::fmt::Display,
+) -> Result<Decision> {
     Ok(if plan_count == 0 || dry_run {
         Decision::Stop
     } else if yes {
@@ -420,14 +473,7 @@ pub(crate) fn decide(
     } else if !std::io::stdin().is_terminal() {
         Decision::CannotAsk
     } else {
-        write!(
-            standard_error,
-            "{} ",
-            theme.bold(format_args!(
-                "Write these changes to {}? [y/N]",
-                output::counted_files(plan_count)
-            ))
-        )?;
+        write!(standard_error, "{} ", theme.bold(question))?;
         standard_error.flush()?;
         if is_yes(&mut std::io::stdin().lock())? {
             Decision::Write
@@ -476,8 +522,19 @@ fn is_yes(input: &mut impl BufRead) -> std::io::Result<bool> {
     ))
 }
 
-fn undo() -> Result<ExitCode> {
+fn undo(arguments: &UndoArguments) -> Result<ExitCode> {
     let log_directory = default_write_log_directory().map_err(with_causes)?;
+    if arguments.list || arguments.dry_run {
+        let history = write_history(&log_directory).map_err(with_causes)?;
+        let mut standard_output = std::io::stdout().lock();
+        if arguments.list {
+            output::write_tag_write_history(&mut standard_output, &history)?;
+        } else {
+            output::write_tag_undo_preview(&mut standard_output, history.first())?;
+        }
+        standard_output.flush()?;
+        return Ok(ExitCode::SUCCESS);
+    }
     let mut identities = RewriteIdentities::new(true);
     let outcome = undo_last_write_with_observer(&log_directory, |path, stage| {
         identities.observe(path, stage)

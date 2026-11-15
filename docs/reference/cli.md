@@ -115,10 +115,11 @@ The tuning of a track and its key over time are in the detailed view and the [JS
 | `--detail` | Show every track in the [detailed view](#the-detailed-view). Cannot be combined with `--json`. |
 | `--needs-review` | List only the tracks whose key or tempo is rated low confidence or whose tags name another key, and the files that could not be analyzed. |
 | `--quality <QUALITY>` | List only the tracks with one of these sound qualities, separated by commas: `lossless`, `limited`, `good`, `acceptable`, `weak` or `reencoded`. `weak,reencoded` finds the files worth replacing. Combined with `--needs-review`, a track must match both. |
-| `--key-notation <NOTATION>` | How keys are shown in the terminal table and the detailed view: `camelot` (the default), `musical` or `open-key`. The plain table and JSON are unchanged. |
+| `--key-notation <NOTATION>` | How keys are shown in the terminal table and the detailed view: `camelot` (the default), `musical` or `open-key`. The plain table follows it in its first column; JSON is unchanged. |
 | `--color <WHEN>` | `auto` (the default), `always` or `never`. See [colour](#colour). |
+| `--verbose` | Keep the technical detail in error messages, such as the decoder's own reason a file cannot be read. Works before or after any command. |
 | `--tempo-range <SLOWEST-FASTEST>` | Report tempos from SLOWEST up to, not including, FASTEST beats per minute, such as `70-140` for hip hop or `120-200` for drum and bass. The default is `90-180`. FASTEST can be at most twice SLOWEST. See [choosing the range](../concepts/accuracy.md#choosing-the-range). |
-| `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
+| `-j`, `--jobs <N>` | Analyze N files at once, at least 1. The default is the number of cores, at most 8. |
 | `--audio-budget <MINUTES>` | Hold at most MINUTES of audio in memory at once, over all files being analyzed. The default is 60. See [memory](#memory-and-long-files). |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
 | `--reanalyze` | Analyze every file again and replace its cached result. Cannot be combined with `--no-cache`. |
@@ -135,6 +136,8 @@ Analyzing one seven minute track peaks near 0.6 GB of memory, about 86 MB for ea
 A count of workers does not bound memory when the files are long, so analysis also limits the audio in flight. Before a file is decoded, its length is read from its header, or estimated from its size when the header has none. The file waits until the minutes already being analyzed plus its own fit in `--audio-budget`, 60 minutes by default, about 5 GB. Seven minute tracks never meet the limit with 8 workers. Eight one hour mixes meet it, and run one at a time. A single file longer than the budget is analyzed alone, and still needs memory for its whole length, about 5 GB for one hour: give a computer with little memory shorter files or a lower budget with fewer workers. Key, tempo and energy are not yet measured on an excerpt of a very long file.
 
 ### JSON output
+
+Every object has `"schema_version": 1`, as the JSON of [`euphoria set build`](#euphoria-set-build) and [`euphoria plan`](#euphoria-plan) does. Fields are only added within a schema version, never renamed or removed, so a script that reads a field keeps working; a change that breaks one raises the version. Paths are printed as given on the command line for `analyze`, and as absolute paths for `set build`.
 
 One object per file, in path order, including files that failed, then one for each unreadable folder and skipped file:
 
@@ -262,7 +265,7 @@ A debug build analyzes many times slower than a release build. When a run of a d
 
 When some results came from the cache, a line such as `120 of 124 tracks came from the cache.` is written to standard error, so piped output holds only the table or the JSON.
 
-The exit status is 0 when every file was analyzed, 1 when any file failed, and 3 when the only problem is files that are missing or folders that could not be read.
+The exit status is 0 when every file was analyzed, 1 when any file failed, and 3 when the only problem is files that are missing, folders that could not be read, or a path that holds no audio file. A folder that is empty, or holds only other files, prints `warning: no audio files found.` and exits with status 3, so a script sees a mistyped or unmounted path. When no file could be analyzed, such as when every path is missing, no table header is printed.
 
 The command exits with status 0 when every file was analyzed. If any file failed, each one is listed on standard error as `error: <path>: <reason>` after the table, and the command exits with status 1. It also exits with status 1, after printing the results, if saving them to the cache failed partway through the run. A cache that cannot be used at all only causes a [warning](#when-the-cache-cannot-be-used) and does not change the exit status.
 
@@ -284,6 +287,8 @@ warning: 14 files skipped: 9 .opus, 5 .wma, which Euphoria can't decode yet
 ```
 
 Pictures, playlists and other files that are not audio are not counted.
+
+A file that cannot be read as audio is listed as `error: <path>: cannot be read as audio (not a supported or valid audio file)`. The decoder's own reason is kept behind `--verbose`.
 
 A file that is no longer there, because it was moved, deleted, or is on a drive that is not connected, is not a failure. It is listed after the errors as `missing: <path>`, followed by a count, and when files are missing and nothing failed the command exits with status 3, even when every file named is missing. A path named on the command line that does not exist is reported this way, and the other paths are still analyzed:
 
@@ -449,7 +454,10 @@ Tracks are matched by the path Engine DJ stores. It refuses to write while Engin
 | `--key-notation <NOTATION>` | `camelot` (the default), `musical` or `open-key`, for the label. |
 | `--beat-grid` | A constant grid from each track's first downbeat, on tracks Engine DJ has analysed, except grids rated low confidence. |
 | `--cues` | Hot cues 1 to 8 at each track's sections, on tracks Engine DJ has analysed and that have no hot cues of their own. Needs `--beat-grid`. |
-| `--dry-run` | Checks the library and says what would change, writing nothing. |
+| `--dry-run` | Checks the library and says what would change, writing nothing. Cannot be combined with `--yes`. |
+| `-y`, `--yes` | Write without asking for confirmation. |
+
+Before anything is written the command says how many tracks will be updated, in which library, and lists the first ten. It then asks `Write N tracks into <library>? A copy is saved first. [y/N]`. Only `y` or `yes` writes. When standard input is not a terminal and `--yes` was not given, it writes nothing, says `error: nothing was written` with a hint, and exits with status 1. A running Engine DJ still stops the command before the analysis, with or without `--yes`.
 
 The copy is saved as `Engine Library backup by Euphoria <date> <time>/Database2/m.db` next to the library. The exit status is 1 when no track is in the library, a file could not be analyzed, or a track of `--playlist` now holds other audio at its path; it is 3 when tracks are missing and nothing else failed, as for [`euphoria export rekordbox`](#output-and-exit-status). When every track of `--playlist` is missing, nothing is exported and the exit status is 1.
 
@@ -471,7 +479,10 @@ Songs are matched by path, and only songs the database holds are changed. Every 
 | `--key-notation <NOTATION>` | `camelot` (the default), `musical` or `open-key`, for the label. The `Key` attributes are musical names, which VirtualDJ shows in its own notation. |
 | `--beat-grid` | The grid anchor at each track's first downbeat, except grids rated low confidence. |
 | `--cues` | Hot cues 1 to 8 at each track's sections, on tracks whose grid is written, for songs with no cues of their own. Needs `--beat-grid`. |
-| `--dry-run` | Says what would change and writes nothing. |
+| `--dry-run` | Says what would change and writes nothing. Cannot be combined with `--yes`. |
+| `-y`, `--yes` | Write without asking for confirmation. |
+
+Before anything is written the command says how many songs will be updated and lists the first ten, then asks `Write N tracks into <database>? A copy is saved first. [y/N]`. Only `y` or `yes` writes. When standard input is not a terminal and `--yes` was not given, it writes nothing, says `error: nothing was written` with a hint, and exits with status 1. A running VirtualDJ still stops the command, with or without `--yes`.
 
 The copy is saved next to the database as `database.xml.euphoria-backup-<date>-<time>`. The exit status is 1 when no track is in the database, a file could not be analyzed, or a track of `--playlist` now holds other audio at its path; it is 3 when tracks are missing and nothing else failed, as for [`euphoria export rekordbox`](#output-and-exit-status). When every track of `--playlist` is missing, nothing is exported and the exit status is 1.
 
@@ -531,14 +542,14 @@ The pool is folders or audio files, searched as `euphoria analyze` searches them
 | `--moves <MOVES>` | The key moves allowed, separated by commas: `same`, `adjacent`, `relative`, `diagonal`, `energy-boost`, `mood-change`, `semitone-boost`. Defaults to the first five. |
 | `--allow-artist-repeats` | Let two tracks by the same artist follow each other. |
 | `--json` | Print JSON instead of the table. |
-| `--m3u <FILE>` | Also write the set as an M3U8 playlist. `--force` replaces an existing file. |
+| `--m3u <FILE>` | Also write the set as an M3U8 playlist, with the absolute path of every track, whether the pool was given as a relative path or not. `--force` replaces an existing file. |
 | `--key-notation <NOTATION>` | How keys are shown in the table. |
 
 The analysis options of [`euphoria analyze`](#options) also apply: `--jobs`, `--no-cache`, `--reanalyze` and `--tempo-range`.
 
 Standard output gets a table, one track per line, with the key move and tempo step from the track before, the energy and the energy the curve asks for, then two rows of blocks that draw the curve and the set. Standard error gets a summary and a `warning:` for each place the set falls short of the curve or breaks a rule.
 
-The JSON object has `tracks` (position from 1, path, artist, title, key, bpm, energy, target_energy, duration_seconds, pinned), `transitions` (from, to, key_move, key_move_allowed, bpm_change, bpm_change_percent, tempo_allowed, same_artist), `deviations` (each with a `kind`: `short_pool`, `energy_off_target`, `key_clash`, `tempo_jump` or `repeated_artist`, and the position it concerns), `left_out` (tracks without a key, tempo or energy), `failed` (files that could not be analyzed), `mean_energy_error`, `every_transition_clean`, `cost` and `lower_bound`.
+The JSON object has `schema_version` (1), `tracks` (position from 1, absolute path, artist, title, key, bpm, energy, target_energy, duration_seconds, pinned), `transitions` (from, to, key_move, key_move_allowed, bpm_change, bpm_change_percent, tempo_allowed, same_artist), `deviations` (each with a `kind`: `short_pool`, `energy_off_target`, `key_clash`, `tempo_jump` or `repeated_artist`, and the position it concerns), `left_out` (tracks without a key, tempo or energy), `failed` (files that could not be analyzed), `mean_energy_error`, `every_transition_clean`, `cost` and `lower_bound`.
 
 The exit status is 0 when a set was built, even one with deviations, and 1 when none could be built, such as when no track of the pool has a key, a tempo and an energy.
 
@@ -562,7 +573,11 @@ The analysis options of [`euphoria analyze`](#options) also apply: `--jobs`, `--
 
 Standard output has the tempo change of B and the key move, then the top 3 windows. Each has its score, its sections and first bars, a strip of one cell per bar (`█` both sing, `▄` both play bass, `·` no clash, `?` not known), the reason for its rank and its steps. Last come the cues suggested for the best window, which are not written.
 
-The JSON object has `a`, `b`, `elapsed_milliseconds` and `plan`: the `alignment` (bpm_a, bpm_b, rate, tempo_change_percent, bar_seconds), the bars of both tracks as `lanes_a` and `lanes_b` (section, energy, vocals, bass and drums per bar, each `present`, `absent` or `unknown`), up to 10 `windows` and the `cues` for the first one.
+A window whose bars were not checked, because the stems of A or B are not cached, says `(N of M bars not checked)` after its score. Bars nobody checked earn no clash credit, so such a window scores at most 55 of 100, and a window with unchecked bars never ranks above one whose bars were all checked. When no window fits, the line says why: a track has fewer than 16 bars, or no bar of A that ends a phrase meets a section start of B with 16 bars left.
+
+Numbers in the JSON are rounded: tempos to two decimals, every other number to three.
+
+The JSON object has `schema_version` (1), `a`, `b`, `elapsed_milliseconds` and `plan`: the `alignment` (bpm_a, bpm_b, rate, tempo_change_percent, bar_seconds), the bars of both tracks as `lanes_a` and `lanes_b` (section, energy, vocals, bass and drums per bar, each `present`, `absent` or `unknown`), up to 10 `windows` and the `cues` for the first one.
 
 The exit status is 0 when a plan was made, even one with no window, and 1 when none could be, such as when a track has no beat grid or B cannot reach the tempo of A on a deck.
 
@@ -598,7 +613,7 @@ hint: To put the old tags back, run `euphoria tags undo`.
 | `--key-notation <NOTATION>` | `camelot` (the default) writes keys such as `8A`, `musical` writes keys such as `Am`, `open-key` writes keys such as `1m`. Applies to the key field and to the label. |
 | `--no-tempo` | Leave the tempo field alone. |
 | `--tempo` | Write the tempo with the `serato` preset, which leaves it out otherwise. Cannot be combined with `--no-tempo`. |
-| `--label <WHERE>` | Where the key and energy label, such as `8A - Energy 7`, goes: `comment-start`, `comment-end`, `grouping`, or `none` to write no label. The text already in the field is kept. The default is `none` with the `generic` preset and `comment-start` with a DJ program's preset. Before this changed, `comment-start` was the default for every preset. |
+| `--label <WHERE>` | Where the key and energy label, such as `8A - Energy 7`, goes: `comment-start`, `comment-end`, `grouping`, or `none` to write no label. The text already in the field is kept. The default is `none` with the `generic` preset and `comment-start` with a DJ program's preset. Before this changed, `comment-start` was the default for every preset. When the label is off and files would change, a line `hint: the energy is not written. Add --label comment-start to write "8A - Energy 7".` says how to turn it on. |
 | `--overwrite` | Replace a key or tempo the file already has. Without it, one that can be read is kept, unless an earlier `tags write` wrote it and it is unchanged. The preview lists each one kept. |
 | `--include-low-confidence` | Also write a key or tempo rated low confidence. Without it, those are left out and listed. A key or tempo you corrected counts as high confidence. |
 | `--preset <PROGRAM>` | The DJ program whose tag fields are written: `generic` (the default), `rekordbox`, `serato`, `traktor`, `engine-dj`, `virtualdj` or `mixxx`. See [use Euphoria with your DJ program](../guides/dj-programs.md). |
@@ -694,11 +709,22 @@ The preview, the question, what is written and the exit status are as for [`euph
 Puts back the tags that the last `euphoria tags write` or `euphoria tags set` replaced, or the last write or edit made in the desktop app.
 
 ```
+euphoria tags undo [--dry-run | --list]
+```
+
+| Option | Effect |
+| --- | --- |
+| `--list` | List the writes that can be undone, newest first, with when each was made (UTC) and how many files it changed. The first is the one the next undo restores. Changes nothing. |
+| `--dry-run` | List the files the next undo would restore and when they were written. Changes nothing. Cannot be combined with `--list`. |
+
+```
 $ euphoria tags undo
 /Users/you/Music/DJ/low tide.flac
 ...
 Restored the tags of 340 files.
 ```
+
+`--list` prints one line per write, such as `2026-11-15 14:03 UTC  340 files  (the next undo restores this one)`. `--dry-run` prints `Would restore the tags of 340 files, written 2026-11-15 14:03 UTC. Nothing was changed.` and the path of each file. Both exit with status 0, and both say `There is no tag write to undo.` when there is none. A write that only partly succeeded lists the files it changed.
 
 Each restored file is listed on standard output and is byte for byte what it was before the write. Running the command again undoes the write before that one. When there is nothing to undo it says so and exits with status 0.
 
@@ -868,6 +894,25 @@ The results and the exit status are the same as with `--no-cache`. Nothing is re
 
 `euphoria tags write` and `euphoria export rekordbox` stop instead, before analyzing anything, and write nothing: the cache may hold keys and tempos you [corrected](#corrections) and cues you [edited](#edited-cues), and the detected values must not replace them without your knowing. Pass `--no-cache` to go on with the detected values, or run `euphoria cache clear` to reset a damaged cache.
 
+## euphoria completions
+
+Prints a script that completes `euphoria` commands, options and their values in your shell.
+
+```
+euphoria completions <SHELL>
+```
+
+`SHELL` is `bash`, `zsh`, `fish` or `powershell`. The script goes to standard output. Install it once:
+
+| Shell | Install |
+| --- | --- |
+| zsh | `euphoria completions zsh > ~/.zfunc/_euphoria`, with `fpath+=~/.zfunc` before `compinit` in `~/.zshrc` |
+| bash | `euphoria completions bash > ~/.local/share/bash-completion/completions/euphoria` (needs the `bash-completion` package) |
+| fish | `euphoria completions fish > ~/.config/fish/completions/euphoria.fish` |
+| PowerShell | `euphoria completions powershell >> $PROFILE` |
+
+Open a new shell afterwards. [Homebrew](../getting-started/installation.md#install-with-homebrew) installs the bash, zsh and fish scripts with the formula. Playlist names are not completed.
+
 ## euphoria cache
 
 Manages the analysis cache.
@@ -901,6 +946,8 @@ Every command writes its results to standard output and everything else to stand
 | `note:` | Something worth knowing that needs no action. |
 
 `euphoria --help` and the help of every command end with examples.
+
+When the program reading standard output stops early, as `head` does in `euphoria plan a.flac b.flac --json | head`, the command ends quietly with status 0 rather than reporting a broken pipe.
 
 ## Colour
 

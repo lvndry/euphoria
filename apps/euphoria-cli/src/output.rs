@@ -9,14 +9,17 @@
 use std::fmt::Display;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use euphoria_core::quality::{QualityReport, QualityVerdict};
 use euphoria_core::rekordbox_grid::GridSource;
-use euphoria_core::tags::{SeratoReport, WritePlan, describe_serato_value, serato_field_name};
+use euphoria_core::tags::{
+    LoggedWriteSummary, SeratoReport, WritePlan, describe_serato_value, serato_field_name,
+};
 use euphoria_core::{
-    AudioScan, BeatGrid, Confidence, Cue, EuphoriaError, FileResult, Key, KeyDifference,
-    KeySection, SUPPORTED_EXTENSIONS, SkippedTrack, TagKeyAgreement, TempoRange, TrackAnalysis,
-    UnreadTags,
+    AudioScan, BeatGrid, Confidence, Cue, DecodeFailure, EuphoriaError, FileResult, Key,
+    KeyDifference, KeySection, SUPPORTED_EXTENSIONS, SkippedTrack, TagKeyAgreement, TempoRange,
+    TrackAnalysis, UnreadTags,
 };
 use serde::Serialize;
 
@@ -27,7 +30,7 @@ use crate::style::Theme;
 use crate::tag_key::TagKeys;
 use crate::tags::Failure;
 use crate::terminal::Printable;
-use crate::view::format_duration;
+use crate::view::{KeyNotationChoice, format_duration};
 
 /// Writes a labeled message, wrapping only for the stream's terminal.
 fn write_message(
@@ -121,6 +124,34 @@ pub fn write_note(writer: &mut impl Write, theme: &Theme, message: impl Display)
     write_message(writer, theme, &theme.note_label(), message)
 }
 
+static VERBOSE: AtomicBool = AtomicBool::new(false);
+
+/// Keeps the decoder's own wording in error messages, as `--verbose` asks.
+pub fn set_verbose(verbose: bool) {
+    VERBOSE.store(verbose, Ordering::Relaxed);
+}
+
+/// An error as a person reads it. A file that cannot be decoded is said
+/// plainly, without its path (the line names the file already) and without
+/// the decoder's internal wording, which `--verbose` appends.
+pub fn describe(error: &EuphoriaError) -> String {
+    let EuphoriaError::Decode { failure, .. } = error else {
+        return error.chain();
+    };
+    let reason = match failure {
+        DecodeFailure::UnsupportedFormat => "not a supported or valid audio file",
+        DecodeFailure::NoAudioTrack => "it has no audio track",
+        DecodeFailure::Malformed => "its audio data is damaged",
+        DecodeFailure::Read => "reading it failed partway through",
+    };
+    let plain = format!("cannot be read as audio ({reason})");
+    if VERBOSE.load(Ordering::Relaxed) {
+        format!("{plain}: {}", error.chain())
+    } else {
+        plain
+    }
+}
+
 /// Writes `error: file: reason` for a file something went wrong with.
 fn write_file_error(
     writer: &mut impl Write,
@@ -134,7 +165,7 @@ fn write_file_error(
         format_args!(
             "{}: {}",
             Printable(path.display()),
-            Printable(reason.chain())
+            Printable(describe(reason))
         ),
     )
 }
@@ -152,8 +183,13 @@ pub fn write_no_audio_files(writer: &mut impl Write, theme: &Theme) -> io::Resul
     )
 }
 
+/// The version of the JSON that `analyze`, `set build` and `plan` print.
+/// Fields are only added within a version, never renamed or removed.
+pub const JSON_SCHEMA_VERSION: u32 = 1;
+
 #[derive(Serialize)]
 struct JsonTrack<'result> {
+    schema_version: u32,
     path: &'result Path,
     duration_seconds: Option<f32>,
     key: Option<JsonKey>,
@@ -199,6 +235,7 @@ impl<'result> JsonTrack<'result> {
     /// An entry for `path` with nothing analyzed.
     fn bare(path: &'result Path, error: Option<String>) -> Self {
         Self {
+            schema_version: JSON_SCHEMA_VERSION,
             path,
             duration_seconds: None,
             key: None,
@@ -368,6 +405,7 @@ pub fn write_json(
                     .and_then(|looked_up| looked_up.as_ref().ok())
                     .unwrap_or(&no_edits);
                 JsonTrack {
+                    schema_version: JSON_SCHEMA_VERSION,
                     path: &result.path,
                     duration_seconds: Some(round_to_tenths(analysis.duration_seconds)),
                     key: analysis
@@ -424,7 +462,7 @@ pub fn write_json(
             }
             Err(error) => JsonTrack {
                 missing: error.missing_path().is_some(),
-                ..JsonTrack::bare(&result.path, Some(error.chain()))
+                ..JsonTrack::bare(&result.path, Some(describe(error)))
             },
         })
         .chain(scan.unreadable.iter().map(|warning| JsonTrack {
@@ -473,7 +511,11 @@ pub fn write_plain_table(
     writer: &mut impl Write,
     results: &[FileResult],
     user_edits: &UserEditsByFile,
+    notation: KeyNotationChoice,
 ) -> io::Result<()> {
+    if !results.iter().any(|result| result.outcome.is_ok()) {
+        return Ok(());
+    }
     let header = [
         "Key", "", "BPM", "Energy", "Conf", "Quality", "Time", "File",
     ];
@@ -496,7 +538,7 @@ pub fn write_plain_table(
             Some([
                 analysis
                     .key
-                    .map(|key| key.camelot())
+                    .map(|key| notation.short(key))
                     .unwrap_or_else(|| "-".to_string()),
                 analysis.key.map(|key| key.to_string()).unwrap_or_default(),
                 analysis
@@ -1387,6 +1429,75 @@ pub fn write_restored_files(writer: &mut impl Write, restored: &[PathBuf]) -> io
     Ok(())
 }
 
+/// A moment as `2026-11-15 14:03 UTC`.
+fn format_utc(seconds_since_epoch: u64) -> String {
+    let days = (seconds_since_epoch / 86_400) as i64;
+    let seconds_of_day = seconds_since_epoch % 86_400;
+    let shifted = days + 719_468;
+    let era = shifted.div_euclid(146_097);
+    let day_of_era = shifted.rem_euclid(146_097);
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_index = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_index + 2) / 5 + 1;
+    let month = if month_index < 10 {
+        month_index + 3
+    } else {
+        month_index - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02} {:02}:{:02} UTC",
+        seconds_of_day / 3_600,
+        seconds_of_day % 3_600 / 60
+    )
+}
+
+/// Writes the tag writes that can be undone, newest first.
+pub fn write_tag_write_history(
+    writer: &mut impl Write,
+    history: &[LoggedWriteSummary],
+) -> io::Result<()> {
+    if history.is_empty() {
+        return writeln!(writer, "There is no tag write to undo.");
+    }
+    for (position, write) in history.iter().enumerate() {
+        writeln!(
+            writer,
+            "{}  {}{}",
+            format_utc(write.written_at_seconds),
+            counted_files(write.files.len()),
+            if position == 0 {
+                "  (the next undo restores this one)"
+            } else {
+                ""
+            }
+        )?;
+    }
+    Ok(())
+}
+
+/// Writes what the next undo would restore.
+pub fn write_tag_undo_preview(
+    writer: &mut impl Write,
+    next: Option<&LoggedWriteSummary>,
+) -> io::Result<()> {
+    let Some(write) = next else {
+        return writeln!(writer, "There is no tag write to undo.");
+    };
+    writeln!(
+        writer,
+        "Would restore the tags of {}, written {}. Nothing was changed.",
+        counted_files(write.files.len()),
+        format_utc(write.written_at_seconds)
+    )?;
+    for path in &write.files {
+        writeln!(writer, "{}", Printable(path.display()))?;
+    }
+    Ok(())
+}
+
 /// Writes how an undo went.
 pub fn write_tag_undo_summary(
     writer: &mut impl Write,
@@ -1632,8 +1743,77 @@ Key             BPM  Energy  Conf  Quality  Time  File
 -                 -       -  -/-   -        1:00  music/intro.wav
 ";
         assert_eq!(
-            render(|writer, results| write_plain_table(writer, results, &UserEditsByFile::new())),
+            render(|writer, results| write_plain_table(
+                writer,
+                results,
+                &UserEditsByFile::new(),
+                KeyNotationChoice::Camelot,
+            )),
             expected
+        );
+    }
+
+    #[test]
+    fn moments_are_written_in_utc() {
+        assert_eq!(format_utc(0), "1970-01-01 00:00 UTC");
+        assert_eq!(format_utc(1_794_232_980), "2026-11-09 14:03 UTC");
+        assert_eq!(format_utc(951_782_400), "2000-02-29 00:00 UTC");
+    }
+
+    #[test]
+    fn the_plain_table_follows_the_key_notation() {
+        let results = sample_results();
+        let mut table = Vec::new();
+        write_plain_table(
+            &mut table,
+            &results,
+            &UserEditsByFile::new(),
+            KeyNotationChoice::Musical,
+        )
+        .unwrap();
+        let table = String::from_utf8(table).unwrap();
+        let first_row = table.lines().nth(1).unwrap();
+        let key = results[0].outcome.as_ref().unwrap().key.unwrap();
+        assert!(first_row.starts_with(&key.short_name()), "{table}");
+        assert!(!first_row.starts_with(&key.camelot()), "{table}");
+    }
+
+    #[test]
+    fn a_table_without_analyzed_tracks_has_no_header() {
+        let failed = vec![FileResult {
+            path: PathBuf::from("nope.mp3"),
+            outcome: Err(EuphoriaError::Missing {
+                path: PathBuf::from("nope.mp3"),
+            }),
+        }];
+        let mut table = Vec::new();
+        write_plain_table(
+            &mut table,
+            &failed,
+            &UserEditsByFile::new(),
+            KeyNotationChoice::Camelot,
+        )
+        .unwrap();
+        assert!(table.is_empty());
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_decoded_is_described_without_its_path_or_the_decoder() {
+        let error = EuphoriaError::Decode {
+            path: PathBuf::from("fake.mp3"),
+            failure: DecodeFailure::UnsupportedFormat,
+            source: Some("core (probe): no suitable format reader found".into()),
+        };
+        assert_eq!(
+            describe(&error),
+            "cannot be read as audio (not a supported or valid audio file)"
+        );
+        set_verbose(true);
+        let verbose = describe(&error);
+        set_verbose(false);
+        assert!(
+            verbose.contains("no suitable format reader found"),
+            "{verbose}"
         );
     }
 
@@ -1649,7 +1829,13 @@ Key             BPM  Energy  Conf  Quality  Time  File
             }),
         );
         let mut table = Vec::new();
-        write_plain_table(&mut table, &results, &user_edits).unwrap();
+        write_plain_table(
+            &mut table,
+            &results,
+            &user_edits,
+            KeyNotationChoice::Camelot,
+        )
+        .unwrap();
         let table = String::from_utf8(table).unwrap();
         assert!(table.contains("H/U"), "{table}");
 
