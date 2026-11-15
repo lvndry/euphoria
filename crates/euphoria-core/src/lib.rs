@@ -30,6 +30,9 @@ pub mod error;
 pub mod export;
 /// Starred tracks and marked transitions, kept with the playlists.
 pub mod favorites;
+/// A light audio fingerprint that recognises which track of a library is
+/// playing, and where in it.
+pub mod fingerprint;
 /// Key relations, ranking of the tracks that mix into another, and sets
 /// ordered along an energy curve.
 pub mod harmony;
