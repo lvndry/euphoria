@@ -2043,7 +2043,7 @@ hint: euphoria quality lists the files worth replacing, worst first, with why.
         assert_eq!(parsed[1]["quality"]["verdict"], "limited-bandwidth");
         let text = summary(&results, &Narrowing::default());
         assert!(text.contains("1 track limited bandwidth"), "{text}");
-        assert!(text.contains("--quality weak lists"), "{text}");
+        assert!(text.contains("euphoria quality lists"), "{text}");
     }
 
     #[test]
