@@ -194,7 +194,7 @@ The waveform is read from the file when you select the track.
 
 ### How sure the key and the tempo are
 
-The Key and BPM boxes say quietly how far to trust the value: **high**, **medium** or **low**, on a line under the value. Low is shown in the warning colour, an amber, not the red of an error, and puts the track under **Needs review**. Point at the word for what it means.
+The Key and BPM boxes say quietly how far to trust the value: **high** or **medium** on a line under the value, and **to review**, in the warning colour (an amber, not the red of an error), when Euphoria is unsure and the track is under **Needs review**. Once you choose **Looks right** or correct the value, **to review** goes away. Point at the word for what it means.
 
 When the key is not rated high, the key that matched second best sits beside it, as a chip such as "or 9A": play the track and compare the two by ear. When a DJ could plausibly count the track at half or double the tempo, that tempo is shown under it, such as "or 87.0". Click either to use it instead, as the next section explains.
 
