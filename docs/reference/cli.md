@@ -285,7 +285,7 @@ A key is written with its Camelot code, its name and its [Open Key](../concepts/
 
 ### Progress and exit status
 
-When standard error is a terminal, each file being analyzed has a line with a spinner and the stage it is in: decoding, with how much is decoded, then finding the tempo, finding the key, rating the energy, finding the beat grid and checking the quality. After five seconds the line also shows how long the file has taken, so a long track never looks stuck. With more than one file, a bar above the lines counts the finished files and estimates the time left. Files served from the cache get no line. Nothing of this is written when standard error is not a terminal.
+When standard error is a terminal, the command first says where it looks, for example `Looking for audio files in ~/Music/DJ tracks`, or `... in ~/Music/DJ tracks and 2 more` when given several paths, with your home folder written as `~` and a long path cut in the middle so the folder at its end stays in view. Then each file being analyzed has a line with a spinner and the stage it is in: decoding, with how much is decoded, then finding the tempo, finding the key, rating the energy, finding the beat grid and checking the quality. After five seconds the line also shows how long the file has taken, so a long track never looks stuck. With more than one file, a bar above the lines counts the finished files and estimates the time left. Files served from the cache get no line. Nothing of this is written when standard error is not a terminal.
 
 A debug build analyzes many times slower than a release build. When a run of a debug build has taken ten seconds, it says so once on standard error. Release builds never do.
 

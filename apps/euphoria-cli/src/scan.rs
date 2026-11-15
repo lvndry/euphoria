@@ -5,12 +5,12 @@
 //! about folders that could not be read and files left out for their format,
 //! and remembers that the scan was incomplete so the exit status says so.
 
-use std::io::{self, Write};
-use std::path::PathBuf;
+use std::io::{self, IsTerminal, Write};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Result;
-use euphoria_core::{AudioScan, scan_audio_files};
+use euphoria_core::{AudioScan, home_folder, scan_audio_files, search_description};
 
 use crate::output;
 use crate::style::Theme;
@@ -47,6 +47,25 @@ pub fn scan_quietly(paths: &[PathBuf]) -> Result<AudioScan> {
         SCAN_WAS_INCOMPLETE.store(true, Ordering::Relaxed);
     }
     Ok(scan)
+}
+
+/// Writes "Looking for audio files in ~/Music/DJ tracks" to standard error
+/// when it is a terminal, the line the desktop app shows while it searches.
+pub fn announce(paths: &[PathBuf]) -> io::Result<()> {
+    let standard_error = io::stderr();
+    if !standard_error.is_terminal() {
+        return Ok(());
+    }
+    write_announcement(&mut standard_error.lock(), paths, home_folder().as_deref())
+}
+
+fn write_announcement(
+    writer: &mut impl Write,
+    paths: &[PathBuf],
+    home: Option<&Path>,
+) -> io::Result<()> {
+    let paths: Vec<&Path> = paths.iter().map(PathBuf::as_path).collect();
+    writeln!(writer, "{}", Printable(search_description(&paths, home)))
 }
 
 /// True when a scan of this run could not read some folder.
@@ -96,6 +115,24 @@ mod tests {
         let mut buffer = Vec::new();
         write_notices(&mut buffer, &Theme::PLAIN, scan).unwrap();
         String::from_utf8(buffer).unwrap()
+    }
+
+    #[test]
+    fn the_announcement_names_the_folder_with_home_as_a_tilde() {
+        let mut buffer = Vec::new();
+        write_announcement(
+            &mut buffer,
+            &[
+                "/Users/dj/Music/DJ tracks".into(),
+                "/Volumes/USB/Edits".into(),
+            ],
+            Some(Path::new("/Users/dj")),
+        )
+        .unwrap();
+        assert_eq!(
+            String::from_utf8(buffer).unwrap(),
+            "Looking for audio files in ~/Music/DJ tracks and 1 more\n"
+        );
     }
 
     #[test]

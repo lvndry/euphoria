@@ -229,6 +229,95 @@ pub fn scan_audio_files_counting(
     Ok(scan)
 }
 
+/// The most characters of a path that [`search_description`] shows before
+/// it cuts folders out of the middle, so the line fits the desktop toolbar.
+pub const SEARCHED_PATH_LIMIT: usize = 36;
+
+/// "Looking for audio files in ~/Music/DJ tracks", or "… in ~/Music/DJ
+/// tracks and 2 more" for several paths, with the home folder written as ~
+/// and a long path cut in the middle so the folder at its end stays in
+/// view. The same words in the desktop app and the command line.
+pub fn search_description(paths: &[&Path], home: Option<&Path>) -> String {
+    let (lead, path, rest) = search_description_parts(paths, home);
+    match path {
+        Some(path) => format!("{lead} {path}{rest}"),
+        None => format!("{lead}{rest}"),
+    }
+}
+
+/// [`search_description`] as the words before the path, the path, and the
+/// words after it, for a display that cuts the path further to fit.
+pub fn search_description_parts(
+    paths: &[&Path],
+    home: Option<&Path>,
+) -> (&'static str, Option<String>, String) {
+    let path = paths
+        .first()
+        .map(|path| shortened_path(&with_home_as_tilde(path, home), SEARCHED_PATH_LIMIT));
+    let lead = if path.is_some() {
+        "Looking for audio files in"
+    } else {
+        "Looking for audio files"
+    };
+    let rest = if paths.len() > 1 {
+        format!(" and {} more", paths.len() - 1)
+    } else {
+        String::new()
+    };
+    (lead, path, rest)
+}
+
+/// `path` with `home` written as ~, or the whole path when it is elsewhere.
+pub fn with_home_as_tilde(path: &Path, home: Option<&Path>) -> String {
+    match home.and_then(|home| path.strip_prefix(home).ok()) {
+        Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+        Some(rest) => format!("~/{}", rest.display()),
+        None => path.display().to_string(),
+    }
+}
+
+/// The user's home folder, from `HOME`.
+pub fn home_folder() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .filter(|home| !home.is_empty())
+        .map(PathBuf::from)
+}
+
+/// `path` cut to at most `limit` characters by replacing folders in its
+/// middle with "…", keeping its start and its last folder whole. A last
+/// folder too long on its own is ended with "…".
+fn shortened_path(path: &str, limit: usize) -> String {
+    let length = |text: &str| text.chars().count();
+    if length(path) <= limit {
+        return path.to_string();
+    }
+    let Some((head, last)) = path.trim_end_matches('/').rsplit_once('/') else {
+        return ended_with_ellipsis(path, limit);
+    };
+    let tail = format!("/\u{2026}/{last}");
+    if length(&tail) > limit {
+        return format!(
+            "\u{2026}/{}",
+            ended_with_ellipsis(last, limit.saturating_sub(2))
+        );
+    }
+    let folders: Vec<&str> = head.split('/').collect();
+    let kept = (1..=folders.len())
+        .map(|count| folders[..count].join("/"))
+        .take_while(|start| length(start) + length(&tail) <= limit)
+        .last()
+        .unwrap_or_default();
+    format!("{kept}{tail}")
+}
+
+fn ended_with_ellipsis(text: &str, limit: usize) -> String {
+    if text.chars().count() <= limit {
+        return text.to_string();
+    }
+    let kept: String = text.chars().take(limit.saturating_sub(1)).collect();
+    format!("{}\u{2026}", kept.trim_end())
+}
+
 fn unsupported_audio_extension(path: &Path) -> Option<String> {
     let extension = path.extension()?.to_str()?.to_ascii_lowercase();
     UNSUPPORTED_AUDIO_EXTENSIONS
@@ -434,5 +523,54 @@ mod tests {
 
         assert_eq!(scan.files.len(), 2);
         assert_eq!(found.load(std::sync::atomic::Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn the_search_description_shows_the_path_with_home_as_a_tilde() {
+        let home = Path::new("/Users/dj");
+        let tracks = Path::new("/Users/dj/Music/DJ tracks");
+        let edits = Path::new("/Volumes/USB/Edits");
+        assert_eq!(
+            search_description(&[], Some(home)),
+            "Looking for audio files"
+        );
+        assert_eq!(
+            search_description(&[tracks], Some(home)),
+            "Looking for audio files in ~/Music/DJ tracks"
+        );
+        assert_eq!(
+            search_description(&[tracks, edits, home], Some(home)),
+            "Looking for audio files in ~/Music/DJ tracks and 2 more"
+        );
+        assert_eq!(
+            search_description(&[edits], None),
+            "Looking for audio files in /Volumes/USB/Edits"
+        );
+        assert_eq!(with_home_as_tilde(home, Some(home)), "~");
+    }
+
+    #[test]
+    fn a_long_path_is_cut_in_the_middle_so_its_last_folder_stays() {
+        assert_eq!(
+            shortened_path("~/Music/Collections/2026/Summer/DJ tracks", 31),
+            "~/Music/Collections/\u{2026}/DJ tracks"
+        );
+        assert_eq!(
+            shortened_path("/Volumes/USB/Very/Deep/Folder/DJ tracks", 24),
+            "/Volumes/USB/\u{2026}/DJ tracks"
+        );
+        assert_eq!(
+            shortened_path("~/Music/Extended mixes from the summer festival season", 30),
+            "\u{2026}/Extended mixes from the sum\u{2026}"
+        );
+        assert_eq!(shortened_path("~/Music/DJ tracks", 30), "~/Music/DJ tracks");
+        for limit in [12, 20, 30, 36] {
+            let shortened = shortened_path("~/Music/Collections/2026/Summer/House", limit);
+            assert!(
+                shortened.chars().count() <= limit,
+                "{shortened} over {limit}"
+            );
+            assert!(shortened.ends_with("House"), "{shortened}");
+        }
     }
 }

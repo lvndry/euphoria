@@ -64,7 +64,10 @@ fn each_kind_of_work_makes_the_app_busy(cx: &mut TestAppContext) {
     change(&view, cx, |app, _| {
         scan_id = app.scans.begin(vec!["/music/DJ tracks".into()]).0;
     });
-    assert_eq!(work(&view, cx), ["Looking for audio files in DJ tracks"]);
+    assert_eq!(
+        work(&view, cx),
+        ["Looking for audio files in /music/DJ tracks"]
+    );
     change(&view, cx, |app, _| app.scans.finish(scan_id));
 
     change(&view, cx, |app, _| {

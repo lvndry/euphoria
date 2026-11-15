@@ -135,8 +135,10 @@ pub use harmony::{
 pub use key::{Key, Mode};
 pub use key_source::KeySource;
 pub use library::{
-    AudioScan, SUPPORTED_EXTENSIONS, ScanWarning, SkippedExtension, UNSUPPORTED_AUDIO_EXTENSIONS,
-    find_audio_files, is_supported_audio_file, scan_audio_files, scan_audio_files_counting,
+    AudioScan, SEARCHED_PATH_LIMIT, SUPPORTED_EXTENSIONS, ScanWarning, SkippedExtension,
+    UNSUPPORTED_AUDIO_EXTENSIONS, find_audio_files, home_folder, is_supported_audio_file,
+    scan_audio_files, scan_audio_files_counting, search_description, search_description_parts,
+    with_home_as_tilde,
 };
 pub use locked_transitions::{BlendBars, LockedTransition, locked_blend};
 pub use pitch_classes::{PITCH_CLASS_COUNT, note_names, notes_in_key, pitch_class_profile};

@@ -13,11 +13,6 @@ use std::time::Duration;
 /// How often the count of files found is redrawn while a search runs.
 pub(crate) const COUNT_INTERVAL: Duration = Duration::from_millis(250);
 
-/// The most characters of a folder's name the line shows before it ends the
-/// name with an ellipsis, so the line fits the toolbar of the narrowest
-/// window.
-const FOLDER_NAME_LIMIT: usize = 24;
-
 /// The searches running now, each with the paths it was given and the
 /// count of audio files its walk has found so far.
 #[derive(Debug, Default)]
@@ -78,74 +73,59 @@ impl RunningScans {
         paths
     }
 
-    /// "Looking for audio files in DJ tracks · 214 found", or `None` when no
-    /// search runs.
+    /// "Looking for audio files in ~/Music/DJ tracks · 214 found", or
+    /// `None` when no search runs.
     pub(crate) fn label(&self) -> Option<String> {
-        self.is_running()
-            .then(|| scan_label(&self.paths(), self.found_so_far()))
+        self.is_running().then(|| {
+            scan_label(
+                &self.paths(),
+                euphoria_core::home_folder().as_deref(),
+                self.found_so_far(),
+            )
+        })
+    }
+
+    /// [`Self::label`] as the words before the path, the path, and the
+    /// words after it with the count, for the toolbar, which cuts the path
+    /// further when it has little room and keeps the rest whole.
+    pub(crate) fn label_parts(&self) -> Option<(&'static str, Option<String>, String)> {
+        self.is_running().then(|| {
+            let (lead, path, rest) = euphoria_core::search_description_parts(
+                &self.paths(),
+                euphoria_core::home_folder().as_deref(),
+            );
+            (lead, path, rest + &count_suffix(self.found_so_far()))
+        })
     }
 
     /// The full paths being searched, one a line, with the home folder
     /// written as ~. `None` when no search runs or it was given no paths.
     pub(crate) fn tooltip(&self) -> Option<String> {
         let paths = self.paths();
-        (!paths.is_empty()).then(|| scan_tooltip(&paths, home_folder().as_deref()))
+        (!paths.is_empty()).then(|| scan_tooltip(&paths, euphoria_core::home_folder().as_deref()))
     }
 }
 
 /// The line shown while `paths` are searched, after `found` audio files.
-pub(crate) fn scan_label(paths: &[&Path], found: usize) -> String {
-    let mut label = String::from("Looking for audio files");
-    match paths {
-        [] => {}
-        [path] => {
-            label.push_str(" in ");
-            label.push_str(&shortened(&folder_name(path)));
-        }
-        several => label.push_str(&format!(" in {} folders", several.len())),
-    }
-    if found > 0 {
-        label.push_str(&format!(" \u{b7} {found} found"));
-    }
-    label
+pub(crate) fn scan_label(paths: &[&Path], home: Option<&Path>, found: usize) -> String {
+    euphoria_core::search_description(paths, home) + &count_suffix(found)
 }
 
-/// `paths` one a line, with `home` written as ~.
+fn count_suffix(found: usize) -> String {
+    if found > 0 {
+        format!(" \u{b7} {found} found")
+    } else {
+        String::new()
+    }
+}
+
+/// `paths` one a line, whole, with `home` written as ~.
 pub(crate) fn scan_tooltip(paths: &[&Path], home: Option<&Path>) -> String {
     paths
         .iter()
-        .map(|path| with_home_shortened(path, home))
+        .map(|path| euphoria_core::with_home_as_tilde(path, home))
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-fn folder_name(path: &Path) -> String {
-    path.file_name().map_or_else(
-        || path.display().to_string(),
-        |name| name.to_string_lossy().into_owned(),
-    )
-}
-
-fn shortened(name: &str) -> String {
-    if name.chars().count() <= FOLDER_NAME_LIMIT {
-        return name.to_string();
-    }
-    let kept: String = name.chars().take(FOLDER_NAME_LIMIT - 1).collect();
-    format!("{}\u{2026}", kept.trim_end())
-}
-
-fn with_home_shortened(path: &Path, home: Option<&Path>) -> String {
-    match home.and_then(|home| path.strip_prefix(home).ok()) {
-        Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
-        Some(rest) => format!("~/{}", rest.display()),
-        None => path.display().to_string(),
-    }
-}
-
-fn home_folder() -> Option<PathBuf> {
-    std::env::var_os("HOME")
-        .filter(|home| !home.is_empty())
-        .map(PathBuf::from)
 }
 
 #[cfg(test)]
@@ -153,46 +133,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn one_folder_is_named_and_several_are_counted() {
+    fn the_path_is_shown_and_the_count_follows_it() {
+        let home = Path::new("/Users/dj");
         let tracks = Path::new("/Users/dj/Music/DJ tracks");
         let edits = Path::new("/Volumes/USB/Edits");
-        assert_eq!(scan_label(&[], 0), "Looking for audio files");
+        assert_eq!(scan_label(&[], Some(home), 0), "Looking for audio files");
         assert_eq!(
-            scan_label(&[tracks], 0),
-            "Looking for audio files in DJ tracks"
+            scan_label(&[tracks], Some(home), 0),
+            "Looking for audio files in ~/Music/DJ tracks"
         );
         assert_eq!(
-            scan_label(&[tracks, edits], 214),
-            "Looking for audio files in 2 folders \u{b7} 214 found"
-        );
-    }
-
-    #[test]
-    fn a_long_folder_name_ends_with_an_ellipsis() {
-        let long = Path::new("/music/Extended mixes from the summer festival season");
-        assert_eq!(
-            scan_label(&[long], 0),
-            "Looking for audio files in Extended mixes from the\u{2026}"
+            scan_label(&[tracks, edits], Some(home), 214),
+            "Looking for audio files in ~/Music/DJ tracks and 1 more \u{b7} 214 found"
         );
     }
 
     #[test]
-    fn the_tooltip_writes_the_home_folder_as_a_tilde() {
+    fn the_tooltip_keeps_every_path_whole() {
         let home = Path::new("/Users/dj");
         let paths = [
-            Path::new("/Users/dj/Music/DJ tracks"),
+            Path::new("/Users/dj/Music/Collections/2026/Summer/Festival/DJ tracks"),
             Path::new("/Volumes/USB/Edits"),
-            Path::new("/Users/dj"),
         ];
         assert_eq!(
             scan_tooltip(&paths, Some(home)),
-            "~/Music/DJ tracks\n/Volumes/USB/Edits\n~"
+            "~/Music/Collections/2026/Summer/Festival/DJ tracks\n/Volumes/USB/Edits"
         );
-        assert_eq!(scan_tooltip(&paths[..1], None), "/Users/dj/Music/DJ tracks");
     }
 
     #[test]
-    fn the_same_folder_in_two_searches_is_named_once() {
+    fn the_same_folder_in_two_searches_is_listed_once() {
         let mut scans = RunningScans::default();
         let (first, first_found) = scans.begin(vec![PathBuf::from("/music/House")]);
         let (_, second_found) = scans.begin(vec![PathBuf::from("/music/House")]);
@@ -200,7 +170,7 @@ mod tests {
         second_found.store(4, Ordering::Relaxed);
         assert_eq!(
             scans.label().as_deref(),
-            Some("Looking for audio files in House \u{b7} 7 found")
+            Some("Looking for audio files in /music/House \u{b7} 7 found")
         );
         scans.finish(first);
         assert!(scans.is_running());
