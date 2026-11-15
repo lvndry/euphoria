@@ -406,10 +406,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_mix_is_wav_unless_its_name_says_flac() {
+    fn a_mix_is_wav_unless_its_name_says_flac_or_mp3() {
         assert_eq!(
             mix_output(PathBuf::from("/sets/friday.flac")),
             (PathBuf::from("/sets/friday.flac"), MixFormat::Flac)
+        );
+        assert_eq!(
+            mix_output(PathBuf::from("/sets/friday.mp3")),
+            (
+                PathBuf::from("/sets/friday.mp3"),
+                MixFormat::Mp3 {
+                    bitrate_kbps: euphoria_core::set_render::DEFAULT_MP3_BITRATE_KBPS
+                }
+            )
         );
         assert_eq!(
             mix_output(PathBuf::from("/sets/friday")),
