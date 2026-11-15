@@ -43,6 +43,7 @@ pub fn pitch_class_profile(
 
 /// Totals scaled so the largest is 1, or `None` when no note sounds at all
 /// or a total is not a finite number.
+#[cfg(feature = "libkeyfinder")]
 pub(crate) fn normalised(totals: [f64; PITCH_CLASS_COUNT]) -> Option<[f32; PITCH_CLASS_COUNT]> {
     if totals
         .iter()
@@ -109,6 +110,7 @@ mod tests {
         text.parse().unwrap()
     }
 
+    #[cfg(feature = "libkeyfinder")]
     #[test]
     fn the_strongest_note_scales_to_one() {
         let mut totals = [1.0; PITCH_CLASS_COUNT];
@@ -118,6 +120,7 @@ mod tests {
         assert_eq!(profile[0], 0.25);
     }
 
+    #[cfg(feature = "libkeyfinder")]
     #[test]
     fn nothing_heard_is_no_profile() {
         assert_eq!(normalised([0.0; PITCH_CLASS_COUNT]), None);

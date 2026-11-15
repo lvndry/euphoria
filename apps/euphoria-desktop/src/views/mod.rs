@@ -22,6 +22,7 @@ pub(crate) mod library_export_panel;
 pub(crate) mod logo;
 pub(crate) mod mashup;
 pub(crate) mod next_rail;
+pub(crate) mod note_strip;
 pub(crate) mod notice;
 pub(crate) mod panel_edge;
 pub(crate) mod planner;

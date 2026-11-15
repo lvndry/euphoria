@@ -36,6 +36,7 @@ use crate::views::inspector_section;
 use crate::views::key_chip::key_chip;
 use crate::views::key_shift;
 use crate::views::next_rail;
+use crate::views::note_strip::note_strip;
 use crate::views::player::{self, seek_on_press_and_drag};
 use crate::views::review;
 use crate::views::stems;
@@ -207,6 +208,11 @@ pub(crate) fn render(
         .flatten()
         .map(|section| sized(divided(section), Some(room.wheel_size())));
 
+    let strip_notes = (!is_column)
+        .then(|| note_strip(track, theme, app.tag_settings.key_notation))
+        .flatten()
+        .map(|notes| sized(div().child(notes), Some(STRIP_STATISTICS_WIDTH)));
+
     let header = if is_column {
         summary(track, app, cx)
     } else {
@@ -236,6 +242,7 @@ pub(crate) fn render(
             statistics(track, app, cx),
             Some(STRIP_STATISTICS_WIDTH),
         ))
+        .children(strip_notes)
         .children(strip_wheel)
         .child(sized(waveform_section(track, app, room, cx), None))
         .children(
@@ -698,6 +705,9 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
         .child(boxes)
         .children(tag_key_line(track, notation, palette))
         .children(stage_line(track, app, palette))
+        .when(is_column, |section| {
+            section.children(note_strip(track, theme, notation))
+        })
         .when(analysis.is_some(), |section| {
             section.child(by_ear::corrector(app, cx))
         })
