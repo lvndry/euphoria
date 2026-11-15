@@ -582,7 +582,7 @@ The exit status is 0 when a set was built, even one with deviations, and 1 when 
 
 ## euphoria set render
 
-Renders a set as one continuous mix: each track blended into the next at a section start, beatmatched with its key kept, written as a WAV or FLAC file.
+Renders a set as one continuous mix: each track blended into the next at a section start, beatmatched with its key kept, written as a WAV, FLAC or MP3 file.
 
 ```
 euphoria set render [OPTIONS] <SET>...
@@ -592,8 +592,9 @@ euphoria set render [OPTIONS] <SET>...
 
 | Option | Meaning |
 | --- | --- |
-| `-o`, `--out <FILE>` | The mix to write, ending in `.wav` (24 bit, RF64 past 4 GB) or `.flac` (24 bit). Required unless `--dry-run`. `--output` is the same. |
-| `--format <FORMAT>` | `wav` or `flac`. Defaults to the extension of `--out`; a name without one gets it added, and a name with the other one is refused. |
+| `-o`, `--out <FILE>` | The mix to write, ending in `.wav` (24 bit, RF64 past 4 GB), `.flac` (24 bit) or `.mp3`. Required unless `--dry-run`. `--output` is the same. |
+| `--format <FORMAT>` | `wav`, `flac` or `mp3`. Defaults to the extension of `--out`; a name without one gets it added, and a name with the other one is refused. |
+| `--mp3-bitrate <KBPS>` | The constant bitrate of an MP3 mix: 96, 112, 128, 160, 192, 224, 256 or 320, the default. The MP3 is encoded by LAME, built in, and its ID3 tag holds a chapter per track. |
 | `--tracklist` | Also write `NAME.tracklist.txt` beside the mix: one numbered line per track with the time it starts. |
 | `--cue` | Also write `NAME.cue` beside the mix: a CUE sheet with each track's title, artist and start. |
 | `--chapters` | Also write `NAME.chapters.txt` beside the mix: one line per track, `0:00 Artist - Title`, for a video description. |

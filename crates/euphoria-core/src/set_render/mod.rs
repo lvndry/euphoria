@@ -11,6 +11,8 @@
 //! [`cue_sheet`], [`tracklist`] and [`chapters`] describe where each track
 //! starts.
 
+#[cfg(feature = "mp3")]
+mod mp3;
 mod plan;
 mod render;
 mod sheets;
@@ -27,7 +29,8 @@ use crate::detect::BeatGrid;
 
 pub use plan::{MixInput, SEARCHED_WINDOWS, plan_mix};
 pub use render::{
-    MIX_CEILING, MixFormat, NoProgress, RenderOptions, RenderProgress, RenderedMix, render_mix,
+    DEFAULT_MP3_BITRATE_KBPS, MIX_CEILING, MP3_BITRATES, MixFormat, NoProgress, RenderOptions,
+    RenderProgress, RenderedMix, render_mix,
 };
 pub use sheets::{chapters, cue_sheet, format_mix_time, tracklist};
 pub use vocals::{FADE_OUT_MINIMUM_BARS, VocalFix, VocalFixChoice, VocalOverlap};

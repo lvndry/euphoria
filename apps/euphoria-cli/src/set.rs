@@ -44,10 +44,10 @@ pub enum SetCommand {
     )]
     Build(BuildArguments),
     /// Render a set as one continuous mix: beatmatched, blended at section
-    /// starts, written as WAV or FLAC.
+    /// starts, written as WAV, FLAC or MP3.
     #[command(
         long_about = "Render a set as one continuous mix: beatmatched, blended at section \
-                      starts, written as WAV or FLAC.\n\n\
+                      starts, written as WAV, FLAC or MP3.\n\n\
                       The set is a playlist built in the desktop app, an M3U or M3U8 file, or \
                       audio files in play order. Each track blends into the next over the \
                       window the transition planner ranks best (as euphoria plan shows), \
