@@ -45,7 +45,7 @@ Tag keys: 1 of 2 tracks with a key in their tags differ from the detected key (1
 Sound quality: 1 track lossless, 1 weak on a big system.
 hint: --needs-review lists only the tracks to check by ear, with those whose tags name another key.
 hint: --detail says which reading to trust.
-hint: --quality weak lists the tracks worth replacing, and --detail says why.
+hint: euphoria quality lists the files worth replacing, worst first, with why.
 ```
 
 The key is shown in the notation `--key-notation` picks, coloured by its number on the Camelot wheel as in the app, with the key in another notation beside it. The table shows no confidence ratings; the Review column below says which tracks are worth checking by ear, and `--needs-review` lists only those. The ratings are still in the [JSON output](#json-output), and [accuracy](../concepts/accuracy.md#confidence) explains how they are set.
@@ -153,7 +153,7 @@ A count of workers does not bound memory when the files are long, so analysis al
 
 ### JSON output
 
-Every object has `"schema_version": 1`, as the JSON of [`euphoria set build`](#euphoria-set-build) and [`euphoria plan`](#euphoria-plan) does. Fields are only added within a schema version, never renamed or removed, so a script that reads a field keeps working; a change that breaks one raises the version. The `review_reasons` and `reviewed` fields, `tempo_move` of `set build` and `plan`, `euphoria next` and `euphoria mashup` were added to version 1 this way. `needs_review` is now `true` exactly when `review_reasons` is not empty, so a track whose doubtful values you confirmed with **Looks right** reads `false`, as in the app. Paths are printed as given on the command line for `analyze`, and as absolute paths for `set build`.
+Every object has `"schema_version": 1`, as the JSON of [`euphoria set build`](#euphoria-set-build) and [`euphoria plan`](#euphoria-plan) does. Fields are only added within a schema version, never renamed or removed, so a script that reads a field keeps working; a change that breaks one raises the version. The `review_reasons` and `reviewed` fields, `tempo_move` of `set build` and `plan`, `euphoria next`, `euphoria mashup` and `euphoria quality` were added to version 1 this way. `needs_review` is now `true` exactly when `review_reasons` is not empty, so a track whose doubtful values you confirmed with **Looks right** reads `false`, as in the app. Paths are printed as given on the command line for `analyze`, and as absolute paths for `set build`.
 
 One object per file, in path order, including files that failed, then one for each unreadable folder and skipped file:
 
@@ -689,6 +689,63 @@ Each row has the key, the tempo, the tempo change as a percent with its move (`E
 The JSON object has `schema_version` (1), `track` (path, artist, title, key, key_name, bpm, energy), `energy` (`keep`, `lift` or `drop`) and `next`: one object per candidate with `rank` from 1, the same fields as `track`, `key_move` (`same`, `adjacent`, `relative`, `diagonal`, `energy_boost`, `mood_change` or `semitone_boost`, as in `set build`), `key_move_label` (the words), `tempo_percent`, `tempo_move` (`easy`, `pitch_move` or `big_jump`), `tempo_scaling` (`direct`, `half` or `double`) and `energy_change`. Tempo and energy fields are `null` when a track has none.
 
 The exit status is 0 when the ranking was made, even when no track mixes in, and 1 when the track could not be analyzed. A note on standard error says why a list is empty or short.
+
+## euphoria quality
+
+Lists the files whose audio is too poor for a club system, worst first, each with a plain reason, so you can buy or download a better copy. The verdicts are the [audio quality](../concepts/audio-quality.md) verdicts of `euphoria analyze`; tracks analyzed before are read from the cache and not decoded again.
+
+```
+euphoria quality [OPTIONS] <PATHS>...
+```
+
+```
+$ euphoria quality ~/Music/DJ
+3 of 212 tracks to replace: 1 heavily damaged, 1 fake lossless, 1 low bit rate.
+
+Heavily damaged  Saffron & Co - Low Tide
+  Good: 41.2 s missing at the end
+  Deep/Low Tide.mp3
+
+Fake lossless    Harbour Lights - Night Drive
+  Likely re-encoded: FLAC, but the sound stops at 16.1 kHz like a 128 kbit/s MP3
+  Club/Night Drive.flac
+
+Low bit rate     Glow - Afterglow
+  Weak on a big system: MP3, 128 kbit/s; 0.42% of the samples clipped at full scale
+  Afterglow.mp3
+```
+
+The first line counts the tracks and the files to replace by their worst problem. Each file then has a block: its worst problem and its artist and title from the tags (the file name when it has none), its verdict with a concrete reason for each problem, and its path relative to the folder given. A file is listed for these problems, in this order:
+
+| Problem | When |
+| --- | --- |
+| Heavily damaged | 2% or more of the audio could not be decoded or is missing, so the beat grid and cues are not written. See [damaged files](../concepts/audio-quality.md#damaged-files). |
+| Fake lossless | A lossless file whose sound stops in a brick wall, where a lossy file's would: verdict Likely re-encoded. |
+| Re-encoded | A lossy file whose sound stops where a lower bit rate file's would: verdict Likely re-encoded. |
+| Low bit rate | Verdict Weak on a big system. |
+| Damaged | Some audio could not be decoded or is missing, less than 2%. |
+| Medium bit rate | Verdict Acceptable, only with `--min acceptable`. |
+
+Among files with the same worst problem, the worse comes first: more audio lost, an earlier cutoff or a lower bit rate. A file with several problems is counted once, by its worst, and its reasons are all listed.
+
+Clipping, at least 0.1% of the samples in runs at full scale, is named among the reasons of a listed file but never lists a file on its own: a new copy of the same master is clipped too. With `--all`, a clipped file that is otherwise fine shows under `Keep` with its clipping in the reason.
+
+| Option | Effect |
+| --- | --- |
+| `--all` | List every track with its verdict, the files to replace first, then the rest under `Keep`. |
+| `--min <VERDICT>` | The verdict from which a file is worth replacing: `acceptable`, `weak` (the default, weak on a big system) or `reencoded`. Damaged files are listed whatever it is. |
+| `--json` | Print JSON instead of the list. |
+| `--csv <FILE>` | Also write the list as a CSV file, with the same rows as the list. |
+| `--m3u <FILE>` | Also write the files to replace as an M3U8 playlist, to find them in rekordbox, Serato, Traktor or another DJ program. |
+| `--force` | Replace the CSV or M3U8 file if it exists. Without it, an existing file is an error. |
+
+The analysis options of [`euphoria analyze`](#options) also apply: `--jobs`, `--audio-budget`, `--no-cache`, `--reanalyze`, `--tempo-range` and `--key-engine`.
+
+The JSON object has `schema_version` (1), `threshold` (the `--min` verdict in kebab case), `summary` (`tracks`, `to_replace`, `by_problem` with `problem`, `label` and `count` for each problem a file has, and `line`, the first line of the list) and `tracks`, in the order of the list. Each track has `path`, `relative_path`, `artist`, `title`, `verdict`, `verdict_label`, `to_replace`, `problems` (in kebab case, worst first), `reasons` (the short reasons of the list), `explanation` (the sentence `euphoria analyze --detail` gives), `notes` and `quality`, the full report as in [`euphoria analyze`](#json-output).
+
+The CSV file has the columns `Path` (relative), `Artist`, `Title`, `Verdict`, `To replace` (`yes` or `no`), `Problems`, `Reason` and `Full path`. The M3U8 playlist is called "Files to replace" and holds only the files to replace, in the order of the list, by their full path.
+
+Files that cannot be read at all are listed on standard error with the reason; they are worth replacing too. The exit status is that of [`euphoria analyze`](#progress-and-exit-status).
 
 ## euphoria mashup
 
