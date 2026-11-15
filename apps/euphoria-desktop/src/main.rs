@@ -140,6 +140,8 @@ mod set_stage_ui_tests;
 mod settings;
 mod show_in_library;
 mod sidebar_slide;
+#[cfg(test)]
+mod sidebar_ui_tests;
 mod state;
 mod stem_export;
 #[cfg(test)]

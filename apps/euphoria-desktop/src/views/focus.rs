@@ -14,9 +14,9 @@ use gpui::component::Icon;
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Bounds, ClickEvent, Context, Div, FontWeight, MouseButton, MouseDownEvent,
-    MouseMoveEvent, Pixels, ScrollEvent, SharedString, TestSupportExt, Window, canvas, div, px,
-    relative,
+    Anchor, AnyElement, Bounds, ClickEvent, Context, Div, FontWeight, MouseButton, MouseDownEvent,
+    MouseMoveEvent, Pixels, ScrollEvent, SharedString, TestSupportExt, Window, anchored, canvas,
+    deferred, div, px, relative,
 };
 
 use crate::app::EuphoriaApp;
@@ -156,8 +156,10 @@ fn top_bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
             .on_click(cx.listener(move |this, _, _, cx| this.zoom_focus(factor, 0.5, cx)))
             .test_support()
     };
+    let lanes_button_bounds = app.focus.lanes_button_bounds.clone();
     let lanes_button = div()
         .id("focus-lanes")
+        .relative()
         .flex()
         .items_center()
         .h(px(28.0))
@@ -173,14 +175,20 @@ fn top_bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
         .cursor_pointer()
         .hover(move |style| style.bg(hover_background))
         .child(LAYERS_LABEL)
+        .child(
+            canvas(
+                move |bounds, _, _| lanes_button_bounds.set(Some(bounds)),
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .size_full(),
+        )
         .on_click(cx.listener(|this, _, _, cx| this.toggle_focus_lanes_menu(cx)))
         .test_support();
     let menu = app.focus.lanes_menu_open.then(|| {
-        div()
+        let button_bounds = app.focus.lanes_button_bounds.clone();
+        let list = div()
             .id("focus-lanes-menu")
-            .absolute()
-            .top(px(32.0))
-            .right_0()
             .flex()
             .flex_col()
             .w(px(170.0))
@@ -191,6 +199,14 @@ fn top_bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
             .bg(palette.panel)
             .shadow_lg()
             .occlude()
+            .on_mouse_down_out(cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                let is_on_button = button_bounds
+                    .get()
+                    .is_some_and(|bounds| bounds.contains(&event.position));
+                if !is_on_button {
+                    this.close_focus_lanes_menu(cx);
+                }
+            }))
             .children(Lane::ALL.map(|lane| {
                 let is_shown = app.focus.lanes.is_shown(lane);
                 div()
@@ -221,6 +237,16 @@ fn top_bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_focus_lane(lane, cx)))
                     .test_support()
             }))
+            .test_support();
+        div().absolute().top(px(32.0)).right_0().child(
+            deferred(
+                anchored()
+                    .anchor(Anchor::TopRight)
+                    .snap_to_window_with_margin(px(8.0))
+                    .child(list),
+            )
+            .with_priority(gpui::base::POPUP_PRIORITY),
+        )
     });
     div()
         .flex()
