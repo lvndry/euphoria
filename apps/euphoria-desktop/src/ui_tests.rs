@@ -4873,6 +4873,169 @@ fn the_piano_plays_its_notes_and_the_volume_has_steps(cx: &mut TestAppContext) {
     cx.update(|cx| assert_eq!(view.read(cx).by_ear.level_step(), 5));
 }
 
+fn chord_notes(output: &ListeningOutput) -> Vec<f32> {
+    output
+        .heard()
+        .iter()
+        .map(|sound| sound.frequencies[0])
+        .collect()
+}
+
+fn lit_keys(view: &Entity<EuphoriaApp>, cx: &mut TestAppContext) -> Vec<u8> {
+    cx.update(|cx| view.read(cx).by_ear.lit_keys())
+}
+
+#[gpui::test]
+fn the_chord_button_plays_the_triad_of_the_key_together_and_lights_its_keys(
+    cx: &mut TestAppContext,
+) {
+    let (window, view, output) = open_tracks_to_check_by_ear(cx);
+    click(window, track(1), cx);
+    click(window, ("chord", 0_usize), cx);
+    let heard = output.heard();
+    assert_eq!(heard.len(), 3, "root, third and fifth");
+    assert!(heard.iter().all(|sound| !sound.is_drone));
+    let expected = [440.0, 523.25, 659.26];
+    for (sound, expected) in heard.iter().zip(expected) {
+        assert!((sound.frequencies[0] - expected).abs() < 0.01, "A C E");
+    }
+    assert_eq!(output.sounding().len(), 3, "together");
+    assert_eq!(lit_keys(&view, cx), [0, 4, 9]);
+
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(1900));
+    cx.run_until_parked();
+    assert_eq!(lit_keys(&view, cx), [0, 4, 9], "still ringing");
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
+    assert!(
+        lit_keys(&view, cx).is_empty(),
+        "the keys go dark when it ends"
+    );
+}
+
+#[gpui::test]
+fn the_chord_sounds_over_a_tone_without_stopping_it(cx: &mut TestAppContext) {
+    let (window, _, output) = open_tracks_to_check_by_ear(cx);
+    click(window, track(1), cx);
+    click(window, ("tone", 0_usize), cx);
+    click(window, ("chord", 0_usize), cx);
+    assert_eq!(
+        output.sounding().len(),
+        4,
+        "the drone stays under the chord"
+    );
+}
+
+#[gpui::test]
+fn a_major_key_gets_a_major_third(cx: &mut TestAppContext) {
+    let (window, view, output) = open_tracks_to_check_by_ear(cx);
+    click(window, track(1), cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.accept_key(euphoria_core::Key::new(0, euphoria_core::Mode::Major), cx)
+        })
+    });
+    cx.run_until_parked();
+    click(window, ("chord", 0_usize), cx);
+    let notes = chord_notes(&output);
+    for (note, expected) in notes.iter().zip([261.63, 329.63, 392.0]) {
+        assert!((note - expected).abs() < 0.01, "8B: C E G");
+    }
+    assert_eq!(lit_keys(&view, cx), [0, 4, 7]);
+}
+
+#[gpui::test]
+fn the_runner_up_gets_its_own_chord_button_only_when_there_is_one(cx: &mut TestAppContext) {
+    let (window, _, output) = open_tracks_to_check_by_ear(cx);
+    click(window, track(1), cx);
+    assert!(is_shown(window, ("chord", 0_usize), cx));
+    assert!(is_shown(window, ("chord", 1_usize), cx), "key unsure");
+    click(window, ("chord", 1_usize), cx);
+    let notes = chord_notes(&output);
+    for (note, expected) in notes.iter().zip([329.63, 392.0, 493.88]) {
+        assert!(
+            (note - expected).abs() < 0.01,
+            "the runner up, E minor: E G B"
+        );
+    }
+
+    click(window, "runner-up-key", cx);
+    assert!(is_shown(window, ("chord", 0_usize), cx));
+    assert!(
+        !is_shown(window, ("chord", 1_usize), cx),
+        "a corrected key has no second candidate"
+    );
+    click(window, track(2), cx);
+    assert!(is_shown(window, ("chord", 0_usize), cx));
+    assert!(!is_shown(window, ("chord", 1_usize), cx), "a sure key");
+}
+
+#[gpui::test]
+fn a_shift_click_plays_the_chord_as_an_arpeggio_120_ms_apart(cx: &mut TestAppContext) {
+    let (window, view, output) = open_tracks_to_check_by_ear(cx);
+    click(window, track(1), cx);
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click_with_modifiers(("chord", 0_usize), Modifiers::shift(), cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    assert_eq!(output.heard().len(), 1, "the root first");
+    assert_eq!(lit_keys(&view, cx), [9]);
+
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(119));
+    cx.run_until_parked();
+    assert_eq!(output.heard().len(), 1, "not before 120 ms");
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(1));
+    cx.run_until_parked();
+    assert_eq!(output.heard().len(), 2, "the third at 120 ms");
+    assert_eq!(lit_keys(&view, cx), [0, 9]);
+
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(119));
+    cx.run_until_parked();
+    assert_eq!(output.heard().len(), 2);
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(1));
+    cx.run_until_parked();
+    assert_eq!(output.heard().len(), 3, "the fifth at 240 ms");
+    assert_eq!(lit_keys(&view, cx), [0, 4, 9]);
+    let notes = chord_notes(&output);
+    assert!(notes[0] < notes[1] && notes[1] < notes[2], "rising");
+
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(2100));
+    cx.run_until_parked();
+    assert!(lit_keys(&view, cx).is_empty());
+}
+
+#[gpui::test]
+fn the_chord_stays_in_the_shown_key_when_the_track_is_heard_in_another_key(
+    cx: &mut TestAppContext,
+) {
+    let (window, view, output) = open_tracks_to_check_by_ear(cx);
+    click(window, track(1), cx);
+    cx.update(|cx| view.update(cx, |app, cx| app.set_key_shift(2, cx)));
+    cx.run_until_parked();
+    click(window, ("tone", 0_usize), cx);
+    click(window, ("chord", 0_usize), cx);
+    let heard = output.heard();
+    assert!(
+        (heard[0].frequencies[1] - 220.0).abs() < 0.01,
+        "the tone stays in A minor"
+    );
+    for (sound, expected) in heard[1..].iter().zip([440.0, 523.25, 659.26]) {
+        assert!(
+            (sound.frequencies[0] - expected).abs() < 0.01,
+            "the chord matches the tone: A C E"
+        );
+    }
+}
+
 #[gpui::test]
 fn a_tone_without_an_audio_output_says_so(cx: &mut TestAppContext) {
     let (window, view) = open_window_with(

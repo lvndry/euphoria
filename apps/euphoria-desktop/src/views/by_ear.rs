@@ -10,10 +10,13 @@ use euphoria_core::{Key, Mode};
 use gpui::component::input::Input;
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
-use gpui::{Context, Div, FontWeight, Hsla, SharedString, TestSupportExt, div, hsla, px, relative};
+use gpui::{
+    ClickEvent, Context, Div, FontWeight, Hsla, SharedString, TestSupportExt, div, hsla, px,
+    relative,
+};
 
 use crate::app::EuphoriaApp;
-use crate::key_by_ear::{LEVEL_STEPS, scale_of};
+use crate::key_by_ear::{ARPEGGIO_STEP, LEVEL_STEPS, scale_of};
 use crate::library::Track;
 use crate::theme::Palette;
 use crate::views::controls::choice_button;
@@ -221,6 +224,32 @@ pub(crate) fn section(
             .test_support()
         });
 
+    let has_runner_up = shown_runner_up(track).is_some();
+    let chords = std::iter::once(key)
+        .chain(shown_runner_up(track))
+        .enumerate()
+        .map(|(index, chord_key)| {
+            let label = if has_runner_up {
+                format!("{} chord", notation.spell(&chord_key))
+            } else {
+                "Play chord".to_string()
+            };
+            let description = format!(
+                "Plays the {} triad of {chord_key}, its root, third and fifth, together on the piano. Shift-click plays it as an arpeggio, one note after another about {} ms apart.",
+                match chord_key.mode() {
+                    Mode::Major => "major",
+                    Mode::Minor => "minor",
+                },
+                ARPEGGIO_STEP.as_millis()
+            );
+            choice_button(("chord", index), label, false, &palette)
+                .tooltip(move |window, cx| Tooltip::new(description.clone()).build(window, cx))
+                .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+                    this.play_chord(chord_key, event.modifiers().shift, cx)
+                }))
+                .test_support()
+        });
+
     let level_step = app.by_ear.level_step();
     let levels = (1..=LEVEL_STEPS).map(|step| {
         let is_filled = step <= level_step;
@@ -270,10 +299,11 @@ pub(crate) fn section(
                     .items_center()
                     .gap(GAP_SMALL)
                     .children(tones)
+                    .children(chords)
                     .child(div().flex_1())
                     .child(volume),
             )
-            .child(piano(key, &palette, cx))
+            .child(piano(key, app, &palette, cx))
             .child(
                 div()
                     .text_size(SMALL_TEXT_SIZE)
@@ -288,7 +318,7 @@ pub(crate) fn section(
 
 /// One octave of piano from middle C, with the notes of `key`'s scale
 /// marked and its root named.
-fn piano(key: Key, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div {
+fn piano(key: Key, app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let scale = scale_of(key);
     let in_scale = |pitch_class: u8| scale.contains(&pitch_class);
     let is_root = |pitch_class: u8| pitch_class == key.tonic();
@@ -306,9 +336,12 @@ fn piano(key: Key, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div 
         ..palette.accent
     };
     let pressed = palette.accent;
+    let by_ear = &app.by_ear;
 
     let white_keys = WHITE_KEYS.iter().map(|&pitch_class| {
-        let background = if in_scale(pitch_class) {
+        let background = if by_ear.is_lit(pitch_class) {
+            pressed
+        } else if in_scale(pitch_class) {
             light_accent
         } else {
             ivory
@@ -345,7 +378,9 @@ fn piano(key: Key, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div 
 
     let black_keys = BLACK_KEYS.iter().map(|&(pitch_class, after_white)| {
         let left = (after_white + 1) as f32 / WHITE_KEYS.len() as f32 - BLACK_KEY_WIDTH / 2.0;
-        let background = if in_scale(pitch_class) {
+        let background = if by_ear.is_lit(pitch_class) {
+            pressed
+        } else if in_scale(pitch_class) {
             deep_accent
         } else {
             ebony
