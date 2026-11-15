@@ -76,11 +76,11 @@ pub fn write_replaygain(path: &Path, fields: &ReplayGainFields) -> Result<(), Eu
         .map_err(|error| read_error(path, error))?
         .read()
         .map_err(|error| read_error(path, error))?;
+    let tag_type = file.file_type().primary_tag_type();
     let mut tag = file
-        .primary_tag()
-        .or_else(|| file.first_tag())
+        .tag(tag_type)
         .cloned()
-        .unwrap_or_else(|| Tag::new(file.file_type().primary_tag_type()));
+        .unwrap_or_else(|| Tag::new(tag_type));
     for (key, value) in [
         (ItemKey::ReplayGainTrackGain, &fields.gain),
         (ItemKey::ReplayGainTrackPeak, &fields.peak),
