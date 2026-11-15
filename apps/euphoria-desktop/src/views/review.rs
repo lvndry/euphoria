@@ -99,7 +99,9 @@ pub(crate) fn section(
                 format!("This file could not be analyzed: {message}"),
                 vec![
                     choice_button("review-analyze-again", "Analyze again", false, &palette)
-                        .on_click(cx.listener(|this, _, _, cx| this.analyze_selected_again(cx)))
+                        .on_click(
+                            cx.listener(|this, _, _, cx| this.analyze_selected_failed_again(cx)),
+                        )
                         .test_support()
                         .into_any_element(),
                 ],

@@ -62,6 +62,27 @@ A whole `euphoria analyze --no-cache --json` of one file, one run each with `/us
 
 The ten minute file is five previews joined into one 192 kbit/s MP3.
 
+### drone-v2 by genre
+
+Measured on 15 November 2026 on the same machine, in one run of `euphoria-bench key-readings bench/data` with two worker threads. The key is drone-v2's most probable key; each preview's genre is its file in `annotations/genre` of the GiantSteps Key dataset. Genres with fewer than 20 previews are grouped. The totals equal the table above. Intervals are 95% Wilson intervals on exact.
+
+| Genre | Previews | Exact | Exact (95% interval) | Exact or fifth | Exact, fifth or relative | Parallel | Other | MIREX score |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| progressive-house | 88 | 63.6% | 53 to 73 | 68.2% | 83.0% | 8.0% | 9.1% | 71.9% |
+| tech-house | 81 | 65.4% | 55 to 75 | 72.8% | 74.1% | 3.7% | 22.2% | 70.2% |
+| deep-house | 77 | 85.7% | 76 to 92 | 89.6% | 89.6% | 1.3% | 9.1% | 87.9% |
+| trance | 58 | 53.4% | 41 to 66 | 67.2% | 82.8% | 3.4% | 13.8% | 65.7% |
+| electro-house | 51 | 74.5% | 61 to 84 | 82.4% | 90.2% | 0.0% | 9.8% | 80.8% |
+| house | 47 | 72.3% | 58 to 83 | 76.6% | 85.1% | 8.5% | 6.4% | 78.7% |
+| drum-and-bass | 38 | 63.2% | 47 to 77 | 65.8% | 71.1% | 5.3% | 23.7% | 67.1% |
+| techno | 34 | 67.6% | 51 to 81 | 73.5% | 73.5% | 5.9% | 20.6% | 71.8% |
+| dubstep | 22 | 63.6% | 43 to 80 | 77.3% | 81.8% | 4.5% | 13.6% | 72.7% |
+| electronica | 20 | 65.0% | 43 to 82 | 65.0% | 70.0% | 0.0% | 30.0% | 66.5% |
+| 13 other genres | 88 | 79.5% | 70 to 87 | 83.0% | 85.2% | 1.1% | 13.6% | 82.2% |
+| all | 604 | 69.9% | 66 to 73 | 75.8% | 82.0% | 3.8% | 14.2% | 75.4% |
+
+The 13 other genres: breaks 14, indie-dance nu-disco 14, chill-out 11, minimal 11, pop rock 7, glitch-hop 6, psy-trance 5, hip-hop 4, hard-dance 4, reggae dub 3, hardcore hard-techno 3, funk r&b 3, dj-tools 3.
+
 The tables below this one are earlier measurements, before drone-v2.
 
 ## Key detection

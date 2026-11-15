@@ -35,6 +35,77 @@ Euphoria decides the key with [drone-v2](#key-detection-with-drone-v2), a small 
 
 ![How the key drone-v2 detects compares with the annotated key on the 604 previews, against libkeyfinder: exact for 69.9% against 60.6%, a fifth away for 6.0% against 11.3%, the relative key for 6.1% against 6.8%, the parallel key for 3.8% against 5.5% and another key for 14.2% against 15.9%.](../images/accuracy/key-outcomes.svg)
 
+## Accuracy by genre
+
+Key and tempo detection is not equally good in every genre. These are the numbers for each genre, including the weak ones.
+
+### What the reference is
+
+- **Key:** the 604 GiantSteps Key previews, split by the genre Beatport gave each one. The keys were labelled by Beatport users correcting the store's keys, not by experts, and about one label in five disagrees with a later expert check (see [against expert labels](#against-expert-labels)), so part of every miss below is a wrong label.
+- **Tempo:** the 661 scored GiantSteps Tempo previews, also split by Beatport genre. These are different previews from the key set.
+- **Outside dance music:** GTZAN, ten genres of about 100 excerpts of 30 seconds each, for tempo only.
+
+Genres with fewer than 20 previews are grouped, since a percentage of 5 or 10 tracks says little. Nothing here was measured on a DJ's own library: no library with hand-checked keys and tempos is available, so full length tracks are not scored.
+
+### Key
+
+drone-v2, as Euphoria ships it. A fifth away is the neighbouring Camelot number with the same letter, and still mixes. The relative key is the same number with the other letter.
+
+| Genre | Previews | Exact | Exact or a fifth away | Exact, a fifth or relative |
+| --- | --- | --- | --- | --- |
+| Deep house | 77 | 85.7% | 89.6% | 89.6% |
+| Electro house | 51 | 74.5% | 82.4% | 90.2% |
+| House | 47 | 72.3% | 76.6% | 85.1% |
+| Techno | 34 | 67.6% | 73.5% | 73.5% |
+| Tech house | 81 | 65.4% | 72.8% | 74.1% |
+| Electronica | 20 | 65.0% | 65.0% | 70.0% |
+| Progressive house | 88 | 63.6% | 68.2% | 83.0% |
+| Dubstep | 22 | 63.6% | 77.3% | 81.8% |
+| Drum and bass | 38 | 63.2% | 65.8% | 71.1% |
+| Trance | 58 | 53.4% | 67.2% | 82.8% |
+| 13 other genres | 88 | 79.5% | 83.0% | 85.2% |
+| All | 604 | 69.9% | 75.8% | 82.0% |
+
+The 13 other genres are breaks, indie dance and nu disco (14 previews each), chill out and minimal (11 each), pop and rock (7), glitch hop (6), psy-trance (5), hip hop and hard dance (4 each), and reggae and dub, hardcore and hard techno, funk and R&B, and DJ tools (3 each).
+
+![Key accuracy of drone-v2 by genre on the GiantSteps Key previews. Exact: deep house 85.7%, electro house 74.5%, house 72.3%, techno 67.6%, tech house 65.4%, electronica 65.0%, progressive house 63.6%, dubstep 63.6%, drum and bass 63.2%, trance 53.4%, other genres 79.5%, against 69.9% for all.](../images/accuracy/key-genres.svg)
+
+With 20 to 90 previews per genre, the 95% interval on each exact score is 15 to 40 points wide, so only the ends of the table are clearly apart: deep house (76% to 92%) is better than average and trance (41% to 66%) worse. The genres in between cannot be ranked against each other.
+
+### Tempo
+
+Accuracy 1 is within 4% of the labelled tempo. Accuracy 2 also accepts half, double, a third or triple; on these previews no tempo came out at a third or triple, so the gap between the two columns is tempos reported at half or double.
+
+| Genre | Previews | Accuracy 1 | Accuracy 2 |
+| --- | --- | --- | --- |
+| Tech house | 22 | 100.0% | 100.0% |
+| Breaks | 26 | 96.2% | 96.2% |
+| Deep house | 24 | 95.8% | 100.0% |
+| House | 23 | 95.7% | 100.0% |
+| Psy-trance | 34 | 94.1% | 100.0% |
+| Techno | 61 | 91.8% | 91.8% |
+| Electro house | 22 | 90.9% | 95.5% |
+| Trance | 74 | 89.2% | 89.2% |
+| Drum and bass | 139 | 85.6% | 97.8% |
+| Dubstep | 76 | 81.6% | 89.5% |
+| Electronica | 52 | 76.9% | 92.3% |
+| 10 other genres | 108 | 74.1% | 92.6% |
+| All | 661 | 85.8% | 94.3% |
+
+![Tempo accuracy by genre on the GiantSteps Tempo previews. Accuracy 1 runs from 100% for tech house and about 96% for breaks, deep house and house down to 81.6% for dubstep, 76.9% for electronica and 74.1% for the smaller genres, against 85.8% for all. Accuracy 2 is above 89% in every genre.](../images/accuracy/tempo-genres.svg)
+
+Outside dance music, on GTZAN, Accuracy 1 is 93.0% for disco and 88.0% for hip hop, but 41.4% for jazz, 48.0% for classical and 50.0% for country. Jazz and classical often have no steady beat, and much country sits below 90 BPM, which the default range reports at double (country's Accuracy 2 is 95.0%). The [full GTZAN table](#choosing-among-the-best-candidates) has every genre.
+
+### Where Euphoria is weak, and what to do
+
+- **Trance and progressive house keys.** Trance is exact for about half the previews, progressive house for under two thirds. More than half of their misses are the relative key or a fifth away, which mix, but check the key by ear before you rely on it. A key rated low confidence puts the track under **Needs review** in the desktop app, which offers the runner up key as one click; see [settle a track under Needs review](../guides/desktop-app.md#settle-a-track-under-needs-review).
+- **Tech house, techno, drum and bass and electronica keys.** One key in five or more is a plain miss: not a fifth, not relative. A clash in the mix is the sign. [Check the key by ear](../guides/desktop-app.md#check-the-key-by-ear-and-correct-it) and correct it.
+- **Drum and bass, dubstep and electronica tempos.** In drum and bass and electronica most misses are at half or double, in dubstep nearly half. Euphoria offers the other octave as the alternative tempo, and `--tempo-range 120-200` on the [command line](../reference/cli.md#options) reports drum and bass in its usual range; see [choosing the range](#choosing-the-range).
+- **Slow or loose music.** With the default range a tempo below 90 BPM comes out at double, and jazz or classical without a steady beat is often wrong. Set a lower range for slow music, such as `70-140` for hip hop, and treat the tempo of music without a steady beat as a guess.
+- **Melodic house.** GiantSteps has no melodic house genre, so its key and tempo are not measured; progressive house and deep house are the nearest genres scored. One measure that has been checked is weak there: telling warm up, build and peak tracks apart within the genre (see [set stage](set-stage.md)).
+
+In every genre, a low [confidence](#confidence) rating is the best single hint that a track needs checking.
+
 ## Key detection with drone-v2
 
 drone-v2 is a convolutional network of 109,128 parameters, trained by the Euphoria project ([source](https://github.com/lvndry/drone), [model card](https://huggingface.co/lvndry/drone)). It reads a constant-Q spectrogram of the whole track, 24 bins per octave over eight octaves from C1, and scores all 24 keys. It learned from 4,988 songs of many genres from the Free Music Archive and 1,275 Beatport dance-music previews, half from their key labels and half from the predictions of three earlier networks, with every excerpt shifted by up to 12 semitones so it hears every key in every song. No GiantSteps Key preview was used to train it, but GiantSteps results guided drone's development, so the benchmark below is not a blind test.
