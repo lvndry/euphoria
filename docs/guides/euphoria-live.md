@@ -92,6 +92,27 @@ macOS asks for permission for the program that runs `euphoria`, so from a termin
 
 Measured on an Apple silicon Mac with a build of the `fast` profile, which is optimised like a release: listening costs about 5 percent of one core at a two second interval, with the buffer full, and about 65 to 90 MB of memory.
 
+## Recognising a track of your library (not in the app yet)
+
+The core can already recognise which track of a library a few seconds of audio come from, and where in it: `euphoria_core::fingerprint`. It is not wired into the Live panel yet, so the panel has no "match" line today and the Next list ranks from the key and tempo heard. What exists:
+
+- **How it works.** The audio is brought to 8 kHz, and the spectrogram is searched for peaks louder than everything near them in time and frequency, above 190 Hz so the kick and bass that repeat in every four-on-the-floor track do not match tracks to each other. Pairs of nearby peaks are hashed from their two frequencies and the time between them, so a hash does not depend on level, on where in the track it sits, or much on what else plays. Matching counts, per track and offset, how many hashes agree: at least 8 and 5 percent of the query's hashes, and twice the next track's.
+- **Accuracy**, on generated tracks (10 tracks of 60 s with random melodies over a kick, 15 s excerpts from three positions each, 30 queries per row), a track is right when the track is found and the position is within half a second:
+
+| Query | Right | Wrong track | No match |
+| --- | --- | --- | --- |
+| The same audio | 30 of 30 | 0 | 0 |
+| Gain of -18 dB | 30 of 30 | 0 | 0 |
+| Gain of +12 dB | 30 of 30 | 0 | 0 |
+| Captured at 48 kHz, tracks stored at 11 kHz | 30 of 30 | 0 | 0 |
+| Mixed with a second track at -10 dB | 29 of 30 | 0 | 1 |
+| Mixed with a second track at -3 dB, either track counts as right | 16 of 30 | 0 | 14 |
+
+  Four generated tracks that are not in the library matched nothing, nor did silence or noise. These are synthetic: real music, rekordbox playing a track pitched up or down, a long loop, or a remix of a library track are **not tested**, and a track pitched more than a few percent will not match, because the hashes encode frequencies.
+- **Cost.** About 57 hashes per second of audio, so 27 KB per minute of a track at 8 bytes a hash, or 7 KB when the stored hashes are thinned to a quarter, which a full query still matches. A library of 10,000 five minute tracks is then about 340 MB thinned by four. Fingerprinting 15 s of live audio is a few milliseconds.
+
+To finish it in the app, the fingerprints need a table in the analysis cache (migration 14 on main today), filled by a background pass over the library that decodes each track once and never changes the analysis, so no re-analysis of the library is forced. The Live model then matches the buffer of the last 15 s every few seconds and shows the match, the position and the track's own key and tempo in place of the heard ones.
+
 ## Limits
 
 - **A mix of two tracks gives a blended key.** While two tracks play together, the key of the 25 seconds is that of the blend, with a lower confidence, and the tempo may sit between the two. Wait for the transition to finish.
