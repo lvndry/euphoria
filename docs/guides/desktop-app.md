@@ -297,6 +297,22 @@ If a track cannot be played, the player says why in a few words, for example "Th
 
 If the sound breaks up while the Mac is busy, for example during a large analysis, the terminal shows "the output ran short of sound". Pause the analysis or run it with fewer workers; `EUPHORIA_LOG=debug` shows every occurrence. Without `EUPHORIA_LOG`, the terminal shows Euphoria's own warnings and only errors from the libraries it uses; set `EUPHORIA_LOG=warn` to see library warnings as well, such as a decoder skipping a few junk bytes at the start of a file.
 
+### Media keys and Now Playing
+
+On macOS, the play/pause key (F8), the buttons of AirPods and other headphones, and the Now Playing widget in Control Center and the menu bar control Euphoria while it has a track playing or paused. Euphoria also shows the track's title, artist, length and position there.
+
+| Command | What it does |
+| --- | --- |
+| Play, Pause, play/pause key | Plays or pauses the track in the player. When the selected track is not the one the player holds, Play resumes the held one. |
+| Next, Previous | Select and play the next or previous row of the table as shown. In the [set builder](#build-a-set) with a set, they follow the set order, as the set does when a track ends. Previous goes back to the start of the track when more than 3 seconds in. |
+| Drag the position in Now Playing | Seeks the track. |
+
+While the [decks](#decks) are open, the keys control one deck: the one that plays, the favoured side of the crossfader first, so deck A while it is centered, and when neither plays, the favoured deck that has a track. Next and Previous do nothing on the decks.
+
+Now Playing is told what plays when the track, the play state or the position changes by a jump (a seek), not at every moment: macOS counts the position along by itself. A paused track stays in Now Playing, shown as paused, so the next press of the key resumes it. It is cleared only when the player holds no track, for example after a track ends, and when Euphoria quits. Once it is cleared, macOS sends the play/pause key elsewhere, for example to Music, until Euphoria plays again.
+
+Not there yet: artwork in Now Playing, the playback rate of the tempo control, and Linux (MPRIS would be the equivalent). The macOS calls have not been checked by an automated test, which uses a stand-in for them: press the keys yourself and report anything off.
+
 ## Metronome
 
 The metronome button sits in the toolbar, at the right, beside the **Decks** button. Click it, or press **M** while the table has the keyboard (not while you type in a field), to start a steady click in 4/4 with an accented first beat. Click it again to stop. It plays through the same output as the track and the decks, so it sounds with or without a track playing.
