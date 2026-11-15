@@ -397,6 +397,51 @@ fn b_is_put_on_the_bars_of_a_at_a_s_tempo() {
 }
 
 #[test]
+fn bars_nobody_checked_earn_no_clash_credit() {
+    let checked = plan(&song_a(), &song_b());
+    let mut a = song_a();
+    a.stems = None;
+    let mut b = song_b();
+    b.stems = None;
+    let unchecked = plan(&a, &b);
+
+    let ceiling = 100.0 * (ENERGY_SCORE_WEIGHT + KEY_SCORE_WEIGHT + ROOM_SCORE_WEIGHT)
+        / (CLASH_SCORE_WEIGHT + ENERGY_SCORE_WEIGHT + KEY_SCORE_WEIGHT + ROOM_SCORE_WEIGHT);
+    assert!(
+        unchecked
+            .windows
+            .iter()
+            .all(|window| window.score <= ceiling + 0.01),
+        "{:?}",
+        unchecked
+            .windows
+            .iter()
+            .map(|window| window.score)
+            .collect::<Vec<_>>()
+    );
+    assert!(checked.windows[0].score > unchecked.windows[0].score);
+    assert!(checked.windows[0].clean);
+}
+
+#[test]
+fn a_window_with_unchecked_bars_never_ranks_above_a_fully_checked_one() {
+    let mut a = song_a();
+    a.stems = None;
+    let plan = plan(&a, &song_b());
+    let first_unchecked = plan
+        .windows
+        .iter()
+        .position(|window| window.clash_counts.unknown > 0);
+    if let Some(first_unchecked) = first_unchecked {
+        assert!(
+            plan.windows[first_unchecked..]
+                .iter()
+                .all(|window| window.clash_counts.unknown > 0)
+        );
+    }
+}
+
+#[test]
 fn missing_stems_are_unknown_and_never_guessed() {
     let mut a = song_a();
     a.stems = None;

@@ -309,6 +309,85 @@ fn write_then_undo_gives_back_the_exact_files() {
 }
 
 #[test]
+fn undo_can_be_listed_and_previewed_without_changing_anything() {
+    let euphoria = Euphoria::new();
+    let library = Library::new();
+
+    let output = run(&euphoria, &["tags", "undo", "--list"]);
+    assert_success(&output);
+    assert!(standard_output(&output).contains("There is no tag write to undo."));
+
+    let output = run(&euphoria, &["tags", "undo", "--dry-run"]);
+    assert_success(&output);
+    assert!(standard_output(&output).contains("There is no tag write to undo."));
+
+    assert_success(&run(
+        &euphoria,
+        &[
+            "tags",
+            "write",
+            "--include-low-confidence",
+            "--yes",
+            text(library.path()),
+        ],
+    ));
+    let written = library.contents();
+
+    let listed = standard_output(&run(&euphoria, &["tags", "undo", "--list"]));
+    assert!(listed.contains("8 files"), "{listed}");
+    assert!(listed.contains(" UTC"), "{listed}");
+    assert!(listed.contains("next undo"), "{listed}");
+
+    let preview = run(&euphoria, &["tags", "undo", "--dry-run"]);
+    assert_success(&preview);
+    let preview = standard_output(&preview);
+    assert!(
+        preview.contains("Would restore the tags of 8 files"),
+        "{preview}"
+    );
+    assert!(preview.contains("Nothing was changed."), "{preview}");
+    for track in library.tracks() {
+        assert!(preview.contains(text(&track)), "{preview}");
+    }
+    assert!(library.contents() == written);
+    assert_eq!(log_count(&euphoria), 1);
+
+    let both = run(&euphoria, &["tags", "undo", "--list", "--dry-run"]);
+    assert_eq!(both.status.code(), Some(2));
+}
+
+#[test]
+fn a_preview_without_the_energy_label_says_how_to_turn_it_on() {
+    let euphoria = Euphoria::new();
+    let library = Library::new();
+    let output = run(
+        &euphoria,
+        &["tags", "write", "--dry-run", text(library.path())],
+    );
+    assert_success(&output);
+    let report = standard_error(&output);
+    assert!(
+        report.contains(
+            "hint: the energy is not written. Add --label comment-start to write \"8A - Energy 7\"."
+        ),
+        "{report}"
+    );
+
+    let with_label = run(
+        &euphoria,
+        &[
+            "tags",
+            "write",
+            "--dry-run",
+            "--label",
+            "comment-start",
+            text(library.path()),
+        ],
+    );
+    assert!(!standard_error(&with_label).contains("the energy is not written"));
+}
+
+#[test]
 fn writing_again_changes_nothing_and_does_not_stack_the_label() {
     let euphoria = Euphoria::new();
     let library = Library::new();

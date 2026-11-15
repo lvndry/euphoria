@@ -527,6 +527,11 @@ class PublishHomebrewTests(unittest.TestCase):
         self.assertIn('sha256 "' + "ab" * 32 + '"', formula)
         self.assertIn("license \"GPL-3.0-or-later\"", formula)
         self.assertIn("depends_on macos: :sequoia", formula)
+        self.assertIn(
+            'generate_completions_from_executable(bin/"euphoria", "completions", '
+            "shells: [:bash, :zsh, :fish])",
+            formula,
+        )
         # The checksum is the one of the release, not of a latest alias.
         self.assertNotIn("releases/latest/download", formula)
 

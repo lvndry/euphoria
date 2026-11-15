@@ -395,6 +395,7 @@ mod tests {
         labels.sort_unstable();
         labels.dedup();
         assert_eq!(labels.len(), Relation::ALL.len());
+        assert_eq!(Relation::Adjacent.label(), "One step on the wheel");
 
         for relation in Relation::ALL {
             let description = relation.description();

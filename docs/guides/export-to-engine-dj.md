@@ -25,6 +25,7 @@ Engine DJ does not support programs that change its library. Its [article on thi
 
 Euphoria keeps to both rules, and adds its own:
 
+- It shows what will be written and asks before writing, unless you pass `--yes`.
 - It refuses to write while Engine DJ is running.
 - It refuses when a journal file next to the database holds a write that did not finish.
 - It refuses a schema version it was not checked against, and a library whose `Information` table does not hold exactly one row with id 1.
@@ -60,7 +61,7 @@ From libdjinterop's `include/djinterop/engine/engine_schema.hpp`. Whether Engine
    euphoria export engine ~/Music/DJ --dry-run
    ```
 
-3. Write:
+3. Write. It lists what will be updated and asks `[y/N]`; add `--yes` to skip the question in a script:
 
    ```
    euphoria export engine ~/Music/DJ --beat-grid --cues

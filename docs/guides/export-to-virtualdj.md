@@ -28,7 +28,7 @@ euphoria export virtualdj ~/Music/DJ --dry-run
 euphoria export virtualdj ~/Music/DJ --beat-grid --cues
 ```
 
-The first command checks the database and says how many songs would change, writing nothing. The second writes. Then start VirtualDJ.
+The first command checks the database and says how many songs would change, writing nothing. The second lists what will be updated, asks `Write N tracks into <database>? A copy is saved first. [y/N]` and then writes; add `--yes` to skip the question in a script. Then start VirtualDJ.
 
 | Option | What it does |
 | --- | --- |

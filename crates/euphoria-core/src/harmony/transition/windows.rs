@@ -287,7 +287,9 @@ fn evaluate(
     };
     // Bars that could not be checked earn no clash credit, so an unchecked
     // window scores below the same window checked and found clear.
-    let checked_share = known as f32 / bars as f32;
+    // Bars past the end of A hold no clash to check, so they are not counted.
+    let bars_of_a = bars.min(a_bars.saturating_sub(a_start)).max(1);
+    let checked_share = (bars_of_a - counts.unknown.min(bars_of_a)) as f32 / bars_of_a as f32;
     let parts = [
         (
             Some(breakdown.clash.unwrap_or(0.0) * checked_share),

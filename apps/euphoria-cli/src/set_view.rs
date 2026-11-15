@@ -723,6 +723,35 @@ mod tests {
     }
 
     #[test]
+    fn a_step_on_the_wheel_is_named_so_in_the_table_and_the_warnings() {
+        let pool = vec![
+            pool_track("8A", 124.0, 5, "A", "One"),
+            pool_track("9A", 125.0, 6, "B", "Two"),
+        ];
+        let mut options = SetOptions::new(2, "5,6".parse().unwrap());
+        options.relations = vec![euphoria_core::Relation::Same];
+        let table = with_set(&pool, &options, |view| {
+            let mut buffer = Vec::new();
+            write_table(&mut buffer, &Theme::PLAIN, view).unwrap();
+            String::from_utf8(buffer).unwrap()
+        });
+        assert!(table.contains("One step on the wheel"), "{table}");
+        assert!(!table.contains("Adjacent"), "{table}");
+        let messages = with_set(&pool, &options, deviation_messages);
+        assert!(
+            messages.iter().any(|message| message.contains(
+                "goes from 8A to 9A, one step on the wheel, which --moves does not allow."
+            )),
+            "{messages:?}"
+        );
+        assert!(
+            messages
+                .iter()
+                .all(|message| !message.contains("a adjacent"))
+        );
+    }
+
+    #[test]
     fn the_summary_says_every_mix_is_clean() {
         let (pool, options) = first_pool_and_options();
         let text = with_set(&pool, &options, |view| {
