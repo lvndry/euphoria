@@ -710,7 +710,7 @@ fn report(previews: &[Preview], synthesized: &[(f32, OffsetResult)]) -> String {
         previews.iter().map(value).sum::<f64>() / previews.len().max(1) as f64
     };
     text.push_str(&format!(
-        "\n## Speed\n\nCPU seconds per preview for the key analysis of the `auto` engine beyond decoding: before, drone-v2 then libkeyfinder for the tuning and the key over time (whose chromagram also gives the profile); after, drone-v2 with the key over time, the tuning and the note spectrum.\n\n| Before | After |\n| --- | --- |\n| {:.3} | {:.3} |\n",
+        "\n## Speed\n\nCPU seconds per preview for the key analysis of the `auto` engine beyond decoding: before, drone-v2 then libkeyfinder for the tuning and the key over time (whose chromagram also gives the profile); after, drone-v2 with the key over time, the tuning and the note spectrum, with the tuning measured twice (about 0.03 s), so the after column is a little high.\n\n| Before | After |\n| --- | --- |\n| {:.3} | {:.3} |\n",
         mean_seconds(|preview| preview.old_seconds),
         mean_seconds(|preview| preview.new_seconds),
     ));

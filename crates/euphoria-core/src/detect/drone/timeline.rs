@@ -50,14 +50,22 @@ const CHANGE_RULES: ChangeRules = ChangeRules {
 /// ends in silence. When every stretch with sound is in one key, each
 /// section carries `track_key`, and a track without silence is then one
 /// section from start to end.
+///
+/// `heard_rate` is the sample rate the audio was converted as if recorded
+/// at, which differs from its own when the tuning was corrected. The
+/// columns are spaced in that heard time.
 pub(super) fn timeline(
     audio: &AudioBuffer,
+    heard_rate: u32,
     column_logits: &[[f32; KEY_COUNT]],
     track_key: Key,
 ) -> Vec<KeySection> {
     let duration = audio.duration_seconds();
+    let clock = ColumnClock {
+        real_seconds_per_heard_second: f64::from(heard_rate) / f64::from(audio.sample_rate().get()),
+    };
     let windows = window_hops(column_logits.len(), COLUMNS_PER_WINDOW);
-    let window_scores = window_scores(audio, column_logits, &windows);
+    let window_scores = window_scores(audio, clock, column_logits, &windows);
     let keys = keys_against_track_key(&window_scores, class_of(track_key), CHANGE_RULES);
     let keyed_runs: Vec<(Range<usize>, usize)> = runs(&keys)
         .into_iter()
@@ -70,12 +78,16 @@ pub(super) fn timeline(
             start_seconds: if run_windows.start == 0 {
                 0.0
             } else {
-                boundary_seconds(windows[run_windows.start].start).min(duration)
+                clock
+                    .boundary_seconds(windows[run_windows.start].start)
+                    .min(duration)
             },
             end_seconds: if run_windows.end == windows.len() {
                 duration
             } else {
-                boundary_seconds(windows[run_windows.end].start).min(duration)
+                clock
+                    .boundary_seconds(windows[run_windows.end].start)
+                    .min(duration)
             },
             key: if stays_in_one_key {
                 track_key
@@ -90,6 +102,7 @@ pub(super) fn timeline(
 /// silent window.
 fn window_scores(
     audio: &AudioBuffer,
+    clock: ColumnClock,
     column_logits: &[[f32; KEY_COUNT]],
     windows: &[Range<usize>],
 ) -> Vec<Option<[f64; KEY_COUNT]>> {
@@ -98,8 +111,8 @@ fn window_scores(
         .map(|columns| {
             level_between(
                 audio,
-                column_seconds(columns.start),
-                column_seconds(columns.end),
+                clock.column_seconds(columns.start),
+                clock.column_seconds(columns.end),
             )
         })
         .collect();
@@ -142,15 +155,27 @@ fn log_probabilities(logits: &[f32; KEY_COUNT]) -> [f64; KEY_COUNT] {
     std::array::from_fn(|key| f64::from(logits[key]) - offset)
 }
 
-/// Where the column that starts at `column` begins: the feature frames are
-/// centred on multiples of the hop, so half a hop before its first frame.
-fn column_seconds(column: usize) -> f64 {
-    ((column * FRAMES_PER_COLUMN) as f64 - 0.5).max(0.0) * HOP as f64 / f64::from(SAMPLE_RATE)
+/// Turns columns into seconds of the track.
+#[derive(Debug, Clone, Copy)]
+struct ColumnClock {
+    real_seconds_per_heard_second: f64,
 }
 
-/// Where the window that starts at `column` takes over from the one before.
-fn boundary_seconds(column: usize) -> f32 {
-    column_seconds(column) as f32
+impl ColumnClock {
+    /// Where the column that starts at `column` begins: the feature frames
+    /// are centred on multiples of the hop, so half a hop before its first
+    /// frame.
+    fn column_seconds(self, column: usize) -> f64 {
+        let heard_seconds = ((column * FRAMES_PER_COLUMN) as f64 - 0.5).max(0.0) * HOP as f64
+            / f64::from(SAMPLE_RATE);
+        heard_seconds * self.real_seconds_per_heard_second
+    }
+
+    /// Where the window that starts at `column` takes over from the one
+    /// before.
+    fn boundary_seconds(self, column: usize) -> f32 {
+        self.column_seconds(column) as f32
+    }
 }
 
 fn class_of(key: Key) -> usize {
@@ -193,7 +218,10 @@ mod tests {
     /// Seconds in one window, the furthest a section boundary can be from
     /// where the music changes.
     fn window_seconds() -> f32 {
-        column_seconds(COLUMNS_PER_WINDOW) as f32
+        ColumnClock {
+            real_seconds_per_heard_second: 1.0,
+        }
+        .column_seconds(COLUMNS_PER_WINDOW) as f32
     }
 
     fn timeline_of(samples: Vec<f32>) -> (Vec<KeySection>, f32) {
@@ -407,5 +435,39 @@ mod tests {
             DroneDetector.read_key_over_time(&audio, None).unwrap(),
             crate::detect::KeyReading::default()
         );
+    }
+}
+
+#[cfg(test)]
+mod tuned_tests {
+    use super::*;
+    use crate::detect::DroneDetector;
+    use crate::detect::synthesis::{buffer, chord_progression};
+
+    #[test]
+    fn a_change_in_a_detuned_track_is_placed_in_its_own_time() {
+        let key = |text: &str| -> Key { text.parse().unwrap() };
+        let cents = 45.0;
+        let change_seconds = 96.0;
+        let audio = buffer(
+            [
+                chord_progression(key("C major"), cents, change_seconds),
+                chord_progression(key("F# minor"), cents, 64.0),
+            ]
+            .concat(),
+        );
+        let reading = DroneDetector
+            .read_key_over_time(&audio, Some(cents))
+            .unwrap();
+        let [before, after] = reading.timeline[..] else {
+            panic!("{:?}", reading.timeline);
+        };
+        assert_eq!((before.key, after.key), (key("C major"), key("F# minor")));
+        assert!(
+            (after.start_seconds - change_seconds).abs() < 6.0,
+            "{}",
+            after.start_seconds
+        );
+        assert_eq!(after.end_seconds, audio.duration_seconds());
     }
 }
