@@ -410,6 +410,11 @@ fn recognition(model: &LiveModel) -> Option<AnyElement> {
                 .rounded(RADIUS_LARGE)
                 .border_1()
                 .border_color(palette.accent.opacity(0.4))
+                .cursor_pointer()
+                .on_click({
+                    let path = track.path.clone();
+                    move |_, _, cx| crate::live_app::show_in_euphoria(path.clone(), cx)
+                })
                 .child(section_label("IN YOUR LIBRARY", &palette))
                 .child(div().truncate().child(track.title().to_string()))
                 .child(
@@ -457,7 +462,12 @@ fn next_row(model: &LiveModel, next: &NextRow) -> Option<AnyElement> {
             .py(px(4.0))
             .px(px(2.0))
             .rounded(RADIUS_SMALL)
+            .cursor_pointer()
             .hover(move |style| style.bg(hover_background))
+            .on_click({
+                let path = track.path.clone();
+                move |_, _, cx| crate::live_app::show_in_euphoria(path.clone(), cx)
+            })
             .child(
                 div().flex().flex_shrink_0().w(px(38.0)).children(
                     track

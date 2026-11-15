@@ -7,11 +7,14 @@
 
 use euphoria_core::live::AudioCapture;
 use gpui::prelude::*;
+use std::path::PathBuf;
+
 use gpui::{
-    AnyWindowHandle, App, Bounds, Entity, Global, TitlebarOptions, WindowBounds, WindowKind,
-    WindowOptions, point, px, size,
+    AnyWindowHandle, App, Bounds, Entity, Global, TitlebarOptions, WeakEntity, WindowBounds,
+    WindowKind, WindowOptions, point, px, size,
 };
 
+use crate::app::EuphoriaApp;
 use crate::live_model::{CaptureFactory, LiveModel};
 use crate::settings::Settings;
 use crate::views::live::{LiveView, PANEL_HEIGHT, PANEL_WIDTH};
@@ -180,4 +183,36 @@ pub(crate) fn keeps_running(cx: &App) -> bool {
 pub(crate) fn toggle_listening(cx: &mut App) {
     let model = runtime_model(cx);
     model.update(cx, |model, cx| model.toggle_listening(cx));
+}
+
+/// The view of the library window, while it is open.
+struct MainView(WeakEntity<EuphoriaApp>);
+
+impl Global for MainView {}
+
+/// How the library window is brought up. Nothing sets it but a test.
+pub(crate) struct MainWindowOpener(pub(crate) std::rc::Rc<dyn Fn(&mut App)>);
+
+impl Global for MainWindowOpener {}
+
+pub(crate) fn remember_main_view(view: &Entity<EuphoriaApp>, cx: &mut App) {
+    cx.set_global(MainView(view.downgrade()));
+}
+
+/// Brings up the library window, opening it when it was closed, and shows
+/// the track at `path` in it, selected and in the inspector, without playing.
+pub(crate) fn show_in_euphoria(path: PathBuf, cx: &mut App) {
+    match cx
+        .try_global::<MainWindowOpener>()
+        .map(|opener| opener.0.clone())
+    {
+        Some(open) => open(cx),
+        None => crate::open_euphoria(cx),
+    }
+    let view = cx
+        .try_global::<MainView>()
+        .and_then(|main| main.0.upgrade());
+    if let Some(view) = view {
+        view.update(cx, |app, cx| app.show_track_at_path(path, cx));
+    }
 }

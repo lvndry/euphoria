@@ -26,6 +26,7 @@ The panel is a small window that stays on top of other windows, so it can sit be
 - **Listen to** chooses what is heard: *All audio*, or one of the applications playing audio right now, such as rekordbox. The list is read when you open it. Euphoria's own playback is never heard.
 - **The key**, big, in the notation you chose in the settings, with its musical name and its confidence: high, medium or low. Below it the **BPM**, the **energy** from 1 to 10, and a level meter.
 - **Next** lists the tracks of your library that mix in after what is playing, with the same ranking, the same Keep, Lift and Drop choice, the same pills and the same filters of the suggestion pool as the "Next after" list of the main window. It ranks from the key and tempo heard, so it works for Spotify or YouTube too; no library track needs to match. Tracks the cache has no analysis for are left out.
+- **Click a track** in the Next list, or the **In your library** card, to open it in Euphoria: the library window comes up, or is opened again if it was closed (and the Dock icon returns), the track is selected in the table and shown in the inspector, with any search, filter, folder or playlist that hid it taken off. Nothing is played in Euphoria, because the music is playing in another app. When a track is recognised, the menu bar menu also has **Show <title> in Euphoria**.
 - **Pause listening** stops the capture and forgets the audio; **Start listening** resumes.
 - **Keep Live running when the window is closed**, **Open Euphoria** and **Quit Euphoria** are at the bottom.
 

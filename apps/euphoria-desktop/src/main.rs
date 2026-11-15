@@ -56,6 +56,8 @@ mod live_app;
 mod live_model;
 mod live_settings;
 #[cfg(test)]
+mod live_show_tests;
+#[cfg(test)]
 mod live_ui_tests;
 mod logging;
 mod logo_motion;
@@ -124,6 +126,7 @@ mod set_builder_ui_tests;
 #[cfg(test)]
 mod set_stage_ui_tests;
 mod settings;
+mod show_in_library;
 mod sidebar_slide;
 mod state;
 mod stem_export;
@@ -297,6 +300,7 @@ fn open_main_window(cx: &mut App) -> Result<(), String> {
     .map_err(|error| format!("cannot open the window: {error:#}"))?;
 
     cx.set_global(MainWindow(Some(window)));
+    live_app::remember_main_view(&view, cx);
     cx.set_activation_policy(gpui::ActivationPolicy::Regular);
     register_commands(window, &view, cx);
     install_menus(theme, sidebar_folded, cx);

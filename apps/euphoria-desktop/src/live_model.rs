@@ -396,6 +396,36 @@ impl LiveModel {
         cx.notify();
     }
 
+    /// Pretends the audio was recognised as the library track at `index`.
+    #[cfg(test)]
+    pub(crate) fn pretend_match(&mut self, index: usize, cx: &mut Context<'_, Self>) {
+        let paths: Vec<PathBuf> = self
+            .library
+            .as_ref()
+            .map(|library| {
+                library
+                    .tracks()
+                    .iter()
+                    .map(|track| track.path.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        self.fingerprint_paths = Arc::new(paths);
+        let mut reading = self.reading;
+        reading.matched = Some(Match {
+            track: index,
+            start_seconds: 20.0,
+            votes: 50,
+            runner_up_votes: 2,
+            share: 0.3,
+            playback: euphoria_core::fingerprint::Playback {
+                tempo_ratio: 1.0,
+                pitch_follows_tempo: false,
+            },
+        });
+        self.pretend_heard(reading, cx);
+    }
+
     /// The reference the list ranks from: the key and tempo heard.
     fn reference(&self) -> Option<TrackFeatures> {
         if self.reading.listening {
