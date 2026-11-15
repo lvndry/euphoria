@@ -23,6 +23,10 @@ pub(crate) struct LiveSettings {
     pub(crate) started_once: bool,
     /// Where the energy goes with the next track.
     pub(crate) energy: EnergyChoice,
+    /// Open Euphoria at login with only Live in the menu bar. The login
+    /// item itself is the system's; this is what the app does when the
+    /// system starts it that way.
+    pub(crate) open_at_login: bool,
 }
 
 impl Default for LiveSettings {
@@ -31,6 +35,7 @@ impl Default for LiveSettings {
             keep_running_when_closed: true,
             started_once: false,
             energy: EnergyChoice::default(),
+            open_at_login: false,
         }
     }
 }
@@ -91,6 +96,7 @@ mod tests {
             keep_running_when_closed: false,
             started_once: true,
             energy: EnergyChoice::Lift,
+            open_at_login: true,
         };
         settings.save(&path).unwrap();
         assert_eq!(LiveSettings::load(&path), settings);

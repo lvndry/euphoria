@@ -21,6 +21,7 @@ use serde_json::json;
 const DEFAULT_INTERVAL_SECONDS: f32 = 2.0;
 const SHORTEST_INTERVAL_SECONDS: f32 = 0.5;
 const HEARD_NOTHING_HINT_SECONDS: f32 = 10.0;
+const STEADY_AFTER: Duration = Duration::from_secs(6);
 
 #[derive(Debug, Args)]
 pub struct LiveArguments {
@@ -150,7 +151,7 @@ pub(crate) fn run_with(
     }
     let mut was_listening = false;
     let mut hinted = false;
-    let mut last_matched = None;
+    let mut stability = Stability::default();
     loop {
         std::thread::sleep(interval);
         let reading = engine.latest();
@@ -176,17 +177,31 @@ pub(crate) fn run_with(
         } else {
             was_listening = false;
             hinted = false;
+            let steady = stability.steady(&reading);
+            let matched_path = reading
+                .matched
+                .and_then(|found| paths.get(found.track))
+                .cloned();
+            let matched_name = matched_path.as_deref().map(track_name);
             if arguments.json {
-                writeln!(output, "{}", reading_json(&reading, source.label(), &paths))?;
-            } else {
-                writeln!(output, "{}", reading_line(&reading))?;
-                let matched = reading.matched.map(|found| found.track);
-                if matched != last_matched
-                    && let Some(path) = matched.and_then(|track| paths.get(track))
+                let mut object = reading_json(&reading, source.label(), &paths);
+                object["steady"] = json!(steady);
+                if let (Some(name), Some(found)) = (&matched_name, object["match"].as_object_mut())
                 {
-                    writeln!(output, "matched: {}", path.display())?;
+                    found.insert("title".into(), json!(name.title));
+                    found.insert("artist".into(), json!(name.artist));
                 }
-                last_matched = matched;
+                writeln!(output, "{object}")?;
+            } else {
+                writeln!(
+                    output,
+                    "{}",
+                    reading_line(
+                        &reading,
+                        steady,
+                        matched_name.as_ref().map(|name| name.title.as_str())
+                    )
+                )?;
             }
             output.flush()?;
         }
@@ -222,7 +237,11 @@ fn describe_capture_error(error: CaptureError) -> anyhow::Error {
     anyhow::anyhow!("{error}")
 }
 
-pub(crate) fn reading_line(reading: &LiveReading) -> String {
+pub(crate) fn reading_line(
+    reading: &LiveReading,
+    steady: bool,
+    matched_title: Option<&str>,
+) -> String {
     let key = reading.key.map_or_else(
         || "--  --".to_string(),
         |live| format!("{}  {}", live.key.camelot(), live.key),
@@ -231,14 +250,61 @@ pub(crate) fn reading_line(reading: &LiveReading) -> String {
         || "-- BPM".to_string(),
         |live| format!("{:.1} BPM", live.bpm),
     );
-    let confidence = reading
-        .key
-        .map(|live| live.confidence)
-        .or(reading.tempo.map(|live| live.confidence))
-        .map_or("", |confidence| confidence.as_str());
-    format!("{key}  {tempo}  {confidence}")
-        .trim_end()
-        .to_string()
+    let energy = reading
+        .energy
+        .map_or_else(String::new, |energy| format!("  energy {energy}/10"));
+    let state = if steady { "steady" } else { "settling" };
+    let matched = matched_title
+        .map(|title| format!("  matched: {title}"))
+        .unwrap_or_default();
+    format!("{key}  {tempo}{energy}  {state}{matched}")
+}
+
+/// How long the key and tempo have stayed the same, so a line can say the
+/// reading is steady.
+#[derive(Default)]
+struct Stability {
+    signature: Option<(euphoria_core::Key, i32)>,
+    since: Option<std::time::Instant>,
+}
+
+impl Stability {
+    fn steady(&mut self, reading: &LiveReading) -> bool {
+        let signature = reading.key.map(|live| {
+            (
+                live.key,
+                reading.tempo.map_or(0, |tempo| tempo.bpm.round() as i32),
+            )
+        });
+        if signature != self.signature || self.since.is_none() {
+            self.signature = signature;
+            self.since = Some(std::time::Instant::now());
+        }
+        self.since
+            .is_some_and(|since| since.elapsed() >= STEADY_AFTER)
+    }
+}
+
+/// The title and artist of a track as its tags say, or its file name.
+struct TrackName {
+    title: String,
+    artist: Option<String>,
+}
+
+fn track_name(path: &std::path::Path) -> TrackName {
+    let tags = euphoria_core::read_track_name(path).ok();
+    let title = tags
+        .as_ref()
+        .and_then(|name| name.title.clone())
+        .or_else(|| {
+            path.file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned())
+        })
+        .unwrap_or_default();
+    TrackName {
+        title,
+        artist: tags.and_then(|name| name.artist),
+    }
 }
 
 pub(crate) fn reading_json(
@@ -520,15 +586,20 @@ mod tests {
     }
 
     #[test]
-    fn a_recognised_track_is_printed_once_with_its_path() {
+    fn a_recognised_track_is_named_on_the_reading_line() {
         let (tracks, library) = library_of_melodies();
         let played = tracks[2][SAMPLE_RATE as usize * 15..SAMPLE_RATE as usize * 30].to_vec();
         let (output, _) = run_library(played, false, 3, 240, Some(library));
-        let matches: Vec<&str> = output
+        let titled: Vec<&str> = output
             .lines()
-            .filter(|line| line.starts_with("matched: "))
+            .filter(|line| line.ends_with("matched: track 3"))
             .collect();
-        assert_eq!(matches, ["matched: /music/track 3.flac"], "{output}");
+        assert!(!titled.is_empty(), "{output}");
+        assert!(
+            titled
+                .iter()
+                .all(|line| line.contains("energy ") && line.contains("/10"))
+        );
     }
 
     #[test]
@@ -549,5 +620,29 @@ mod tests {
         let (output, _) = run_for(programme(14.0), true, 2, 240);
         let last: serde_json::Value = serde_json::from_str(output.lines().last().unwrap()).unwrap();
         assert!(last["match"].is_null());
+    }
+
+    #[test]
+    fn a_reading_is_settling_until_it_has_held_for_a_few_seconds() {
+        let mut reading = LiveReading::listening();
+        reading.listening = false;
+        reading.key = Some(euphoria_core::live::LiveKey {
+            key: "8B".parse().unwrap(),
+            confidence: euphoria_core::Confidence::High,
+            runner_up: None,
+        });
+        let mut stability = Stability::default();
+        assert!(!stability.steady(&reading));
+        stability.since = Some(std::time::Instant::now() - STEADY_AFTER);
+        assert!(stability.steady(&reading));
+        reading.key = Some(euphoria_core::live::LiveKey {
+            key: "9B".parse().unwrap(),
+            ..reading.key.unwrap()
+        });
+        assert!(!stability.steady(&reading), "a new key starts again");
+        assert!(reading_line(&reading, false, None).ends_with("settling"));
+        assert!(
+            reading_line(&reading, true, Some("Out Out")).ends_with("steady  matched: Out Out")
+        );
     }
 }

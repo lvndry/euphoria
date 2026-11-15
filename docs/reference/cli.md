@@ -649,14 +649,14 @@ Shows the key and tempo of the audio playing on this Mac, as it plays. The analy
 euphoria live [OPTIONS]
 ```
 
-Needs macOS 14.2 or later, and macOS asks once to allow listening. One line is printed per reading, `8A  A minor  124.0 BPM  high`, or `listening…` once while the audio is silent. Ctrl-C stops it.
+Needs macOS 14.2 or later, and macOS asks once to allow listening. One line is printed per reading, `8A  A minor  124.0 BPM  energy 6/10  steady`, or `listening…` once while the audio is silent. Ctrl-C stops it.
 
 | Option | Meaning |
 | --- | --- |
 | `--source <PROCESS>` | Listen to one application, by the start of its name. Without it, everything playing is heard except Euphoria. |
 | `--interval <SECONDS>` | Seconds between readings, 0.5 or more. Default 2. |
-| `--from <FOLDER\|FILE>` | Recognise which of these tracks plays, also when it is played up to 10 percent faster or slower. Their fingerprints are made once and kept in the cache, so the first run over a large folder takes a while. A recognised track is printed as `matched: <path>`. |
-| `--json` | One JSON object per line: `listening`, `source`, `key` (`camelot`, `name`, `confidence`), `bpm`, `bpm_confidence`, `energy`, `level_db`, and `match` (`path`, `position_seconds`, `tempo_ratio`, `pitch_follows_tempo`, or `null`). |
+| `--from <FOLDER\|FILE>` | Recognise which of these tracks plays, also when it is played up to 10 percent faster or slower. Their fingerprints are made once and kept in the cache, so the first run over a large folder takes a while. A recognised track ends the reading line with `matched: <title>`. |
+| `--json` | One JSON object per line: `listening`, `source`, `key` (`camelot`, `name`, `confidence`), `bpm`, `bpm_confidence`, `energy`, `level_db`, `steady`, and `match` (`path`, `title`, `artist`, `position_seconds`, `tempo_ratio`, `pitch_follows_tempo`, or `null`). |
 
 ## euphoria next
 

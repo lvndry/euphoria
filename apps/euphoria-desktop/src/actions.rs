@@ -39,6 +39,13 @@ actions!(
         OpenLive,
         /// Pauses Live listening, or resumes it.
         ToggleLiveListening,
+        /// Keeps Live running in the menu bar when the library window is
+        /// closed, or quits with it.
+        ToggleLiveKeepRunning,
+        /// Opens Euphoria at login, with Live in the menu bar, or stops.
+        ToggleLiveOpenAtLogin,
+        /// Brings up the library window.
+        OpenEuphoria,
         /// Opens the settings.
         OpenSettings,
         /// Shows the two decks, or hides them.

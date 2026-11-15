@@ -774,7 +774,7 @@ pub(crate) fn shown_runner_up(track: &Track) -> Option<euphoria_core::Key> {
 }
 
 /// The value of a box, large.
-fn statistic_value(value: impl Into<SharedString>) -> Div {
+pub(crate) fn statistic_value(value: impl Into<SharedString>) -> Div {
     div()
         .whitespace_nowrap()
         .text_size(STAT_TEXT_SIZE)
@@ -785,7 +785,7 @@ fn statistic_value(value: impl Into<SharedString>) -> Div {
 
 /// The value of a box, large, with its unit after it on the same baseline
 /// in the style of a quiet note, such as "124.0 BPM" or "7 out of 10".
-fn value_with_unit(
+pub(crate) fn value_with_unit(
     value: String,
     unit: &'static str,
     unit_id: &'static str,
@@ -801,7 +801,7 @@ fn value_with_unit(
 }
 
 /// The quiet line under the value of a box.
-fn quiet_note(text: impl Into<SharedString>, palette: &Palette) -> Div {
+pub(crate) fn quiet_note(text: impl Into<SharedString>, palette: &Palette) -> Div {
     div()
         .whitespace_nowrap()
         .text_size(LABEL_TEXT_SIZE)

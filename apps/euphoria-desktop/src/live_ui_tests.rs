@@ -24,7 +24,7 @@ use gpui::{
 };
 
 use crate::library::Library;
-use crate::live_model::{ListenState, LiveModel};
+use crate::live_model::{ListenState, LiveModel, Steadiness, shown_title};
 use crate::live_settings::LiveSettings;
 use crate::menu_bar::MenuBarState;
 use crate::menu_bar::testing::RecordingSurface;
@@ -32,8 +32,8 @@ use crate::next_rail::EnergyChoice;
 use crate::settings::Settings;
 use crate::ui_tests::{click, is_shown};
 use crate::views::live::{
-    BPM_ID, KEEP_ID, KEY_ID, LEARNING_ID, LISTENING_ID, LiveView, MATCH_ID, PAUSE_ID, SOURCE_ID,
-    WAITING_ID, energy_id, row_id, source_option_id,
+    BPM_ID, EARLIER_ID, HEADING_ID, KEY_ID, LEARNING_ID, LISTENING_ID, LiveView, MATCH_ID, MenuRow,
+    PAUSE_ID, SOURCE_ID, STATE_ID, WAITING_ID, energy_id, more_menu, row_id, source_option_id,
 };
 
 const SAMPLE_RATE: u32 = 44_100;
@@ -323,10 +323,7 @@ fn rows(model: &Entity<LiveModel>, cx: &mut TestAppContext) -> Vec<String> {
         model
             .next_rows
             .iter()
-            .map(|row| {
-                let title = library.track(row.track_index).unwrap().title();
-                title.trim_end_matches(".flac").to_string()
-            })
+            .map(|row| shown_title(library.track(row.track_index).unwrap()))
             .collect()
     })
 }
@@ -476,7 +473,7 @@ fn keeping_live_running_is_remembered_in_a_file_of_its_own(cx: &mut TestAppConte
     let window = open_panel(&model, cx);
     assert!(LiveSettings::load(&path).started_once);
     assert!(LiveSettings::load(&path).keeps_running());
-    click(window, KEEP_ID, cx);
+    cx.update(|cx| model.update(cx, |model, cx| model.set_keep_running(false, cx)));
     let stored = LiveSettings::load(&path);
     assert!(!stored.keep_running_when_closed);
     assert!(!stored.keeps_running());
@@ -634,7 +631,7 @@ fn a_next_list_taller_than_the_panel_scrolls_to_its_last_row_with_the_arrow_keys
     setup.many_tracks = true;
     let (model, _) = model(setup, cx);
     start(&model, cx);
-    let (window, view) = open_small_panel(&model, 640.0, cx);
+    let (window, view) = open_small_panel(&model, 420.0, cx);
     poll_until(&model, cx, hears_a_key);
     hear_c_major(&model, cx);
     cx.update_window(window, |_, window, cx| window.render_frame(cx))
@@ -670,4 +667,111 @@ fn a_next_list_taller_than_the_panel_scrolls_to_its_last_row_with_the_arrow_keys
         "the last row scrolled into view"
     );
     cx.update(|cx| assert_eq!(view.read(cx).selected_row, Some(last)));
+}
+
+fn labels(rows: &[MenuRow]) -> Vec<(&'static str, Option<bool>)> {
+    rows.iter().map(|row| (row.label, row.checked)).collect()
+}
+
+#[gpui::test]
+fn the_more_menu_holds_pause_the_two_settings_with_ticks_open_and_quit(cx: &mut TestAppContext) {
+    let (model, _) = model(Setup::music(), cx);
+    start(&model, cx);
+    let rows = cx.update(|cx| more_menu(model.read(cx), false));
+    assert_eq!(
+        labels(&rows),
+        [
+            ("Pause listening", None),
+            ("Keep Live running when the window is closed", Some(true)),
+            ("Open Live at login", Some(false)),
+            ("Open Euphoria", None),
+            ("Quit Euphoria", None),
+        ]
+    );
+    cx.update(|cx| {
+        model.update(cx, |model, cx| {
+            model.set_keep_running(false, cx);
+            model.pause(cx);
+        })
+    });
+    let rows = cx.update(|cx| more_menu(model.read(cx), true));
+    assert_eq!(rows[0].label, "Resume listening");
+    assert_eq!(rows[1].checked, Some(false));
+    assert_eq!(rows[2].checked, Some(true));
+}
+
+#[gpui::test]
+fn the_state_line_says_settling_and_then_steady_and_kept_readings_become_earlier(
+    cx: &mut TestAppContext,
+) {
+    let (model, _) = model(Setup::music(), cx);
+    start(&model, cx);
+    let window = open_panel(&model, cx);
+    poll_until(&model, cx, hears_a_key);
+    hear_c_major(&model, cx);
+    cx.update(|cx| model.update(cx, |model, _| model.backdate_signature(Duration::ZERO)));
+    cx.update(|cx| {
+        assert_eq!(model.read(cx).steadiness(), Some(Steadiness::Settling));
+        assert!(model.read(cx).earlier_readings().is_empty());
+    });
+    assert!(is_shown(window, STATE_ID, cx));
+    assert!(!is_shown(window, EARLIER_ID, cx));
+    cx.update(|cx| {
+        model.update(cx, |model, cx| {
+            model.backdate_signature(Duration::from_secs(7));
+            let reading = model.reading;
+            model.pretend_heard(reading, cx);
+        })
+    });
+    cx.update(|cx| assert_eq!(model.read(cx).steadiness(), Some(Steadiness::Steady)));
+    cx.update(|cx| {
+        model.update(cx, |model, cx| {
+            let mut reading = model.reading;
+            reading.key = Some(LiveKey {
+                key: "9B".parse().unwrap(),
+                confidence: Confidence::High,
+                runner_up: None,
+            });
+            model.pretend_heard(reading, cx);
+            model.backdate_signature(Duration::from_secs(7));
+            let reading = model.reading;
+            model.pretend_heard(reading, cx);
+        })
+    });
+    cx.run_until_parked();
+    cx.update(|cx| {
+        let model = model.read(cx);
+        assert_eq!(model.steadiness(), Some(Steadiness::Steady));
+        let earlier = model.earlier_readings();
+        assert_eq!(earlier.len(), 1);
+        assert_eq!(earlier[0].key.camelot(), "8B");
+    });
+    assert!(is_shown(window, EARLIER_ID, cx));
+}
+
+#[gpui::test]
+fn the_next_heading_says_what_the_list_follows(cx: &mut TestAppContext) {
+    let (model, _) = model(Setup::music(), cx);
+    start(&model, cx);
+    let window = open_panel(&model, cx);
+    poll_until(&model, cx, hears_a_key);
+    hear_c_major(&model, cx);
+    cx.update(|cx| {
+        assert_eq!(model.read(cx).next_heading(), "Next for 8B \u{b7} 126 BPM");
+    });
+    assert!(is_shown(window, HEADING_ID, cx));
+    cx.update(|cx| {
+        model.update(cx, |model, cx| {
+            model.ensure_library(cx);
+        })
+    });
+    cx.run_until_parked();
+    cx.update(|cx| {
+        model.update(cx, |model, cx| model.pretend_match(0, cx));
+    });
+    cx.update(|cx| {
+        let model = model.read(cx);
+        let title = shown_title(model.matched_track().unwrap().0);
+        assert_eq!(model.next_heading(), format!("Next after {title}"));
+    });
 }
