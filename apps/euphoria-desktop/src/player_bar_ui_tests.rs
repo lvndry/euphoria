@@ -94,6 +94,11 @@ fn press_next_play(fixture: &Fixture, index: usize, cx: &mut TestAppContext) {
     })
     .unwrap();
     cx.run_until_parked();
+    let path = path_of(fixture, index, cx);
+    assert!(
+        fixture.output.waiting().contains(&path),
+        "the play button of the row asks for its track"
+    );
 }
 
 fn bar(fixture: &Fixture, cx: &mut TestAppContext) -> BarContent {
@@ -263,8 +268,12 @@ fn pausing_while_the_next_track_opens_keeps_the_one_heard(cx: &mut TestAppContex
     play_the_flac(&fixture, cx);
     let flac = path_of(&fixture, fixture.flac, cx);
 
-    press_next_play(&fixture, fixture.mp3, cx);
-    cx.update(|cx| fixture.view.update(cx, |app, cx| app.toggle_playback(cx)));
+    cx.update(|cx| {
+        fixture.view.update(cx, |app, cx| {
+            app.play_next_track(fixture.mp3, cx);
+            app.toggle_playback(cx);
+        })
+    });
     settle(&fixture, cx);
     assert_eq!(status(&fixture, cx), PlayerStatus::Paused);
 
