@@ -104,12 +104,17 @@ pub(crate) fn paint_play_glyph(bounds: Bounds<Pixels>, colour: Hsla, window: &mu
 
 /// Makes `strip` a place to seek: a press jumps to that point of the track,
 /// and dragging with the button held follows the pointer. `seen_bounds` is
-/// where the strip was last drawn.
+/// where the strip was last drawn. A strip that shows another track than
+/// the player's is left as it is: the player's track is not that track.
 pub(crate) fn seek_on_press_and_drag(
     strip: Stateful<Div>,
     seen_bounds: &SeenBounds,
+    shows_player_track: bool,
     cx: &mut Context<'_, EuphoriaApp>,
 ) -> Stateful<Div> {
+    if !shows_player_track {
+        return strip;
+    }
     let bounds_on_press = seen_bounds.clone();
     let bounds_on_drag = seen_bounds.clone();
     strip
@@ -189,7 +194,11 @@ fn wave_strip(
 ) -> Stateful<Div> {
     let palette = app.theme.palette;
     let progress = app.player.progress();
-    let duration = track.duration_seconds().unwrap_or(0.0);
+    let duration = app
+        .player
+        .duration_seconds()
+        .or(track.duration_seconds())
+        .unwrap_or(0.0);
     let shown_cues = cues::shown_cues(track, app);
     let cue_fractions = cues::fractions(&shown_cues, duration);
     let ticks = section_ticks(&shown_cues, duration);
@@ -299,32 +308,109 @@ fn wave_strip(
         .children(cue_marks)
 }
 
+/// The title of the library track at `path`, or its file name.
+fn title_of(app: &EuphoriaApp, path: &std::path::Path) -> String {
+    app.session.library().track_by_path(path).map_or_else(
+        || {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        },
+        |track| track.title().to_string(),
+    )
+}
+
+/// What the detail line under the title says.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum BarDetail {
+    /// Who made the track, or its folder.
+    Artist(String),
+    /// A track asked for while this one sounds, named.
+    Loading(String),
+    /// Why the track, or the one asked for in its place, could not play.
+    Problem(String),
+}
+
+/// What the player bar shows. All of it is the player's track, the one
+/// heard while sound comes out, never the selection.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct BarContent {
+    pub(crate) track: Option<std::path::PathBuf>,
+    pub(crate) title: Option<String>,
+    pub(crate) detail: Option<BarDetail>,
+    pub(crate) position: String,
+    pub(crate) length: String,
+    /// The track whose waveform is drawn, when one is.
+    pub(crate) waveform_of: Option<std::path::PathBuf>,
+}
+
+/// What the player bar shows now.
+pub(crate) fn content(app: &EuphoriaApp) -> BarContent {
+    let track = app.player_track();
+    let detail = match (
+        app.player.failure(),
+        app.player.pending_track(),
+        app.player.failed_switch(),
+        track,
+    ) {
+        (Some(problem), _, _, _) => Some(BarDetail::Problem(problem.to_string())),
+        (None, Some(pending), _, _) => Some(BarDetail::Loading(format!(
+            "Loading {}\u{2026}",
+            title_of(app, pending)
+        ))),
+        (None, None, Some((path, reason)), _) => Some(BarDetail::Problem(format!(
+            "Could not play {}: {reason}",
+            title_of(app, path)
+        ))),
+        (None, None, None, Some(track)) => Some(BarDetail::Artist(
+            track.artist.clone().unwrap_or_else(|| track.folder.clone()),
+        )),
+        (None, None, None, None) => None,
+    };
+    let has_waveform = matches!(
+        app.player_waveform(),
+        Some(Waveform::Ready(columns, _)) if !columns.is_empty()
+    );
+    BarContent {
+        track: app.player.track().map(std::path::Path::to_path_buf),
+        title: track.map(|track| track.title().to_string()),
+        detail,
+        position: crate::format::duration(app.player.position_seconds()),
+        length: app
+            .player
+            .duration_seconds()
+            .map(crate::format::duration)
+            .unwrap_or_else(|| "\u{2013}".to_string()),
+        waveform_of: track
+            .filter(|_| has_waveform)
+            .map(|track| track.path.clone()),
+    }
+}
+
 /// The bar along the bottom of the window: the button, the track, the
 /// position, the waveform that can be clicked to seek (a thin progress line
-/// while there is none), and the length.
+/// while there is none), and the length, as [`content`] says. A track asked
+/// for while another sounds is named as loading until its sound starts.
 pub(crate) fn bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> AnyElement {
     let palette = app.theme.palette;
-    let track = app.selected_track();
-    let name = track.map(|track| track.title().to_string());
-    let detail = match (app.player.failure(), track) {
-        (Some(problem), _) => Some((problem.to_string(), palette.danger)),
-        (None, Some(track)) => Some((
-            track.artist.clone().unwrap_or_else(|| track.folder.clone()),
-            palette.text_secondary,
-        )),
-        (None, None) => None,
-    };
+    let track = app.player_track();
+    let BarContent {
+        title: name,
+        detail,
+        position,
+        length,
+        ..
+    } = content(app);
+    let detail = detail.map(|detail| match detail {
+        BarDetail::Artist(text) => (text, palette.text_secondary),
+        BarDetail::Loading(text) => (text, palette.text_tertiary),
+        BarDetail::Problem(text) => (text, palette.danger),
+    });
     let tempo_text = app.playing_tempo_text();
     let progress = app.player.progress().unwrap_or(0.0);
-    let position = crate::format::duration(app.player.position_seconds());
-    let length = app
-        .player
-        .duration_seconds()
-        .map(crate::format::duration)
-        .unwrap_or_else(|| "\u{2013}".to_string());
 
     let seen_bounds = app.progress_line_bounds.clone();
-    let progress_line = match (track, app.selected_waveform()) {
+    let progress_line = match (track, app.player_waveform()) {
         (Some(track), Some(Waveform::Ready(columns, _))) if !columns.is_empty() => {
             wave_strip(track, columns.clone(), app, cx)
         }
@@ -402,7 +488,10 @@ pub(crate) fn bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> AnyEl
                 .text_color(palette.text_secondary)
                 .child(position),
         )
-        .child(seek_on_press_and_drag(progress_line, &app.progress_line_bounds, cx).test_support())
+        .child(
+            seek_on_press_and_drag(progress_line, &app.progress_line_bounds, true, cx)
+                .test_support(),
+        )
         .child(
             div()
                 .flex_shrink_0()

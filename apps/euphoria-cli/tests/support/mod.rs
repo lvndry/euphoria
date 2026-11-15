@@ -98,11 +98,24 @@ pub fn write_kick_track(path: &Path, tempo: f64, first_beat: f64) {
 /// `tempo_at` its time.
 #[allow(dead_code)]
 pub fn write_kicks(path: &Path, first_beat: f64, tempo_at: impl Fn(f64) -> f64) {
+    write_kicks_lasting(path, 30, first_beat, tempo_at);
+}
+
+/// Writes `seconds` of a 16 bit mono WAV file holding a decaying low tone
+/// on every beat from `first_beat`, each beat following the one before at
+/// `tempo_at` its time.
+#[allow(dead_code)]
+pub fn write_kicks_lasting(
+    path: &Path,
+    seconds: usize,
+    first_beat: f64,
+    tempo_at: impl Fn(f64) -> f64,
+) {
     const SAMPLE_RATE: u32 = 44_100;
-    let sample_count = 30 * SAMPLE_RATE as usize;
+    let sample_count = seconds * SAMPLE_RATE as usize;
     let mut samples = vec![0.0_f64; sample_count];
     let mut beat_start = first_beat;
-    while beat_start < 30.0 {
+    while beat_start < seconds as f64 {
         let first_sample = (beat_start * f64::from(SAMPLE_RATE)) as usize;
         for (offset, sample) in samples
             .iter_mut()

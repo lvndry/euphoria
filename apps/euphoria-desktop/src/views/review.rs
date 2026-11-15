@@ -23,8 +23,8 @@ use crate::views::{LABEL_TEXT_SIZE, SMALL_TEXT_SIZE, section_label};
 pub(crate) fn chip_label(reason: &ReviewReason, notation: NotationChoice) -> String {
     match reason {
         ReviewReason::Failed(_) => "Failed".to_string(),
-        ReviewReason::KeyUnsure => "Key unsure".to_string(),
-        ReviewReason::TempoUnsure => "Tempo unsure".to_string(),
+        ReviewReason::KeyUnsure => "Key: relative or 5th?".to_string(),
+        ReviewReason::TempoUnsure => "BPM: half or double?".to_string(),
         ReviewReason::KeyConflict { tag_key } => format!("Tag says {}", notation.spell(tag_key)),
     }
 }
@@ -44,12 +44,11 @@ pub(crate) fn chips(
             let explanation: SharedString = match reason {
                 ReviewReason::Failed(message) => format!("Could not be analyzed: {message}").into(),
                 ReviewReason::KeyUnsure => {
-                    "Euphoria is not sure of the key. Select the track to check or settle it."
+                    "The key may be its relative or a fifth away. Select the track to compare it with the runner up and settle it."
                         .into()
                 }
                 ReviewReason::TempoUnsure => {
-                    "The tempo may be off, often by half or double. Select the track to settle it."
-                        .into()
+                    "The BPM may be half or double. Select the track to settle it.".into()
                 }
                 ReviewReason::KeyConflict { tag_key } => format!(
                     "The file's tags say {tag_key}. Select the track to pick which to keep."
@@ -127,7 +126,7 @@ pub(crate) fn section(
                 buttons.push(correct_button(&palette, cx));
                 reason_line(
                     "review-key-unsure",
-                    "Euphoria isn't sure of the key. Play the key tone or the piano under the key (Check by ear), then pick the right key with Correct, or confirm this one."
+                    "The key may be its relative or a fifth away. Play the key tone or the piano under the key (Check by ear), then try the runner up, pick the right key with Correct, or confirm this one."
                         .to_string(),
                     buttons,
                     &palette,
@@ -175,7 +174,7 @@ pub(crate) fn section(
                 );
                 reason_line(
                     "review-tempo-unsure",
-                    "The tempo may be off, often by half or double. Turn on the metronome in the toolbar: it starts at this track's tempo, so you can hear whether the clicks sit on the beat."
+                    "The BPM may be half or double. Turn on the metronome in the toolbar: it starts at this track's tempo, so you can hear whether the clicks sit on the beat."
                         .to_string(),
                     buttons,
                     &palette,
