@@ -28,7 +28,7 @@ use crate::live_model::{Learning, ListenState, LiveModel, Steadiness, shown_titl
 use crate::next_rail::{EnergyChoice, NextRow, energy_text, relation_pill};
 use crate::theme::Palette;
 use crate::views::controls::{segment, segmented};
-use crate::views::inspector::{quiet_note, statistic_value, value_with_unit};
+use crate::views::inspector::{quiet_note, value_with_unit};
 use crate::views::key_chip::key_chip;
 use crate::views::{
     GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, LABEL_TEXT_SIZE, RADIUS_LARGE, RADIUS_MEDIUM, RADIUS_SMALL,
@@ -498,8 +498,10 @@ fn readout(model: &LiveModel) -> AnyElement {
         || "\u{2013}".to_string(),
         |tempo| format!("{:.1}", tempo.bpm),
     );
-    let energy = reading
-        .energy
+    let energy = model
+        .matched_track()
+        .and_then(|(track, _)| track.energy())
+        .or(reading.energy)
         .map_or_else(|| "\u{2013}".to_string(), |energy| energy.to_string());
     div()
         .flex()
@@ -508,7 +510,7 @@ fn readout(model: &LiveModel) -> AnyElement {
         .child(
             div()
                 .flex()
-                .items_end()
+                .items_stretch()
                 .justify_between()
                 .gap(GAP_MEDIUM)
                 .child(
@@ -538,7 +540,7 @@ fn readout(model: &LiveModel) -> AnyElement {
                         .flex()
                         .flex_col()
                         .items_end()
-                        .gap(GAP_TIGHT)
+                        .justify_between()
                         .child(
                             div()
                                 .id(BPM_ID)
@@ -548,13 +550,12 @@ fn readout(model: &LiveModel) -> AnyElement {
                         .child(
                             div()
                                 .id(ENERGY_ID)
-                                .flex()
-                                .items_baseline()
-                                .gap(GAP_TIGHT)
-                                .whitespace_nowrap()
-                                .child(quiet_note("energy", &palette))
-                                .child(statistic_value(energy))
-                                .child(quiet_note("out of 10", &palette))
+                                .child(value_with_unit(
+                                    energy,
+                                    "out of 10 energy",
+                                    "live-energy-unit",
+                                    &palette,
+                                ))
                                 .test_support(),
                         ),
                 ),
