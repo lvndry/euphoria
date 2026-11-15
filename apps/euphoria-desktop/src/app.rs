@@ -33,7 +33,7 @@ use crate::player::{Player, PlayerRequest, StartAttempt, fraction_along};
 use crate::playlists::PlaylistId;
 use crate::settings::{FolderTreeMemory, Settings};
 use crate::sidebar_slide::SidebarSlide;
-use crate::state::{Scan, Session, scan};
+use crate::state::{Scan, Session, scan_counting};
 use crate::surface_motion::{Closing, Modal, ModalFades, Presence, Strip, StripGrowth, ThemeFade};
 use crate::tag_flow::TagPanel;
 use crate::tag_settings::{LabelChoice, NotationChoice, ProgramChoice, TagSettings};
@@ -205,7 +205,7 @@ pub(crate) struct EuphoriaApp {
     /// A problem to tell the user about, shown until dismissed.
     pub(crate) notice: Option<String>,
     /// Folders being searched for audio files right now.
-    pub(crate) scans_in_progress: usize,
+    pub(crate) scans: crate::scan_status::RunningScans,
     /// The window this view is in, for work that needs the window from a task.
     pub(crate) window_handle: gpui::AnyWindowHandle,
     /// A track Live asked to show that the library did not have yet, because
@@ -602,7 +602,7 @@ impl EuphoriaApp {
             table_scroll: UniformListScrollHandle::new(),
             table_focus: cx.focus_handle(),
             notice,
-            scans_in_progress: 0,
+            scans: crate::scan_status::RunningScans::default(),
             window_handle: window.window_handle(),
             pending_reveal: None,
             background_jobs: crate::busy::BackgroundJobs::default(),
@@ -712,7 +712,7 @@ impl EuphoriaApp {
             this.add_paths(settings.folders, false, cx);
         }
         this.refresh_visible();
-        if this.scans_in_progress == 0 {
+        if !this.scans.is_running() {
             this.forget_folder_if_gone();
         }
         this.select_first_track_if_none(cx);
@@ -796,7 +796,7 @@ impl EuphoriaApp {
 
     /// True when there is nothing to show yet and nothing on its way.
     pub(crate) fn is_empty(&self) -> bool {
-        self.session.library().tracks().is_empty() && self.scans_in_progress == 0
+        self.session.library().tracks().is_empty() && !self.scans.is_running()
     }
 
     /// Opens the native folder picker and adds what the user chooses.
@@ -836,29 +836,56 @@ impl EuphoriaApp {
         unfold_new_folders: bool,
         cx: &mut Context<'_, Self>,
     ) {
-        self.scans_in_progress += 1;
+        let (scan_id, found_so_far) = self.scans.begin(paths.clone());
         cx.notify();
+        self.redraw_scan_count(scan_id, cx);
         let cache = self.session.cache();
         cx.spawn(async move |this, cx| {
             let found = cx
                 .background_executor()
-                .spawn(async move { scan(&paths, cache.as_deref()) })
+                .spawn(async move { scan_counting(&paths, cache.as_deref(), &found_so_far) })
                 .await;
             this.update(cx, |this, cx| {
-                this.finish_scan(found, unfold_new_folders, cx);
+                this.finish_scan(scan_id, found, unfold_new_folders, cx);
             })
             .ok();
         })
         .detach();
     }
 
+    /// Redraws a few times a second while the search `scan_id` runs, when
+    /// the count of files found has moved.
+    pub(crate) fn redraw_scan_count(&mut self, scan_id: u64, cx: &mut Context<'_, Self>) {
+        cx.spawn(async move |this, cx| {
+            let mut shown = 0;
+            loop {
+                cx.background_executor()
+                    .timer(crate::scan_status::COUNT_INTERVAL)
+                    .await;
+                let still_running = this.update(cx, |this, cx| {
+                    let found = this.scans.found_so_far();
+                    if found != shown {
+                        shown = found;
+                        cx.notify();
+                    }
+                    this.scans.is_still_running(scan_id)
+                });
+                if !matches!(still_running, Ok(true)) {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
     fn finish_scan(
         &mut self,
+        scan_id: u64,
         mut found: Scan,
         unfold_new_folders: bool,
         cx: &mut Context<'_, Self>,
     ) {
-        self.scans_in_progress = self.scans_in_progress.saturating_sub(1);
+        self.scans.finish(scan_id);
         let folder_count_before = self.session.library().folders().len();
         if unfold_new_folders {
             let library = self.session.library();
@@ -892,7 +919,7 @@ impl EuphoriaApp {
             .retain(|folder| !library_folders.contains(folder));
         self.read_track_names(found_files, cx);
         self.refresh_visible();
-        if self.scans_in_progress == 0 {
+        if !self.scans.is_running() {
             self.forget_folder_if_gone();
         }
         if self.session.library().folders().len() != folder_count_before {
@@ -2769,7 +2796,7 @@ impl EuphoriaApp {
             return;
         }
         let has_tracks = !self.session.library().tracks().is_empty();
-        if has_tracks && self.scans_in_progress == 0 && !self.session.progress().is_active() {
+        if has_tracks && !self.scans.is_running() && !self.session.progress().is_active() {
             self.first_run.analysis_done = true;
             self.save_first_run();
         }

@@ -92,7 +92,8 @@ fn logo_mark(app: &EuphoriaApp, palette: &Palette) -> impl IntoElement {
 /// The toolbar.
 pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Stateful<Div> {
     let palette = app.theme.palette;
-    let has_tracks = !app.is_empty();
+    let has_tracks = !app.session.library().tracks().is_empty();
+    let is_searching_only = app.scans.is_running() && app.session.progress().label().is_none();
 
     div()
         .id("toolbar")
@@ -140,7 +141,8 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> St
         .child(
             div()
                 .flex()
-                .flex_shrink_0()
+                .when(is_searching_only, |commands| commands.min_w_0())
+                .when(!is_searching_only, |commands| commands.flex_shrink_0())
                 .items_center()
                 .gap(GAP_MEDIUM)
                 .ml_auto()
@@ -510,23 +512,51 @@ fn search_field(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, Eupho
         )
 }
 
-/// "12 of 340 done" with a bar, or "Looking for audio files" while
-/// folders are being searched. Nothing when idle.
+/// "12 of 340 done" with a bar, or "Looking for audio files in
+/// ~/Music/DJ tracks" with the whole paths in a tooltip while folders are
+/// being searched. Nothing when idle.
 fn progress(
     app: &EuphoriaApp,
     palette: &Palette,
     cx: &mut Context<'_, EuphoriaApp>,
-) -> Option<Div> {
+) -> Option<AnyElement> {
     let progress = app.session.progress();
-    let label = match progress.label() {
-        Some(label) => label,
-        None if app.scans_in_progress > 0 => "Looking for audio files".to_string(),
-        None => return None,
+    let is_searching = progress.label().is_none();
+    let label = match (progress.label(), app.scans.label_parts()) {
+        (Some(label), _) => div().child(label).into_any_element(),
+        (None, Some((lead, path, rest))) => div()
+            .id("scan-status")
+            .flex()
+            .min_w_0()
+            .whitespace_nowrap()
+            .child(div().flex_shrink_0().child(lead))
+            .when_some(path, |status, path| {
+                status.child(
+                    div()
+                        .id("scan-status-path")
+                        .min_w_0()
+                        .ml(px(4.0))
+                        .text_ellipsis_middle()
+                        .child(path)
+                        .test_support(),
+                )
+            })
+            .when(!rest.is_empty(), |status| {
+                status.child(div().flex_shrink_0().child(rest))
+            })
+            .when_some(app.scans.tooltip(), |status, paths| {
+                status.tooltip(move |window, cx| Tooltip::new(paths.clone()).build(window, cx))
+            })
+            .test_support()
+            .into_any_element(),
+        (None, None) => return None,
     };
     Some(
         div()
             .flex()
-            .flex_shrink_0()
+            .id("toolbar-progress")
+            .when(is_searching, |row| row.min_w_0().overflow_hidden())
+            .when(!is_searching, |row| row.flex_shrink_0())
             .items_center()
             .gap(GAP_SMALL)
             .text_size(SMALL_TEXT_SIZE)
@@ -575,7 +605,9 @@ fn progress(
                                 .bg(palette.accent),
                         ),
                 )
-            }),
+            })
+            .test_support()
+            .into_any_element(),
     )
 }
 

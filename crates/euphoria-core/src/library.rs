@@ -153,6 +153,16 @@ pub fn find_audio_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, EuphoriaError
 /// link that points back up the tree cannot make it loop. To include a linked
 /// folder, name it as one of `paths`.
 pub fn scan_audio_files(paths: &[PathBuf]) -> Result<AudioScan, EuphoriaError> {
+    scan_audio_files_counting(paths, &std::sync::atomic::AtomicUsize::new(0))
+}
+
+/// [`scan_audio_files`], adding one to `found` for each audio file as the
+/// walk finds it, so another thread can show how many have turned up so far.
+/// The count can run a little above the final list, which drops duplicates.
+pub fn scan_audio_files_counting(
+    paths: &[PathBuf],
+    found: &std::sync::atomic::AtomicUsize,
+) -> Result<AudioScan, EuphoriaError> {
     let mut scan = AudioScan::default();
     let mut skipped: std::collections::BTreeMap<String, usize> = Default::default();
     for path in paths {
@@ -168,6 +178,7 @@ pub fn scan_audio_files(paths: &[PathBuf]) -> Result<AudioScan, EuphoriaError> {
         })?;
         if !metadata.is_dir() {
             scan.files.push(path.clone());
+            found.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             continue;
         }
         let entries = WalkDir::new(path)
@@ -195,6 +206,7 @@ pub fn scan_audio_files(paths: &[PathBuf]) -> Result<AudioScan, EuphoriaError> {
             }
             if is_supported_audio_file(entry.path()) {
                 scan.files.push(entry.into_path());
+                found.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             } else if let Some(extension) = unsupported_audio_extension(entry.path()) {
                 *skipped.entry(extension).or_default() += 1;
                 scan.skipped_files.push(entry.into_path());
@@ -215,6 +227,95 @@ pub fn scan_audio_files(paths: &[PathBuf]) -> Result<AudioScan, EuphoriaError> {
     skipped.sort_by_key(|skipped| std::cmp::Reverse(skipped.count));
     scan.skipped = skipped;
     Ok(scan)
+}
+
+/// The most characters of a path that [`search_description`] shows before
+/// it cuts folders out of the middle, so the line fits the desktop toolbar.
+pub const SEARCHED_PATH_LIMIT: usize = 36;
+
+/// "Looking for audio files in ~/Music/DJ tracks", or "… in ~/Music/DJ
+/// tracks and 2 more" for several paths, with the home folder written as ~
+/// and a long path cut in the middle so the folder at its end stays in
+/// view. The same words in the desktop app and the command line.
+pub fn search_description(paths: &[&Path], home: Option<&Path>) -> String {
+    let (lead, path, rest) = search_description_parts(paths, home);
+    match path {
+        Some(path) => format!("{lead} {path}{rest}"),
+        None => format!("{lead}{rest}"),
+    }
+}
+
+/// [`search_description`] as the words before the path, the path, and the
+/// words after it, for a display that cuts the path further to fit.
+pub fn search_description_parts(
+    paths: &[&Path],
+    home: Option<&Path>,
+) -> (&'static str, Option<String>, String) {
+    let path = paths
+        .first()
+        .map(|path| shortened_path(&with_home_as_tilde(path, home), SEARCHED_PATH_LIMIT));
+    let lead = if path.is_some() {
+        "Looking for audio files in"
+    } else {
+        "Looking for audio files"
+    };
+    let rest = if paths.len() > 1 {
+        format!(" and {} more", paths.len() - 1)
+    } else {
+        String::new()
+    };
+    (lead, path, rest)
+}
+
+/// `path` with `home` written as ~, or the whole path when it is elsewhere.
+pub fn with_home_as_tilde(path: &Path, home: Option<&Path>) -> String {
+    match home.and_then(|home| path.strip_prefix(home).ok()) {
+        Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+        Some(rest) => format!("~/{}", rest.display()),
+        None => path.display().to_string(),
+    }
+}
+
+/// The user's home folder, from `HOME`.
+pub fn home_folder() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .filter(|home| !home.is_empty())
+        .map(PathBuf::from)
+}
+
+/// `path` cut to at most `limit` characters by replacing folders in its
+/// middle with "…", keeping its start and its last folder whole. A last
+/// folder too long on its own is ended with "…".
+fn shortened_path(path: &str, limit: usize) -> String {
+    let length = |text: &str| text.chars().count();
+    if length(path) <= limit {
+        return path.to_string();
+    }
+    let Some((head, last)) = path.trim_end_matches('/').rsplit_once('/') else {
+        return ended_with_ellipsis(path, limit);
+    };
+    let tail = format!("/\u{2026}/{last}");
+    if length(&tail) > limit {
+        return format!(
+            "\u{2026}/{}",
+            ended_with_ellipsis(last, limit.saturating_sub(2))
+        );
+    }
+    let folders: Vec<&str> = head.split('/').collect();
+    let kept = (1..=folders.len())
+        .map(|count| folders[..count].join("/"))
+        .take_while(|start| length(start) + length(&tail) <= limit)
+        .last()
+        .unwrap_or_default();
+    format!("{kept}{tail}")
+}
+
+fn ended_with_ellipsis(text: &str, limit: usize) -> String {
+    if text.chars().count() <= limit {
+        return text.to_string();
+    }
+    let kept: String = text.chars().take(limit.saturating_sub(1)).collect();
+    format!("{}\u{2026}", kept.trim_end())
 }
 
 fn unsupported_audio_extension(path: &Path) -> Option<String> {
@@ -405,5 +506,71 @@ mod tests {
             find_audio_files(std::slice::from_ref(&missing)),
             Err(EuphoriaError::Missing { path }) if path == missing
         ));
+    }
+
+    #[test]
+    fn the_counting_scan_counts_each_audio_file_it_finds() {
+        let root =
+            std::env::temp_dir().join(format!("euphoria-library-counted-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("deep")).unwrap();
+        for file in ["a.mp3", "deep/b.flac", "c.opus", "cover.jpg"] {
+            std::fs::write(root.join(file), b"").unwrap();
+        }
+        let found = std::sync::atomic::AtomicUsize::new(0);
+
+        let scan = scan_audio_files_counting(std::slice::from_ref(&root), &found).unwrap();
+        std::fs::remove_dir_all(&root).unwrap();
+
+        assert_eq!(scan.files.len(), 2);
+        assert_eq!(found.load(std::sync::atomic::Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn the_search_description_shows_the_path_with_home_as_a_tilde() {
+        let home = Path::new("/Users/dj");
+        let tracks = Path::new("/Users/dj/Music/DJ tracks");
+        let edits = Path::new("/Volumes/USB/Edits");
+        assert_eq!(
+            search_description(&[], Some(home)),
+            "Looking for audio files"
+        );
+        assert_eq!(
+            search_description(&[tracks], Some(home)),
+            "Looking for audio files in ~/Music/DJ tracks"
+        );
+        assert_eq!(
+            search_description(&[tracks, edits, home], Some(home)),
+            "Looking for audio files in ~/Music/DJ tracks and 2 more"
+        );
+        assert_eq!(
+            search_description(&[edits], None),
+            "Looking for audio files in /Volumes/USB/Edits"
+        );
+        assert_eq!(with_home_as_tilde(home, Some(home)), "~");
+    }
+
+    #[test]
+    fn a_long_path_is_cut_in_the_middle_so_its_last_folder_stays() {
+        assert_eq!(
+            shortened_path("~/Music/Collections/2026/Summer/DJ tracks", 31),
+            "~/Music/Collections/\u{2026}/DJ tracks"
+        );
+        assert_eq!(
+            shortened_path("/Volumes/USB/Very/Deep/Folder/DJ tracks", 24),
+            "/Volumes/USB/\u{2026}/DJ tracks"
+        );
+        assert_eq!(
+            shortened_path("~/Music/Extended mixes from the summer festival season", 30),
+            "\u{2026}/Extended mixes from the sum\u{2026}"
+        );
+        assert_eq!(shortened_path("~/Music/DJ tracks", 30), "~/Music/DJ tracks");
+        for limit in [12, 20, 30, 36] {
+            let shortened = shortened_path("~/Music/Collections/2026/Summer/House", limit);
+            assert!(
+                shortened.chars().count() <= limit,
+                "{shortened} over {limit}"
+            );
+            assert!(shortened.ends_with("House"), "{shortened}");
+        }
     }
 }

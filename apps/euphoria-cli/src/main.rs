@@ -441,6 +441,7 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
         .iter()
         .cloned()
         .partition(|path| matches!(path.try_exists(), Ok(false)));
+    scan::announce(&present_paths)?;
     let scan = scan::scan_quietly(&present_paths)?;
     let standard_error_theme = Theme::stderr();
     if scan.files.is_empty() && missing_paths.is_empty() {

@@ -48,9 +48,19 @@ pub(crate) struct Scan {
 ///
 /// This walks folders on disk, so call it off the main thread.
 pub(crate) fn scan(paths: &[PathBuf], cache: Option<&CachedAnalyzer>) -> Scan {
+    scan_counting(paths, cache, &std::sync::atomic::AtomicUsize::new(0))
+}
+
+/// [`scan`], adding one to `found_so_far` for each audio file as the walk
+/// finds it.
+pub(crate) fn scan_counting(
+    paths: &[PathBuf],
+    cache: Option<&CachedAnalyzer>,
+    found_so_far: &std::sync::atomic::AtomicUsize,
+) -> Scan {
     let mut scan = Scan::default();
     for path in paths {
-        match euphoria_core::scan_audio_files(std::slice::from_ref(path)) {
+        match euphoria_core::scan_audio_files_counting(std::slice::from_ref(path), found_so_far) {
             Ok(found) => {
                 if path.is_dir() {
                     scan.folders.push(path.clone());

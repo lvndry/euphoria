@@ -46,8 +46,8 @@ impl EuphoriaApp {
         if let Some(label) = progress.counts_label() {
             work.push(label);
         }
-        if self.scans_in_progress > 0 {
-            work.push("Looking for audio files".to_string());
+        if let Some(label) = self.scans.label() {
+            work.push(label);
         }
         match &self.tag_panel {
             Some(TagPanel::Writing { .. }) => work.push("Writing tags".to_string()),

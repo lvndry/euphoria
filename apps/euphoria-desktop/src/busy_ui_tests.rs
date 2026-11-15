@@ -60,9 +60,15 @@ fn analysis_counts_its_tracks(cx: &mut TestAppContext) {
 fn each_kind_of_work_makes_the_app_busy(cx: &mut TestAppContext) {
     let (_, view) = open_library(5, cx);
 
-    change(&view, cx, |app, _| app.scans_in_progress = 1);
-    assert_eq!(work(&view, cx), ["Looking for audio files"]);
-    change(&view, cx, |app, _| app.scans_in_progress = 0);
+    let mut scan_id = 0;
+    change(&view, cx, |app, _| {
+        scan_id = app.scans.begin(vec!["/music/DJ tracks".into()]).0;
+    });
+    assert_eq!(
+        work(&view, cx),
+        ["Looking for audio files in /music/DJ tracks"]
+    );
+    change(&view, cx, |app, _| app.scans.finish(scan_id));
 
     change(&view, cx, |app, _| {
         app.tag_panel = Some(TagPanel::Writing {
