@@ -14,6 +14,7 @@ mod next;
 mod output;
 mod plan;
 mod playlists;
+mod prepare;
 mod rewrites;
 mod scan;
 mod set;
@@ -117,6 +118,21 @@ enum Command {
         after_help = help::shift_examples(),
     )]
     Shift(shift::ShiftArguments),
+    /// Write copies of tracks at one loudness, under a true-peak ceiling, for a club system.
+    #[command(
+        long_about = "Write copies of tracks that play evenly on a club system.\n\n\
+                      Each track is brought to the same integrated loudness (EBU R128) and a \
+                      transparent look-ahead limiter keeps the true peak under a ceiling. A \
+                      track that would need more limiting than allowed gets less gain instead. \
+                      With --tune, tracks measured off A = 440 Hz are shifted back to concert \
+                      pitch with the tempo unchanged. Already clipped passages are reported, \
+                      not repaired.\n\n\
+                      Copies are new 24 bit files with the tags and cover art of the \
+                      original, in its format (WAV, AIFF or FLAC); lossy tracks become FLAC \
+                      or WAV and are never written as lossy. Nothing is ever overwritten.",
+        after_help = help::prepare_examples(),
+    )]
+    Prepare(prepare::PrepareArguments),
     /// Separate a track into vocals, drums, bass and the rest.
     #[cfg(feature = "stems")]
     #[command(
@@ -322,6 +338,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Playlists => playlists::list(),
         Command::Corrections { command } => corrections::run(command),
         Command::Shift(arguments) => shift::run(&arguments),
+        Command::Prepare(arguments) => prepare::run(&arguments),
         Command::Set { command } => set::run(command),
         Command::Plan(arguments) => plan::run(&arguments),
         Command::Next(arguments) => next::run(&arguments),

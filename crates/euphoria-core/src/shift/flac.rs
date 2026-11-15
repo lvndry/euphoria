@@ -14,7 +14,7 @@ use flacenc::source::{Context, Fill, FrameBuf};
 use super::{BITS_PER_SAMPLE, write_error};
 use crate::EuphoriaError;
 
-pub(super) struct FlacWriter {
+pub(crate) struct FlacWriter {
     path: PathBuf,
     file: BufWriter<File>,
     config: Verified<flacenc::config::Encoder>,
