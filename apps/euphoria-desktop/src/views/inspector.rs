@@ -474,35 +474,21 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
         .and_then(|analysis| analysis.tempo_alternative_in(app.session.library().tempo_range()))
         .filter(|_| correction.bpm.is_none() && !correction.bpm_confirmed);
 
-    let (key_code, key_note) = match (track.key(), correction.key) {
-        (Some(key), Some(_)) => {
+    let key_value = match track.key() {
+        Some(key) => key_reading(&key, notation, palette),
+        None => statistic_value("\u{2013}"),
+    };
+    let key_note = match (track.key(), correction.key) {
+        (Some(_), Some(_)) => {
             let back_to = match track.detected_key() {
                 Some(detected) => format!("reset to {}", notation.spell(&detected)),
                 None => "reset".to_string(),
             };
-            (
-                notation.spell(&key),
-                reset_note("key-reset", back_to, palette, cx, |this, cx| {
-                    this.reset_key(cx)
-                }),
-            )
+            Some(reset_note("key-reset", back_to, palette, cx, |this, cx| {
+                this.reset_key(cx)
+            }))
         }
-        (Some(key), None) => (
-            notation.spell(&key),
-            quiet_note(key.to_string(), palette).into_any_element(),
-        ),
-        (None, _) => (
-            "\u{2013}".to_string(),
-            quiet_note(not_known_yet, palette).into_any_element(),
-        ),
-    };
-    let key_value = div()
-        .flex()
-        .flex_wrap()
-        .items_center()
-        .gap(GAP_SMALL)
-        .child(statistic_value(key_code))
-        .children(runner_up.map(|runner_up| {
+        (Some(_), None) => runner_up.map(|runner_up| {
             let description: SharedString = format!(
                 "The key that matched second best, {runner_up}. Compare the two by ear, and click to use it instead."
             )
@@ -524,7 +510,10 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
                 .tooltip(move |window, cx| Tooltip::new(description.clone()).build(window, cx))
                 .on_click(cx.listener(move |this, _, _, cx| this.accept_key(runner_up, cx)))
                 .test_support()
-        }));
+                .into_any_element()
+        }),
+        (None, _) => Some(quiet_note(not_known_yet, palette).into_any_element()),
+    };
 
     let (tempo, tempo_note) = match track.bpm() {
         Some(bpm) => (
@@ -612,13 +601,9 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
     let boxes = if is_column {
         let compact =
             |label, set_mark, value, note| statistic_compact(label, set_mark, value, note, palette);
-        let key_box = compact("Key", key_set_mark, key_value, Some(key_note));
-        let tempo_box = compact("BPM", tempo_set_mark, tempo, tempo_note)
-            .border_t_1()
-            .border_color(palette.line);
-        let energy_box = compact("Energy", energy_set_mark, energy, energy_note)
-            .border_t_1()
-            .border_color(palette.line);
+        let key_box = compact("Key", key_set_mark, key_value, key_note);
+        let tempo_box = compact("BPM", tempo_set_mark, tempo, tempo_note);
+        let energy_box = compact("Energy", energy_set_mark, energy, energy_note);
         div()
             .flex()
             .items_center()
@@ -643,13 +628,7 @@ fn statistics(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp
             .rounded(RADIUS_LARGE)
             .border_1()
             .border_color(palette.line)
-            .child(statistic(
-                "Key",
-                key_set_mark,
-                key_value,
-                Some(key_note),
-                palette,
-            ))
+            .child(statistic("Key", key_set_mark, key_value, key_note, palette))
             .child(
                 statistic("BPM", tempo_set_mark, tempo, tempo_note, palette)
                     .border_l_1()
@@ -786,6 +765,50 @@ pub(crate) fn value_with_unit(
         .child(quiet_note(unit, palette).id(unit_id).test_support())
 }
 
+/// The key on one baseline: the code large and the musical name after it
+/// in the style of a quiet note, such as "7A / D minor", or the other way
+/// round, "D minor / 7A", when the notation puts the musical name first.
+/// Short of room, only the musical name is cut, never the code.
+fn key_reading(key: &euphoria_core::Key, notation: NotationChoice, palette: &Palette) -> Div {
+    let name = key.to_string();
+    let reading = div()
+        .flex()
+        .items_baseline()
+        .gap(GAP_TIGHT)
+        .min_w_0()
+        .whitespace_nowrap();
+    match notation {
+        NotationChoice::Musical => reading
+            .child(
+                statistic_value(name)
+                    .id("key-name")
+                    .min_w_0()
+                    .truncate()
+                    .test_support(),
+            )
+            .child(
+                quiet_note(format!("/ {}", key.camelot()), palette)
+                    .id("key-code")
+                    .flex_shrink_0()
+                    .test_support(),
+            ),
+        NotationChoice::Camelot | NotationChoice::OpenKey => reading
+            .child(
+                statistic_value(notation.spell(key))
+                    .id("key-code")
+                    .flex_shrink_0()
+                    .test_support(),
+            )
+            .child(
+                quiet_note(format!("/ {name}"), palette)
+                    .id("key-name")
+                    .min_w_0()
+                    .truncate()
+                    .test_support(),
+            ),
+    }
+}
+
 /// The quiet line under the value of a box.
 pub(crate) fn quiet_note(text: impl Into<SharedString>, palette: &Palette) -> Div {
     div()
@@ -900,23 +923,29 @@ const STATISTIC_LABEL_WIDTH: f32 = 46.0;
 /// "C# minor" at their size beside the padding.
 const STATISTIC_CELL_WIDTH: f32 = 84.0;
 
-/// One line of the column: the label, and beside it the value with its
+/// One row of the column: the label, and beside it the value with its
 /// note under it when it has one and under that whether the user set the
-/// value.
+/// value. The label and the value block share the row's centre line, and
+/// every row has the same padding above and below. Every row but the first
+/// has a line above it.
 fn statistic_compact(
     label: &'static str,
     set_mark: Option<AnyElement>,
     value: Div,
     note: Option<AnyElement>,
     palette: &Palette,
-) -> Div {
+) -> AnyElement {
     div()
+        .id(SharedString::from(format!("statistic-row-{label}")))
+        .when(label != "Key", |row| {
+            row.border_t_1().border_color(palette.line)
+        })
         .flex()
         .items_center()
         .gap(GAP_SMALL)
         .min_w_0()
-        .px(px(8.0))
-        .py(px(4.0))
+        .px(GAP_SMALL)
+        .py(GAP_SMALL)
         .child(
             div()
                 .w(px(STATISTIC_LABEL_WIDTH))
@@ -925,13 +954,18 @@ fn statistic_compact(
         )
         .child(
             div()
+                .id(SharedString::from(format!("statistic-value-{label}")))
                 .flex()
                 .flex_col()
-                .flex_shrink_0()
+                .flex_1()
+                .min_w_0()
                 .child(value)
                 .children(note.map(|note| statistic_note(label, note)))
-                .children(statistic_set_mark(label, set_mark)),
+                .children(statistic_set_mark(label, set_mark))
+                .test_support(),
         )
+        .test_support()
+        .into_any_element()
 }
 
 /// The id of the playing track's title in the Deck strip, shown while
