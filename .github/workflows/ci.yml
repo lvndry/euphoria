@@ -167,16 +167,13 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Install system libraries on macOS
-        if: runner.os == 'macOS'
-        run: brew install libkeyfinder
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Clippy without libkeyfinder
+      - name: Clippy without the default features
         run: cargo clippy -p euphoria-core --no-default-features --all-targets --locked -- -D warnings
 
   test-macos:
@@ -198,8 +195,8 @@ jobs:
           - name: Command line unit, integration and packaging tests
             key: cli
             # The debug build of the euphoria command, made by the tests,
-            # links libkeyfinder and FFTW like the app does, so the app needs
-            # no release build here.
+            # links the same libraries as the app does, so the app needs no
+            # release build here.
             command: |
               cargo test -p euphoria-cli -p euphoria-bench --bins --locked
               cargo test -p euphoria-cli --test '*' --locked
@@ -208,8 +205,8 @@ jobs:
           - name: Core integration tests
             key: core-integration
             command: cargo test -p euphoria-core --test '*' --locked
-          - name: Core tests without libkeyfinder
-            key: core-without-libkeyfinder
+          - name: Core tests without the default features
+            key: core-without-default-features
             command: cargo test -p euphoria-core --no-default-features --locked
     runs-on: macos-latest
     timeout-minutes: 30
@@ -219,8 +216,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Install system libraries
-        run: brew install libkeyfinder
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -260,11 +255,11 @@ jobs:
         run: cargo test --workspace --exclude euphoria-desktop --lib --bins --locked
       - name: Audio decoding and detector integration tests
         run: cargo test --workspace --exclude euphoria-desktop --test '*' --locked
-      - name: Core tests without libkeyfinder
+      - name: Core tests without the default features
         run: cargo test -p euphoria-core --no-default-features --locked
       - name: Linux packaging library tests
-        # The debug build of the euphoria command links libkeyfinder and FFTW
-        # from /usr/local/lib, so bundling it exercises the same walk as the
+        # The debug build of the euphoria command links the ONNX Runtime from
+        # /usr/local/lib, so bundling it exercises the same walk as the
         # release.
         env:
           EUPHORIA_LINKED_BINARY: ${{ github.workspace }}/target/debug/euphoria
@@ -295,8 +290,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Install libkeyfinder
-        run: brew install libkeyfinder
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3

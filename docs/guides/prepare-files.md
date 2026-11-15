@@ -66,7 +66,7 @@ Each run leaves a small manifest, `euphoria-prepare-<time>.json`, next to its co
 ## What it never does
 
 - It never overwrites a file, and never changes the original. The original is only read, and stays byte for byte what it was.
-- It never writes a lossy file. MP3, AAC (M4A) and Ogg sources become FLAC or WAV. The copy holds what the decoder made of the lossy file at the new level; it does not make the source better.
+- It never writes a lossy file. MP3, AAC (M4A) and Ogg sources become FLAC or WAV. The copy holds what the decoder made of the lossy file at the new level; it does not make the source better. To find the lossy and damaged files worth buying again, run [`euphoria quality`](../concepts/audio-quality.md#find-the-files-to-replace).
 - It never repairs clipping, and never changes tempo or key.
 
 Cue points and beat grids stored by DJ software in the file or in its own library belong to the original. Analyze the copy again, and import it, before using it with them.

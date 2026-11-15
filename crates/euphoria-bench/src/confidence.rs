@@ -8,7 +8,7 @@
 use std::fmt::{self, Display, Formatter};
 
 use euphoria_core::detect::{KeyReading, StratumDetector, TempoReading, read_key};
-use euphoria_core::{Confidence, Key, KeyEngine, TempoRange};
+use euphoria_core::{Confidence, Key, TempoRange};
 
 use crate::dataset::Dataset;
 use crate::evaluate::{TrackOutcome, measure_tracks};
@@ -84,9 +84,7 @@ impl KeyConfidenceReport {
 /// Runs the shipped key detector over every track and tallies its accuracy
 /// by confidence level.
 pub fn evaluate_key_confidence(dataset: &Dataset<Key>) -> KeyConfidenceReport {
-    let outcomes = measure_tracks(&dataset.tracks, 1, |_, audio| {
-        read_key(KeyEngine::Auto, audio).map(Some)
-    });
+    let outcomes = measure_tracks(&dataset.tracks, 1, |_, audio| read_key(audio).map(Some));
     let mut report = KeyConfidenceReport::default();
     for (track, outcome) in dataset.tracks.iter().zip(outcomes) {
         match first_estimate(outcome) {
@@ -189,7 +187,7 @@ fn percent(count: usize, total: usize) -> String {
 
 impl Display for KeyConfidenceReport {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        writeln!(formatter, "## Key confidence, libkeyfinder\n")?;
+        writeln!(formatter, "## Key confidence, drone-v2\n")?;
         writeln!(
             formatter,
             "| Confidence | Tracks | Exact | MIREX score | Key or runner up exact |"

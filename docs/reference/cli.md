@@ -45,7 +45,7 @@ Tag keys: 1 of 2 tracks with a key in their tags differ from the detected key (1
 Sound quality: 1 track lossless, 1 weak on a big system.
 hint: --needs-review lists only the tracks to check by ear, with those whose tags name another key.
 hint: --detail says which reading to trust.
-hint: --quality weak lists the tracks worth replacing, and --detail says why.
+hint: euphoria quality lists the files worth replacing, worst first, with why.
 ```
 
 The key is shown in the notation `--key-notation` picks, coloured by its number on the Camelot wheel as in the app, with the key in another notation beside it. The table shows no confidence ratings; the Review column below says which tracks are worth checking by ear, and `--needs-review` lists only those. The ratings are still in the [JSON output](#json-output), and [accuracy](../concepts/accuracy.md#confidence) explains how they are set.
@@ -139,7 +139,6 @@ The tuning of a track and its key over time are in the detailed view and the [JS
 | `--audio-budget <MINUTES>` | Hold at most MINUTES of audio in memory at once, over all files being analyzed. The default is 60. See [memory](#memory-and-long-files). |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
 | `--reanalyze` | Analyze every file again and replace its cached result. Cannot be combined with `--no-cache`. |
-| `--key-engine <ENGINE>` | Which detector decides the key. `auto`, the default, uses the drone-v2 network for the key and the key over time, after a track 20 cents or more off concert pitch is brought back to it. `drone` does the same. `keyfinder` uses libkeyfinder alone, as Euphoria did before drone-v2. Each engine's results are cached apart. See [key detection](../concepts/accuracy.md#key-detection-with-drone-v2). |
 | `-h`, `--help` | Show help. |
 | `-V`, `--version` | Show the version. |
 
@@ -153,7 +152,7 @@ A count of workers does not bound memory when the files are long, so analysis al
 
 ### JSON output
 
-Every object has `"schema_version": 1`, as the JSON of [`euphoria set build`](#euphoria-set-build) and [`euphoria plan`](#euphoria-plan) does. Fields are only added within a schema version, never renamed or removed, so a script that reads a field keeps working; a change that breaks one raises the version. The `review_reasons` and `reviewed` fields, `tempo_move` of `set build` and `plan`, `euphoria next` and `euphoria mashup` were added to version 1 this way. `needs_review` is now `true` exactly when `review_reasons` is not empty, so a track whose doubtful values you confirmed with **Looks right** reads `false`, as in the app. Paths are printed as given on the command line for `analyze`, and as absolute paths for `set build`.
+Every object has `"schema_version": 1`, as the JSON of [`euphoria set build`](#euphoria-set-build) and [`euphoria plan`](#euphoria-plan) does. Fields are only added within a schema version, never renamed or removed, so a script that reads a field keeps working; a change that breaks one raises the version. The `review_reasons` and `reviewed` fields, `tempo_move` of `set build` and `plan`, `euphoria next`, `euphoria mashup` and `euphoria quality` were added to version 1 this way. `needs_review` is now `true` exactly when `review_reasons` is not empty, so a track whose doubtful values you confirmed with **Looks right** reads `false`, as in the app. Paths are printed as given on the command line for `analyze`, and as absolute paths for `set build`.
 
 One object per file, in path order, including files that failed, then one for each unreadable folder and skipped file:
 
@@ -243,7 +242,7 @@ After the files come entries for what the scan left out. A folder that could not
 
 `key`, `bpm` and `energy` are `null` when nothing was detected. `energy` is a whole number from 1 to 10. `stage` is `"warm-up"`, `"build"` or `"peak"`, the [set stage](../concepts/set-stage.md) among the tracks analyzed in the same run, and `null` for a track without a tempo and when fewer than 10 tracks have one; it is not the energy. The field was added to version 1 this way. `error` is set only when the file could not be analyzed. A file that is no longer there also has `"missing": true`; the field is absent on every other file.
 
-A key is written with its Camelot code, its name and its [Open Key](../concepts/keys-and-camelot.md#open-key-codes) code. The key of the track also has a `confidence` of `high`, `medium` or `low`; the keys of the timeline and the runner up have none. `runner_up_key` is the key that matched the track second best, which is the right key for many tracks whose detected key is wrong, and often the relative key or a key a fifth away. It is `null` when there is no key, and in builds without libkeyfinder.
+A key is written with its Camelot code, its name and its [Open Key](../concepts/keys-and-camelot.md#open-key-codes) code. The key of the track also has a `confidence` of `high`, `medium` or `low`; the keys of the timeline and the runner up have none. `runner_up_key` is the key that matched the track second best, which is the right key for many tracks whose detected key is wrong, and often the relative key or a key a fifth away. It is `null` when there is no key, and in builds without the `drone` feature.
 
 `bpm` is reported in the `--tempo-range`, and `bpm_confidence` rates how sure the beat itself is, whatever octave it is counted in. `bpm_alternative` is half or double `bpm` when a DJ could plausibly count the track that way, between 75 and 200 BPM or the ends of the range when those are further out, and `null` otherwise. With the default range that is half of a tempo from 150 up and double of one up to 100, where tempo detection most often lands an octave off.
 
@@ -362,7 +361,6 @@ Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-r
 | `-j`, `--jobs <N>` | Analyze N files at once. The default is the number of cores, at most 8. |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
 | `--reanalyze` | Analyze every file again and replace its cached result. Cannot be combined with `--no-cache`. |
-| `--key-engine <ENGINE>` | The key engine, `auto` by default, as for [`euphoria analyze`](#options). |
 | `-h`, `--help` | Show help. |
 
 ### What is written
@@ -690,6 +688,63 @@ The JSON object has `schema_version` (1), `track` (path, artist, title, key, key
 
 The exit status is 0 when the ranking was made, even when no track mixes in, and 1 when the track could not be analyzed. A note on standard error says why a list is empty or short.
 
+## euphoria quality
+
+Lists the files whose audio is too poor for a club system, worst first, each with a plain reason, so you can buy or download a better copy. The verdicts are the [audio quality](../concepts/audio-quality.md) verdicts of `euphoria analyze`; tracks analyzed before are read from the cache and not decoded again.
+
+```
+euphoria quality [OPTIONS] <PATHS>...
+```
+
+```
+$ euphoria quality ~/Music/DJ
+3 of 212 tracks to replace: 1 heavily damaged, 1 fake lossless, 1 low bit rate.
+
+Heavily damaged  Saffron & Co - Low Tide
+  Good: 41.2 s missing at the end
+  Deep/Low Tide.mp3
+
+Fake lossless    Harbour Lights - Night Drive
+  Likely re-encoded: FLAC, but the sound stops at 16.1 kHz like a 128 kbit/s MP3
+  Club/Night Drive.flac
+
+Low bit rate     Glow - Afterglow
+  Weak on a big system: MP3, 128 kbit/s; 0.42% of the samples clipped at full scale
+  Afterglow.mp3
+```
+
+The first line counts the tracks and the files to replace by their worst problem. Each file then has a block: its worst problem and its artist and title from the tags (the file name when it has none), its verdict with a concrete reason for each problem, and its path relative to the folder given. A file is listed for these problems, in this order:
+
+| Problem | When |
+| --- | --- |
+| Heavily damaged | 2% or more of the audio could not be decoded or is missing, so the beat grid and cues are not written. See [damaged files](../concepts/audio-quality.md#damaged-files). |
+| Fake lossless | A lossless file whose sound stops in a brick wall, where a lossy file's would: verdict Likely re-encoded. |
+| Re-encoded | A lossy file whose sound stops where a lower bit rate file's would: verdict Likely re-encoded. |
+| Low bit rate | Verdict Weak on a big system. |
+| Damaged | Some audio could not be decoded or is missing, less than 2%. |
+| Medium bit rate | Verdict Acceptable, only with `--min acceptable`. |
+
+Among files with the same worst problem, the worse comes first: more audio lost, an earlier cutoff or a lower bit rate. A file with several problems is counted once, by its worst, and its reasons are all listed.
+
+Clipping, at least 0.1% of the samples in runs at full scale, is named among the reasons of a listed file but never lists a file on its own: a new copy of the same master is clipped too. With `--all`, a clipped file that is otherwise fine shows under `Keep` with its clipping in the reason.
+
+| Option | Effect |
+| --- | --- |
+| `--all` | List every track with its verdict, the files to replace first, then the rest under `Keep`. |
+| `--min <VERDICT>` | The verdict from which a file is worth replacing: `acceptable`, `weak` (the default, weak on a big system) or `reencoded`. Damaged files are listed whatever it is. |
+| `--json` | Print JSON instead of the list. |
+| `--csv <FILE>` | Also write the list as a CSV file, with the same rows as the list. |
+| `--m3u <FILE>` | Also write the files to replace as an M3U8 playlist, to find them in rekordbox, Serato, Traktor or another DJ program. |
+| `--force` | Replace the CSV or M3U8 file if it exists. Without it, an existing file is an error. |
+
+The analysis options of [`euphoria analyze`](#options) also apply: `--jobs`, `--audio-budget`, `--no-cache`, `--reanalyze`, `--tempo-range` and `--key-engine`.
+
+The JSON object has `schema_version` (1), `threshold` (the `--min` verdict in kebab case), `summary` (`tracks`, `to_replace`, `by_problem` with `problem`, `label` and `count` for each problem a file has, and `line`, the first line of the list) and `tracks`, in the order of the list. Each track has `path`, `relative_path`, `artist`, `title`, `verdict`, `verdict_label`, `to_replace`, `problems` (in kebab case, worst first), `reasons` (the short reasons of the list), `explanation` (the sentence `euphoria analyze --detail` gives), `notes` and `quality`, the full report as in [`euphoria analyze`](#json-output).
+
+The CSV file has the columns `Path` (relative), `Artist`, `Title`, `Verdict`, `To replace` (`yes` or `no`), `Problems`, `Reason` and `Full path`. The M3U8 playlist is called "Files to replace" and holds only the files to replace, in the order of the list, by their full path.
+
+Files that cannot be read at all are listed on standard error with the reason; they are worth replacing too. The exit status is that of [`euphoria analyze`](#progress-and-exit-status).
+
 ## euphoria mashup
 
 Finds tracks that layer over a track, playing at the same time rather than one after the other: the same ideas, in the same order, as [mashup mode](../guides/mashups.md) of the desktop app's decks. With a second track and `--render`, it writes the pair to a WAV file the way the decks export it.
@@ -967,7 +1022,7 @@ Each path is a file or a folder, searched like [`euphoria analyze`](#options). T
 | `--revert <MANIFEST_OR_FOLDER>` | Undo a run, as [below](#reverting-a-run). Takes no paths. |
 | `--dry-run` | Measure and print what would be done, and write nothing. |
 | `--json` | Print a JSON document instead of text. |
-| `-j`, `--jobs <N>`, `--no-cache`, `--reanalyze`, `--tempo-range`, `--key-engine` | As for [`euphoria analyze`](#options). They matter only with `--tune`. |
+| `-j`, `--jobs <N>`, `--no-cache`, `--reanalyze`, `--tempo-range` | As for [`euphoria analyze`](#options). They matter only with `--tune`. |
 
 ### Output
 

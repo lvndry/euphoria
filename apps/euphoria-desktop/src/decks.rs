@@ -26,7 +26,7 @@ use crate::deck_audio::{
 };
 use crate::library::Track;
 use crate::mashup::{DeckSetup, MashupIdea, StemLibrary};
-use crate::playback::{StemMix, TrackSource, Voice};
+use crate::playback::{OpenRequest, PlaybackProblem, StemMix, Voice};
 use crate::playlists::PlaylistId;
 use crate::views::waveform::SeenBounds;
 
@@ -812,33 +812,31 @@ impl EuphoriaApp {
             .then(|| self.decks.view(deck).stem_files.clone())
             .flatten();
         let stem_mix = Arc::clone(&self.decks.view(deck).stem_mix);
+        let opening = self.output.open(OpenRequest {
+            path,
+            from_seconds: seconds as f32,
+            semitones: 0,
+            stems: stems.map(|files| (files, stem_mix)),
+        });
         cx.spawn(async move |this, cx| {
-            let opened_path = path.clone();
-            // The file is opened, and the deck's stretcher built, here and
-            // not on the audio thread.
-            let opened = cx
-                .background_executor()
-                .spawn(async move {
-                    let source = match stems {
-                        Some(files) => TrackSource::open_stems(&files, stem_mix, seconds as f32),
-                        None => TrackSource::open(&opened_path, seconds as f32),
-                    };
-                    source.map(|source| {
-                        let duration = source.duration_seconds();
-                        (duration, prepare_track(source, grid))
-                    })
-                })
-                .await;
+            let opened = opening
+                .recv()
+                .await
+                .unwrap_or(Err(PlaybackProblem::NotDecodable));
             this.update(cx, |this, cx| {
                 if this.decks.load_generation[index(deck)] != generation {
                     return;
                 }
                 this.decks.view_mut(deck).loading = false;
                 match opened {
-                    Ok((duration, track)) => {
+                    Ok(source) => {
                         if this.decks.view(deck).duration_seconds.is_none() {
-                            this.decks.view_mut(deck).duration_seconds = duration.map(f64::from);
+                            this.decks.view_mut(deck).duration_seconds =
+                                source.duration_seconds().map(f64::from);
                         }
+                        // The deck's stretcher is built here and not on the
+                        // audio thread.
+                        let track = prepare_track(source, grid);
                         this.decks.send(DeckCommand::Load { deck, track });
                         let view = this.decks.view(deck);
                         this.decks.send(DeckCommand::SetGrid {

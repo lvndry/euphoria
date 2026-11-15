@@ -152,6 +152,7 @@ fn a_typed_genre_keeps_the_tracks_whose_genre_holds_it(cx: &mut TestAppContext) 
                     euphoria_core::TrackName {
                         title: None,
                         artist: None,
+                        album: None,
                         genre: Some("Deep House".to_string()),
                         key: None,
                     },
@@ -161,6 +162,7 @@ fn a_typed_genre_keeps_the_tracks_whose_genre_holds_it(cx: &mut TestAppContext) 
                     euphoria_core::TrackName {
                         title: None,
                         artist: None,
+                        album: None,
                         genre: Some("Techno".to_string()),
                         key: None,
                     },
@@ -336,6 +338,7 @@ fn the_inspector_mixes_follow_the_energy_range_the_genre_and_the_pool(cx: &mut T
                     euphoria_core::TrackName {
                         title: None,
                         artist: None,
+                        album: None,
                         genre: Some("Deep House".to_string()),
                         key: None,
                     },
@@ -345,6 +348,7 @@ fn the_inspector_mixes_follow_the_energy_range_the_genre_and_the_pool(cx: &mut T
                     euphoria_core::TrackName {
                         title: None,
                         artist: None,
+                        album: None,
                         genre: Some("Techno".to_string()),
                         key: None,
                     },

@@ -75,6 +75,8 @@ pub(crate) struct Track {
     pub(crate) tag_title: Option<String>,
     /// The artist in the file's tags, once read.
     pub(crate) artist: Option<String>,
+    /// The album in the file's tags, once read.
+    pub(crate) album: Option<String>,
     /// The key field of the file's tags, once read, when it has one.
     pub(crate) tag_key: Option<TagKey>,
     /// The genre in the file's tags, once read.
@@ -128,6 +130,7 @@ impl Track {
             path,
             tag_title: None,
             artist: None,
+            album: None,
             tag_key: None,
             file_name,
             format,
@@ -149,7 +152,8 @@ impl Track {
         self.artist.as_deref()
     }
 
-    /// Takes the title, artist, genre and key field from the file's tags.
+    /// Takes the title, artist, album, genre and key field from the file's
+    /// tags.
     fn set_names(&mut self, name: TrackName) {
         self.title_lowercase = name
             .title
@@ -160,6 +164,7 @@ impl Track {
         self.genre_lowercase = name.genre.as_deref().map(str::to_lowercase);
         self.tag_title = name.title;
         self.artist = name.artist;
+        self.album = name.album;
         self.tag_key = name.key;
         self.genre = name.genre;
     }
