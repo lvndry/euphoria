@@ -511,7 +511,7 @@ On the player, a DJ sees where the track lifts and where it drops before hearing
 
 `euphoria analyze` shows the energy beside each cue in the [detailed view](../reference/cli.md#the-detailed-view) and as `energy` in the JSON, and the desktop app beside each cue of the list. The energy of each section is measured when a track is analyzed. A track analyzed before this has cues with no energy, and they keep the pad colours until it is analyzed again, for example with `euphoria analyze --reanalyze`.
 
-It is not scored against listeners: no dataset rates the sections of a track. It was checked on 36 full length tracks of one DJ library, about 8 from each genre folder (1 afrobeats and 3 organic house tracks, as those folders are small), counting the cues rather than scoring them. The Start cue is below the most intense cue of its track on 29 of 35 tracks. A Drop is rated above the Breakdown before it far less often:
+It is not scored against listeners: no dataset rates the sections of a track. With energy model version 2, when each section was rated from its own features rather than from the curve, it was checked on 36 full length tracks of one DJ library, about 8 from each genre folder (1 afrobeats and 3 organic house tracks, as those folders are small), counting the cues rather than scoring them. The Start cue is below the most intense cue of its track on 29 of 35 tracks. A Drop is rated above the Breakdown before it far less often:
 
 | Folder | Tracks | Drop above its Breakdown | Same | Below |
 | --- | --- | --- | --- | --- |
