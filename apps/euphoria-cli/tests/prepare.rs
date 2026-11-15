@@ -183,15 +183,13 @@ fn tune_reads_the_tuning_of_each_track_from_its_analysis() {
     assert!(track["tuning_correction_cents"].is_null());
 }
 
-fn manifests_in(folder: &std::path::Path) -> Vec<std::path::PathBuf> {
+fn manifests_in(folder: &Path) -> Vec<std::path::PathBuf> {
     std::fs::read_dir(folder)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
+        .expect("the folder is read")
+        .map(|entry| entry.expect("an entry is read").path())
         .filter(|path| {
             path.file_name()
-                .unwrap()
-                .to_string_lossy()
-                .starts_with("euphoria-prepare-")
+                .is_some_and(|name| name.to_string_lossy().starts_with("euphoria-prepare-"))
         })
         .collect()
 }
@@ -202,7 +200,7 @@ fn tag_only_writes_replaygain_leaves_the_audio_and_reverts() {
     let folder = TemporaryFolder::new();
     let input = folder.path().join("quiet.wav");
     write_tone(&input, 0.02);
-    let audio_chunk = |path: &std::path::Path| {
+    let audio_chunk = |path: &Path| {
         let bytes = std::fs::read(path).unwrap();
         let position = bytes
             .windows(4)

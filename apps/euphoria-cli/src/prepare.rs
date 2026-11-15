@@ -130,6 +130,12 @@ struct JsonDocument<'a> {
     failed: usize,
 }
 
+#[derive(Default)]
+struct RunState {
+    reserved: HashSet<PathBuf>,
+    manifests: BTreeMap<PathBuf, Manifest>,
+}
+
 struct Outcome {
     input: PathBuf,
     replaygain: Option<ReplayGainFields>,
@@ -196,8 +202,7 @@ pub fn run(arguments: &PrepareArguments) -> Result<ExitCode> {
     }
 
     let bar = progress_bar(scan.files.len());
-    let mut reserved = HashSet::new();
-    let mut manifests: BTreeMap<PathBuf, Manifest> = BTreeMap::new();
+    let mut state = RunState::default();
     let mut outcomes = Vec::new();
     for input in &scan.files {
         bar.set_message(file_label(input));
@@ -208,8 +213,7 @@ pub fn run(arguments: &PrepareArguments) -> Result<ExitCode> {
             arguments,
             out_directory.as_deref(),
             tunings.get(input).copied().flatten(),
-            &mut reserved,
-            &mut manifests,
+            &mut state,
         );
         outcomes.push(outcome);
         bar.inc(1);
@@ -220,7 +224,8 @@ pub fn run(arguments: &PrepareArguments) -> Result<ExitCode> {
         for outcome in outcomes.iter().filter(|outcome| outcome.written) {
             if let Some(output) = &outcome.output {
                 let folder = output.parent().map(Path::to_path_buf).unwrap_or_default();
-                let manifest = manifests
+                let manifest = state
+                    .manifests
                     .entry(folder)
                     .or_insert_with(|| Manifest::new(RunMode::Copies, &settings));
                 manifest
@@ -230,7 +235,7 @@ pub fn run(arguments: &PrepareArguments) -> Result<ExitCode> {
         }
     }
     let mut manifest_paths = Vec::new();
-    for (folder, manifest) in &manifests {
+    for (folder, manifest) in &state.manifests {
         if !manifest.entries.is_empty() {
             manifest_paths.push(manifest.save(folder).map_err(crate::with_causes)?);
         }
@@ -295,8 +300,7 @@ fn prepare_one(
     arguments: &PrepareArguments,
     out_directory: Option<&Path>,
     tuning_cents: Option<f32>,
-    reserved: &mut HashSet<PathBuf>,
-    manifests: &mut BTreeMap<PathBuf, Manifest>,
+    state: &mut RunState,
 ) -> Outcome {
     let mut outcome = Outcome {
         input: input.to_path_buf(),
@@ -319,7 +323,8 @@ fn prepare_one(
         if plan.skipped.is_none() {
             outcome.replaygain = ReplayGainFields::from_plan(&plan);
             if let (false, Some(fields)) = (arguments.dry_run, &outcome.replaygain) {
-                let manifest = manifests
+                let manifest = state
+                    .manifests
                     .entry(input.parent().map(Path::to_path_buf).unwrap_or_default())
                     .or_insert_with(|| Manifest::new(RunMode::TagOnly, settings));
                 match tag_track(manifest, input, fields) {
@@ -337,9 +342,9 @@ fn prepare_one(
             out_directory,
             &arguments.suffix,
             plan.output_format,
-            reserved,
+            &state.reserved,
         );
-        reserved.insert(output.clone());
+        state.reserved.insert(output.clone());
         outcome.output = Some(output);
     }
     if !arguments.dry_run
