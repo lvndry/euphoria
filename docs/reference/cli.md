@@ -928,6 +928,8 @@ EUPHORIA_DATA_DIR=/Volumes/Music/.euphoria euphoria analyze /Volumes/Music
 
 A relative value is taken from the directory the command is run in, so `EUPHORIA_DATA_DIR=data` run in `/Users/you` means `/Users/you/data`. `euphoria cache path` prints the absolute location that results.
 
+Set `EUPHORIA_ASSUME_NO_DJ_PROGRAMS=1` to skip the check for a running DJ program before writing tags or exporting, for scripts and tests on a machine where rekordbox, Serato DJ, Traktor, Engine DJ or VirtualDJ happens to be open. Euphoria then no longer protects a write from a program saving the same file at the same moment, so leave it unset for everyday use.
+
 Several `euphoria analyze` and `euphoria export` commands can run at the same time and share one database.
 
 ### When the cache cannot be used
