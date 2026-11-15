@@ -977,13 +977,24 @@ fn waveform_section(
             (None, "Reading audio".into())
         }
     };
+    let is_in_player = app.selection_is_in_player();
     let note = match app.player.failure() {
-        Some(problem) if is_in_strip => div().text_color(palette.danger).child(problem.to_string()),
-        _ if is_in_strip => div().child(app.player.time_label()),
+        Some(problem) if is_in_strip && is_in_player => {
+            div().text_color(palette.danger).child(problem.to_string())
+        }
+        _ if is_in_strip && is_in_player => div().child(app.player.time_label()),
+        _ if is_in_strip && app.player.offers_pause() => match app.player_track() {
+            Some(playing) => div().child(format!(
+                "Playing {} \u{b7} {}",
+                playing.title(),
+                app.player.time_label()
+            )),
+            None => div().child(note),
+        },
         _ => div().child(note),
     };
 
-    let progress = app.player.progress();
+    let progress = app.player.progress().filter(|_| is_in_player);
     let duration_seconds = track.duration_seconds().unwrap_or(0.0);
     let separated_path = track.path.clone();
     let lanes = track_overview::overview_lanes(&LaneInputs {
@@ -1069,6 +1080,7 @@ fn waveform_section(
                 )),
         ),
         &app.waveform_bounds,
+        is_in_player,
         cx,
     )
     .test_support();

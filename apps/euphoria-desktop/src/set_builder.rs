@@ -646,11 +646,8 @@ impl EuphoriaApp {
         };
         self.set_builder.selected_row = Some(position);
         self.select(index, cx);
-        self.give_player_selection(true, cx);
         self.set_builder.playing = Some(position);
-        for request in self.player.play_from(from_seconds) {
-            self.carry_out(Some(request), cx);
-        }
+        self.play_library_track(index, from_seconds, cx);
         cx.notify();
     }
 
