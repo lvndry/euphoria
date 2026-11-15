@@ -3,9 +3,11 @@
 
 //! How energetic a track feels, as a rating from 1 to 10.
 //!
-//! The rating is a weighted average of a few measured features, each mapped
-//! to a score through the anchors in [`ENERGY_MODEL`]. It is Euphoria's own
-//! scale and is not comparable to the energy numbers of other tools.
+//! A stretch of audio is rated from a weighted average of a few measured
+//! features, each mapped to a score through the anchors in [`ENERGY_MODEL`].
+//! A track is rated from the windows of its energy curve, so the rating of
+//! a track and its curve tell the same story. It is Euphoria's own scale and
+//! is not comparable to the energy numbers of other tools.
 
 mod loudness;
 mod model;
@@ -34,6 +36,16 @@ pub const ENERGY_MINIMUM_SAMPLE_RATE: u32 = crate::audio::MINIMUM_SAMPLE_RATE;
 /// refused with [`EuphoriaError::UnsupportedSampleRate`] before anything is
 /// allocated.
 pub const ENERGY_MAXIMUM_SAMPLE_RATE: u32 = crate::audio::MAXIMUM_SAMPLE_RATE;
+
+/// The rating of a track is the mean score of the windows of its curve
+/// that are no quieter than this, in LU, below the loudness that the
+/// loudest tenth of the windows reach, so that a quiet intro or outro stays
+/// out of it.
+const BODY_LOUDNESS_MARGIN_LU: f32 = 6.0;
+/// Where the loudness that the body of a track is measured from sits among
+/// the loudness of its windows, from 0.0 (the quietest) to 1.0 (the
+/// loudest).
+const BODY_REFERENCE_QUANTILE: f32 = 0.9;
 
 /// Audio shorter than this has no features and no rating.
 const MINIMUM_ANALYSIS_SECONDS: f32 = 1.0;
@@ -79,7 +91,9 @@ pub struct EnergyRating {
     /// Position on the scale from 0.0 to 1.0 before it is cut into ten
     /// ratings. Useful for ordering tracks that share a rating.
     pub score: f32,
-    /// The features the rating was computed from.
+    /// The features of the stretch of audio that was rated. For a curve
+    /// window, the rating comes from them. For a whole track, they describe
+    /// the whole track, and the rating comes from the windows of its curve.
     pub features: EnergyFeatures,
     /// The tempo in beats per minute that took part in the rating, when the
     /// caller supplied a usable one.
@@ -162,8 +176,15 @@ pub fn rate_features(
     })
 }
 
-/// Rates the whole buffer. Returns `Ok(None)` for silence and for audio
+/// Rates a whole track. Returns `Ok(None)` for silence and for audio
 /// shorter than one second, as the key and tempo detectors do.
+///
+/// The score is the mean score of the main body of the [`energy_curve`]:
+/// the windows no more than 6 LU quieter than the loudness that its loudest
+/// tenth of windows reach. The rating therefore sits where the body of the
+/// curve sits and is not pulled down by a long quiet intro or outro. The features of the rating are those of the whole track. When no
+/// window of the curve can be rated, the whole track is rated from its
+/// features.
 ///
 /// Fails as [`energy_features`] does for an unsupported sample rate and as
 /// [`rate_features`] does for an unusable tempo, whatever the audio holds.
@@ -172,16 +193,58 @@ pub fn rate_energy(
     tempo: Option<f32>,
 ) -> Result<Option<EnergyRating>, EuphoriaError> {
     check_tempo(tempo)?;
-    energy_features(audio)?
-        .map(|features| rate_features(&features, tempo))
-        .transpose()
+    let Some(features) = energy_features(audio)? else {
+        return Ok(None);
+    };
+    let whole_track = rate_features(&features, tempo)?;
+    let curve = energy_curve(audio, tempo)?;
+    Ok(Some(match body_score(&curve) {
+        Some(score) => EnergyRating {
+            rating: rating_of(score),
+            score,
+            ..whole_track
+        },
+        None => whole_track,
+    }))
+}
+
+/// The mean score of the windows of `curve` that make up the main body of
+/// the track, or `None` when no window is rated.
+fn body_score(curve: &[EnergyCurvePoint]) -> Option<f32> {
+    let windows: Vec<&EnergyRating> = curve
+        .iter()
+        .filter_map(|point| point.rating.as_ref())
+        .collect();
+    let mut loudness: Vec<f32> = windows
+        .iter()
+        .map(|window| window.features.integrated_loudness_lufs)
+        .collect();
+    loudness.sort_by(f32::total_cmp);
+    let threshold = quantile(&loudness, BODY_REFERENCE_QUANTILE)? - BODY_LOUDNESS_MARGIN_LU;
+    let body: Vec<f32> = windows
+        .iter()
+        .filter(|window| window.features.integrated_loudness_lufs >= threshold)
+        .map(|window| window.score)
+        .collect();
+    Some(body.iter().sum::<f32>() / body.len() as f32)
+}
+
+/// The value at `fraction` of the way through `sorted`, interpolated
+/// between neighbours, or `None` when `sorted` is empty.
+fn quantile(sorted: &[f32], fraction: f32) -> Option<f32> {
+    let last = sorted.len().checked_sub(1)?;
+    let position = fraction.clamp(0.0, 1.0) * last as f32;
+    let below = position.floor() as usize;
+    let above = (below + 1).min(last);
+    let weight = position - below as f32;
+    Some(sorted[below] + (sorted[above] - sorted[below]) * weight)
 }
 
 /// Rates the audio over a sliding window, for drawing energy over time.
 ///
 /// Windows are [`ENERGY_CURVE_WINDOW_SECONDS`] long and start every
-/// [`ENERGY_CURVE_HOP_SECONDS`]. Each point is exactly what [`rate_energy`]
-/// returns for that stretch of audio. Audio shorter than one window gives a
+/// [`ENERGY_CURVE_HOP_SECONDS`]. Each point rates the features of its window
+/// with [`rate_features`]. Audio shorter than one window gives a
 /// single point that covers all of it, and the last partial hop of a longer
 /// track is covered only by the windows before it.
 ///
@@ -289,6 +352,57 @@ mod tests {
             low_frequency_share: between(ENERGY_MODEL.low_frequency_share),
             spectral_flux: between(ENERGY_MODEL.spectral_flux),
         }
+    }
+
+    fn window(loudness: f32, score: f32) -> EnergyCurvePoint {
+        let rating = rate_features(&features_at(0.5), None).unwrap();
+        EnergyCurvePoint {
+            start_seconds: 0.0,
+            duration_seconds: ENERGY_CURVE_WINDOW_SECONDS,
+            rating: Some(EnergyRating {
+                score,
+                features: EnergyFeatures {
+                    integrated_loudness_lufs: loudness,
+                    ..rating.features
+                },
+                ..rating
+            }),
+        }
+    }
+
+    #[test]
+    fn quantile_interpolates_between_neighbours() {
+        let sorted = [1.0, 2.0, 3.0, 4.0, 5.0];
+        assert_eq!(quantile(&sorted, 0.0), Some(1.0));
+        assert_eq!(quantile(&sorted, 0.5), Some(3.0));
+        assert_eq!(quantile(&sorted, 0.9), Some(4.6));
+        assert_eq!(quantile(&sorted, 1.0), Some(5.0));
+        assert_eq!(quantile(&[7.0], 0.9), Some(7.0));
+        assert_eq!(quantile(&[], 0.9), None);
+    }
+
+    #[test]
+    fn the_body_leaves_out_windows_far_below_the_loud_part() {
+        let mut curve = vec![window(-30.0, 0.05); 20];
+        curve.extend(vec![window(-8.0, 0.6); 10]);
+        curve.push(window(-13.0, 0.3));
+        curve.push(EnergyCurvePoint {
+            rating: None,
+            ..window(-8.0, 0.0)
+        });
+        let expected = (0.6 * 10.0 + 0.3) / 11.0;
+        let score = body_score(&curve).unwrap();
+        assert!((score - expected).abs() < 1.0e-6, "{score}");
+    }
+
+    #[test]
+    fn a_curve_without_rated_windows_has_no_body() {
+        assert_eq!(body_score(&[]), None);
+        let silent = EnergyCurvePoint {
+            rating: None,
+            ..window(-8.0, 0.0)
+        };
+        assert_eq!(body_score(&[silent]), None);
     }
 
     #[test]

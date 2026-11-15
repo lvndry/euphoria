@@ -167,7 +167,7 @@ Limits: typing a bare note such as `a` or `c` is a word, not a key; add `m` or `
 ## The sidebar
 
 - **All tracks** shows the whole library.
-- **Needs review** shows the tracks worth checking by ear: those whose key or tempo is rated low confidence and not yet [corrected by you](#check-the-key-by-ear-and-correct-it), those whose tags [name another key](#when-the-tags-name-another-key), and those that could not be analyzed, within the folder on show when one is chosen. Its count follows that folder, and a line under the heading says why the tracks are there. Each row carries a small chip for each reason, such as **Key unsure**, and the inspector says how to [settle it](#settle-a-track-under-needs-review). [Accuracy](../concepts/accuracy.md#confidence) explains how confidence is rated.
+- **Needs review** shows the tracks worth checking by ear: those whose key or tempo is rated low confidence and not yet [corrected by you](#check-the-key-by-ear-and-correct-it), those whose tags [name another key](#when-the-tags-name-another-key), and those that could not be analyzed, within the folder on show when one is chosen. Its count follows that folder, and a line under the heading says why the tracks are there. Each row carries a small chip for each reason, such as **Key: relative or 5th?**, and the inspector says how to [settle it](#settle-a-track-under-needs-review). The confidence rating itself is not shown; [accuracy](../concepts/accuracy.md#confidence) explains how it is set.
 - **Favorites** shows the tracks you starred, in the order you starred them. See [Favorites](#favorites).
 - **Missing files** shows the tracks whose file is no longer where it was, within the folder on show. The entry appears only while at least one file is missing; when the last one is found again or removed, the table returns to **All tracks**. See [Missing files](#missing-files).
 - **Folders** shows each folder you added as a tree of the folders inside it, to any depth, with the number of tracks in each, counting the folders inside it. Folders with no audio files anywhere inside them are left out.
@@ -206,7 +206,7 @@ The inspector shows the selected track. Three things are always in view, from th
 | Section | Holds | Open at first |
 | --- | --- | --- |
 | **Mixes well with** | The tracks in your library that mix with this one. | Yes |
-| **Check by ear** | The key tone, the chord and the piano. | No, but it opens by itself for a track under [Needs review](#settle-a-track-under-needs-review) for **Key unsure** or **Tag says**. |
+| **Check by ear** | The key tone, the chord and the piano. | No, but it opens by itself for a track under [Needs review](#settle-a-track-under-needs-review) for **Key: relative or 5th?** or **Tag says**. |
 | **Hear it in another key** | Transposes playback only, and the tone, piano and chords of **Check by ear** follow it. Nothing is saved; the exports of the shifted copy and stems are here. | No |
 | **Stems** | Separate the track and choose what to hear. | No |
 | **Sound quality** | The verdict, the reason for it, and what it rests on: codec, bit rate, sample rate, where the content stops, loudness and true peak. | No, but it opens by itself for a weak, likely re-encoded or damaged file. |
@@ -214,7 +214,7 @@ The inspector shows the selected track. Three things are always in view, from th
 
 A section you opened or closed yourself stays as you left it, for every track, and beats the opening by itself. The choice is kept in `settings.json`, per section, not per track. In the Deck theme the strip keeps the header, the boxes with the wheel and the waveform in view, with the title in a column at least 220 pixels wide on one line (an ellipsis and the full name on hover when it is longer). The sections become small tabs at the strip's right, **Mixes**, **By ear**, **Other key**, **Stems**, **Quality** and **Location**; click one to show it in the last area of the strip, one at a time. The strip opens on the section that would open by itself, else on **Mixes**.
 
-The key and tempo boxes show the key name ("C# minor") and the unit ("per minute") whole, with the confidence word on a line of its own under the value.
+The tempo and energy boxes each read on one line, such as "124.0 BPM" and "7 out of 10", and the key box shows the key name ("C# minor") whole under the key. A value you set shows **by you** on a line of its own, with a "reset to ..." line to go back to the detected value.
 
 The waveform is read from the file when you select the track.
 
@@ -228,9 +228,9 @@ Covers are read only for the tracks on screen, never for the whole library, and 
 
 Not there yet: covers in the table rows, the ⌘K palette and the "Next after" rows; the Deck theme's strip header shows no cover.
 
-### How sure the key and the tempo are
+### What else the key and the tempo could be
 
-The Key and BPM boxes say quietly how far to trust the value: **high** or **medium** on a line under the value, and **to review**, in the warning colour (an amber, not the red of an error), when Euphoria is unsure and the track is under **Needs review**. Once you choose **Looks right** or correct the value, **to review** goes away. Point at the word for what it means.
+The Key and BPM boxes show no confidence word. A key or tempo Euphoria doubts puts the track under **Needs review**, which says in words what may be wrong: the key may be its relative or a fifth away, or the BPM half or double.
 
 When the key is not rated high, the key that matched second best sits beside it, as a chip such as "or 9A": play the track and compare the two by ear. When a DJ could plausibly count the track at half or double the tempo, that tempo is shown under it, such as "or 87.0". Click either to use it instead, as the next section explains.
 
@@ -251,8 +251,8 @@ A track is under **Needs review** for one or more of four reasons. In the list e
 
 | Chip | What it means | How to settle it |
 | --- | --- | --- |
-| **Key unsure** | The key is rated low confidence. | Play the key tone or the piano under the Key box (see [check the key by ear](#check-the-key-by-ear-and-correct-it)). Then click **Try** with the second best key if it is right, **Correct...** to pick another, or **Looks right** to keep the detected key. |
-| **Tempo unsure** | The tempo is rated low confidence, most often because it is counted at half or double speed. | Turn on the [metronome](#metronome) in the toolbar: it starts at the selected track's tempo, so you can hear whether the clicks sit on the beat. Click **½ ×** or **2 ×** to use half or double, or **Looks right** to keep it. |
+| **Key: relative or 5th?** | The key is rated low confidence: it may be its relative key or a key a fifth away. | Play the key tone or the piano under the Key box (see [check the key by ear](#check-the-key-by-ear-and-correct-it)). Then click **Try** with the second best key if it is right, **Correct...** to pick another, or **Looks right** to keep the detected key. |
+| **BPM: half or double?** | The tempo is rated low confidence: the BPM may be half or double, the most common tempo error. | Turn on the [metronome](#metronome) in the toolbar: it starts at the selected track's tempo, so you can hear whether the clicks sit on the beat. Click **½ ×** or **2 ×** to use half or double, or **Looks right** to keep it. |
 | **Tag says 8A** | The key field in the file's tags names another key than the one detected (the same case as the red **≠**; see [when the tags name another key](#when-the-tags-name-another-key)). | The box offers **Keep** the tags' key, which sets it as your key, or **Use** the detected key, which confirms it. Either way the conflict does not come back. |
 | **Failed** | The file could not be analyzed. The box gives the reason. | Fix the file if the reason points to a problem, then click **Analyze again**. A file that fails again stays under Needs review. |
 

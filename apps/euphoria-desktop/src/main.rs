@@ -99,6 +99,8 @@ mod planner_playback;
 mod planner_ui_tests;
 mod playback;
 mod player;
+#[cfg(test)]
+mod player_bar_ui_tests;
 mod player_wave;
 #[cfg(test)]
 mod player_wave_ui_tests;

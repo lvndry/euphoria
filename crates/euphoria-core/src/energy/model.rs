@@ -1,10 +1,11 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-/// Version of [`ENERGY_MODEL`]. It changes whenever an anchor, a weight or
-/// the way a feature is measured changes, so ratings made with different
-/// versions are never compared by mistake.
-pub const ENERGY_MODEL_VERSION: u32 = 2;
+/// Version of [`ENERGY_MODEL`]. It changes whenever an anchor, a weight, the
+/// way a feature is measured or the way a track's rating is drawn from its
+/// curve changes, so ratings made with different versions are never compared
+/// by mistake.
+pub const ENERGY_MODEL_VERSION: u32 = 3;
 
 /// How one feature turns into a score from 0.0 to 1.0, and how much that
 /// score counts in the rating.
