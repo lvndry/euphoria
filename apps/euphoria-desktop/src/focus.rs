@@ -392,54 +392,6 @@ pub(crate) fn readout(
     parts.join(" \u{b7} ")
 }
 
-/// How the verdict on a mix reads, from its key and its tempo alone.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum MixVerdict {
-    Smooth,
-    Workable,
-    Stretch,
-    YourMix,
-}
-
-impl MixVerdict {
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            MixVerdict::Smooth => "Smooth",
-            MixVerdict::Workable => "Workable",
-            MixVerdict::Stretch => "Stretch",
-            MixVerdict::YourMix => "Your mix",
-        }
-    }
-}
-
-/// The verdict for a mix with this key relation and tempo change. A
-/// transition the user marked, whose keys do not mix by the rules, is
-/// theirs.
-pub(crate) fn mix_verdict(
-    relation: Option<euphoria_core::harmony::Relation>,
-    tempo_difference_percent: Option<f32>,
-) -> MixVerdict {
-    use euphoria_core::harmony::Relation;
-    let Some(relation) = relation else {
-        return MixVerdict::YourMix;
-    };
-    let key_cost = match relation {
-        Relation::Same | Relation::Adjacent | Relation::Relative => 0,
-        Relation::Diagonal => 1,
-        Relation::EnergyBoost | Relation::MoodChange | Relation::SemitoneBoost => 2,
-    };
-    let tempo_cost = match tempo_difference_percent.map(f32::abs) {
-        Some(difference) if difference > 4.0 => 2,
-        Some(difference) if difference > 2.0 => 1,
-        _ => 0,
-    };
-    match key_cost.max(tempo_cost) {
-        0 => MixVerdict::Smooth,
-        1 => MixVerdict::Workable,
-        _ => MixVerdict::Stretch,
-    }
-}
-
 /// Where the stems of a track stand for the stems lane.
 #[derive(Debug, Clone)]
 pub(crate) enum StemsLane {
@@ -567,6 +519,7 @@ impl EuphoriaApp {
         }
         self.focus.is_open = false;
         self.planner.is_open = false;
+        self.planner.open_when_ready = false;
         self.focus.is_moving_window = false;
         self.focus.hover_seconds = None;
         self.focus.lanes_menu_open = false;
@@ -926,32 +879,6 @@ mod tests {
             "2:51 \u{b7} Breakdown \u{b7} Energy 3"
         );
         assert_eq!(readout(5.0, &[], None, None), "0:05");
-    }
-
-    #[test]
-    fn verdicts_follow_the_key_relation_and_the_tempo_change() {
-        use euphoria_core::harmony::Relation;
-        assert_eq!(
-            mix_verdict(Some(Relation::Same), Some(0.5)),
-            MixVerdict::Smooth
-        );
-        assert_eq!(
-            mix_verdict(Some(Relation::Diagonal), Some(0.5)),
-            MixVerdict::Workable
-        );
-        assert_eq!(
-            mix_verdict(Some(Relation::Same), Some(-3.0)),
-            MixVerdict::Workable
-        );
-        assert_eq!(
-            mix_verdict(Some(Relation::Adjacent), Some(5.0)),
-            MixVerdict::Stretch
-        );
-        assert_eq!(
-            mix_verdict(Some(Relation::SemitoneBoost), None),
-            MixVerdict::Stretch
-        );
-        assert_eq!(mix_verdict(None, Some(9.0)), MixVerdict::YourMix);
     }
 
     #[test]

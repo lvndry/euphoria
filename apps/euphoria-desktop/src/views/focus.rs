@@ -8,7 +8,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use euphoria_core::rekordbox_grid::choose_grid;
+use euphoria_core::rekordbox_grid::{GridSource, choose_grid};
 use euphoria_core::stems::Stem;
 use gpui::component::Icon;
 use gpui::component::tooltip::Tooltip;
@@ -22,16 +22,19 @@ use gpui::{
 use crate::app::EuphoriaApp;
 use crate::camelot::CamelotPosition;
 use crate::focus::{
-    CueSections, Lane, MixVerdict, PlanTab, SectionBand, SectionKind, SectionSource, StemsLane,
-    Viewport, clock, mix_verdict,
+    CueSections, Lane, PlanTab, SectionBand, SectionKind, SectionSource, StemsLane, Viewport, clock,
 };
 use crate::format;
+use crate::harmony_words::{
+    LAYERS_LABEL, OVERLAP_LABEL, TEMPO_LABEL, TempoMove, relation_hint, relation_name,
+};
 use crate::library::Track;
 use crate::mixes::keys_related_by;
 use crate::peaks::BandPeaks;
 use crate::stems::StemStatus;
 use crate::theme::Palette;
 use crate::track_overview::TimeRange;
+use crate::transition_plan::OPEN_PLANNER_LINK;
 use crate::views::cues;
 use crate::views::favorites::star_button;
 use crate::views::key_chip::key_chip;
@@ -57,6 +60,13 @@ const STEM_ROW_GAP: f32 = 2.0;
 const BOTTOM_HEIGHT: f32 = 320.0;
 
 const CLASH_COLUMN_WIDTH: f32 = 150.0;
+
+/// The height of a row in the list of tracks this one mixes into.
+pub(crate) const MIX_ROW_HEIGHT: f32 = 32.0;
+const MIX_KEY_WIDTH: f32 = 52.0;
+const MIX_TEMPO_WIDTH: f32 = 52.0;
+const MIX_TEMPO_CHIP_WIDTH: f32 = 76.0;
+const MIX_RELATION_WIDTH: f32 = 132.0;
 
 /// The lanes of the stems row, top to bottom.
 const STEM_ROWS: [Stem; 4] = [Stem::Vocals, Stem::Drums, Stem::Bass, Stem::Other];
@@ -156,7 +166,7 @@ fn top_bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
         })
         .cursor_pointer()
         .hover(move |style| style.bg(hover_background))
-        .child("Lanes")
+        .child(LAYERS_LABEL)
         .on_click(cx.listener(|this, _, _, cx| this.toggle_focus_lanes_menu(cx)))
         .test_support();
     let menu = app.focus.lanes_menu_open.then(|| {
@@ -238,6 +248,18 @@ fn chip(label: &'static str, value: impl IntoElement, palette: &Palette) -> Div 
         .child(value)
 }
 
+/// What the Grid chip says, or nothing while the detected grid is fine: the
+/// chip appears only for a track without a grid or one whose tempo was set.
+fn grid_chip_text(track: &Track) -> Option<&'static str> {
+    if track.beat_grid().is_none() && track.correction.bpm.is_none() {
+        return Some("none");
+    }
+    match choose_grid(&track.correction, None).source() {
+        GridSource::User => Some("edited"),
+        GridSource::Detected | GridSource::Rekordbox => None,
+    }
+}
+
 fn header(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let theme = &app.theme;
     let palette = theme.palette;
@@ -265,12 +287,7 @@ fn header(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -
             .into_any_element(),
         None => div().child(dash()).into_any_element(),
     };
-    let grid_source = choose_grid(&track.correction, None).source();
-    let grid = if track.beat_grid().is_none() && track.correction.bpm.is_none() {
-        "none"
-    } else {
-        grid_source.label()
-    };
+    let grid = grid_chip_text(track);
     div()
         .flex()
         .flex_shrink_0()
@@ -342,15 +359,15 @@ fn header(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -
                     .id("focus-chip-energy")
                     .test_support(),
                 )
-                .child(
+                .children(grid.map(|grid| {
                     chip(
                         "Grid",
                         div().text_color(palette.text_secondary).child(grid),
                         &palette,
                     )
                     .id("focus-chip-grid")
-                    .test_support(),
-                ),
+                    .test_support()
+                })),
         )
         .children(header_wheel(track, app))
 }
@@ -958,6 +975,27 @@ fn bottom(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -
         .child(plan(track, app, cx).w(px(380.0)).flex_shrink_0())
 }
 
+fn tempo_chip(
+    id: impl Into<gpui::ElementId>,
+    tempo_move: TempoMove,
+    palette: &Palette,
+) -> impl IntoElement {
+    let colour = crate::views::planner::tone_colour(tempo_move.tone(), palette);
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .px(px(6.0))
+        .py(px(1.0))
+        .rounded(px(4.0))
+        .bg(colour.opacity(0.16))
+        .text_size(LABEL_TEXT_SIZE)
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(colour)
+        .child(tempo_move.label())
+        .test_support()
+}
+
 fn column_label(text: &'static str, width: Option<f32>, palette: &Palette) -> Div {
     let label = div()
         .text_size(LABEL_TEXT_SIZE)
@@ -973,129 +1011,129 @@ fn mixes_into(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let theme = &app.theme;
     let palette = theme.palette;
     let selected_path = app.selected_track().map(|track| track.path.clone());
-    let rows: Vec<AnyElement> =
-        app.mixes
-            .iter()
-            .filter_map(|mix| {
-                let track_index = mix.track_index;
-                let track = app.session.library().track(track_index)?;
-                let note = selected_path
-                    .as_ref()
-                    .and_then(|selected| app.session.favorites().transition(selected, &track.path))
-                    .and_then(|transition| transition.note.clone());
-                let subtitle: SharedString = note
-                    .clone()
-                    .or_else(|| track.artist.clone())
-                    .unwrap_or_default()
-                    .into();
-                let verdict = mix_verdict(mix.relation, mix.tempo_difference_percent);
-                let is_picked = app.focus.selected_match == Some(track_index);
-                let star = star_button(
-                    ("focus-mix-star", track_index),
-                    mix.is_favorite,
-                    if mix.is_favorite {
-                        "Take the mark off this transition"
-                    } else {
-                        "Mark this transition as a favorite"
-                    },
-                    &palette,
-                )
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.toggle_transition_from_selected(track_index, cx);
-                    cx.stop_propagation();
-                }))
-                .test_support();
-                let verdict_colour = match verdict {
-                    MixVerdict::Smooth | MixVerdict::YourMix => palette.accent,
-                    MixVerdict::Workable => palette.text_secondary,
-                    MixVerdict::Stretch => palette.danger,
-                };
-                Some(
-                    div()
-                        .id(("focus-mix", track_index))
-                        .flex()
-                        .flex_shrink_0()
-                        .items_center()
-                        .gap(px(10.0))
-                        .h(px(44.0))
-                        .px(px(6.0))
-                        .rounded(px(6.0))
-                        .cursor_pointer()
-                        .map(|row| {
-                            if is_picked {
-                                row.bg(palette.selection)
-                            } else {
-                                row.hover(move |style| style.bg(palette.raised))
-                            }
-                        })
-                        .child(star)
-                        .child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .flex_1()
-                                .min_w_0()
-                                .child(div().truncate().child(track.title().to_string()))
-                                .child(
-                                    div()
-                                        .truncate()
-                                        .text_size(LABEL_TEXT_SIZE)
-                                        .text_color(palette.text_tertiary)
-                                        .child(subtitle),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .flex_shrink_0()
-                                .w(px(92.0))
-                                .gap(px(2.0))
-                                .child(div().flex().children(track.key().map(|key| {
-                                    key_chip(&key, theme, app.tag_settings.key_notation)
-                                })))
-                                .child(
-                                    div()
-                                        .text_size(LABEL_TEXT_SIZE)
-                                        .text_color(palette.text_tertiary)
-                                        .child(
-                                            mix.relation.map_or(YOUR_TRANSITION, |relation| {
-                                                relation.label()
-                                            }),
-                                        ),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .flex_shrink_0()
-                                .justify_end()
-                                .w(px(52.0))
-                                .text_color(palette.text_secondary)
-                                .children(mix.tempo_difference_percent.map(format::signed_percent)),
-                        )
-                        .child(
-                            div()
-                                .flex_shrink_0()
-                                .w(px(72.0))
-                                .text_size(SMALL_TEXT_SIZE)
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(verdict_colour)
-                                .child(verdict.label()),
-                        )
-                        .child(clash_cell(app, track_index, &palette))
-                        .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
-                            this.pick_match(track_index, cx);
-                            if event.click_count() >= 2 {
-                                this.select_and_reveal(track_index, cx);
-                            }
-                            cx.notify();
-                        }))
-                        .test_support()
-                        .into_any_element(),
-                )
-            })
-            .collect();
+    let rows: Vec<AnyElement> = app
+        .mixes
+        .iter()
+        .filter_map(|mix| {
+            let track_index = mix.track_index;
+            let track = app.session.library().track(track_index)?;
+            let note = selected_path
+                .as_ref()
+                .and_then(|selected| app.session.favorites().transition(selected, &track.path))
+                .and_then(|transition| transition.note.clone());
+            let artist: SharedString = note
+                .clone()
+                .or_else(|| track.artist.clone())
+                .map(|text| format!("\u{b7} {text}"))
+                .unwrap_or_default()
+                .into();
+            let tempo_move = mix.tempo_difference_percent.map(TempoMove::of);
+            let is_picked = app.focus.selected_match == Some(track_index);
+            let star = star_button(
+                ("focus-mix-star", track_index),
+                mix.is_favorite,
+                if mix.is_favorite {
+                    "Take the mark off this transition"
+                } else {
+                    "Mark this transition as a favorite"
+                },
+                &palette,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.toggle_transition_from_selected(track_index, cx);
+                cx.stop_propagation();
+            }))
+            .test_support();
+            let relation_hint = mix.relation.and_then(relation_hint);
+            Some(
+                div()
+                    .id(("focus-mix", track_index))
+                    .flex()
+                    .flex_shrink_0()
+                    .items_center()
+                    .gap(px(10.0))
+                    .h(px(MIX_ROW_HEIGHT))
+                    .px(px(6.0))
+                    .rounded(px(6.0))
+                    .cursor_pointer()
+                    .map(|row| {
+                        if is_picked {
+                            row.bg(palette.selection)
+                        } else {
+                            row.hover(move |style| style.bg(palette.raised))
+                        }
+                    })
+                    .child(star)
+                    .child(
+                        div().flex().flex_shrink_0().w(px(MIX_KEY_WIDTH)).children(
+                            track
+                                .key()
+                                .map(|key| key_chip(&key, theme, app.tag_settings.key_notation)),
+                        ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.0))
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .child(div().truncate().child(track.title().to_string()))
+                            .child(
+                                div()
+                                    .truncate()
+                                    .min_w_0()
+                                    .text_size(LABEL_TEXT_SIZE)
+                                    .text_color(palette.text_tertiary)
+                                    .child(artist),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_shrink_0()
+                            .justify_end()
+                            .w(px(MIX_TEMPO_WIDTH))
+                            .text_color(palette.text_secondary)
+                            .children(mix.tempo_difference_percent.map(format::signed_percent)),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_shrink_0()
+                            .w(px(MIX_TEMPO_CHIP_WIDTH))
+                            .children(tempo_move.map(|tempo_move| {
+                                tempo_chip(("focus-mix-tempo", track_index), tempo_move, &palette)
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id(("focus-mix-relation", track_index))
+                            .flex_shrink_0()
+                            .w(px(MIX_RELATION_WIDTH))
+                            .truncate()
+                            .text_size(LABEL_TEXT_SIZE)
+                            .text_color(palette.text_tertiary)
+                            .child(mix.relation.map_or(YOUR_TRANSITION, relation_name))
+                            .when_some(relation_hint, |cell, text| {
+                                cell.tooltip(move |window, cx| Tooltip::new(text).build(window, cx))
+                            })
+                            .test_support(),
+                    )
+                    .child(clash_cell(app, track_index, &palette))
+                    .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+                        this.pick_match(track_index, cx);
+                        if event.click_count() >= 2 {
+                            this.select_and_reveal(track_index, cx);
+                        }
+                        cx.notify();
+                    }))
+                    .test_support()
+                    .into_any_element(),
+            )
+        })
+        .collect();
     let empty = rows.is_empty().then(|| {
         div()
             .id("focus-mixes-empty")
@@ -1124,11 +1162,19 @@ fn mixes_into(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
                 .gap(px(10.0))
                 .px(px(6.0))
                 .child(div().w(px(20.0)).flex_shrink_0())
+                .child(column_label("Key", Some(MIX_KEY_WIDTH), &palette))
                 .child(column_label("Track", None, &palette))
-                .child(column_label("Key", Some(92.0), &palette))
-                .child(column_label("Tempo", Some(52.0), &palette))
-                .child(column_label("Verdict", Some(72.0), &palette))
-                .child(column_label("Clash", Some(CLASH_COLUMN_WIDTH), &palette)),
+                .child(column_label(
+                    TEMPO_LABEL,
+                    Some(MIX_TEMPO_WIDTH + MIX_TEMPO_CHIP_WIDTH + 10.0),
+                    &palette,
+                ))
+                .child(column_label("Relation", Some(MIX_RELATION_WIDTH), &palette))
+                .child(column_label(
+                    OVERLAP_LABEL,
+                    Some(CLASH_COLUMN_WIDTH),
+                    &palette,
+                )),
         )
         .child(
             div()
@@ -1184,8 +1230,31 @@ fn plan(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> 
             ).into_any_element(),
         PlanTab::Cues => cues::section(track, app, Some(px(BOTTOM_HEIGHT - 110.0)), cx).into_any_element(),
     };
+    let can_open_planner =
+        app.focus.plan_tab == PlanTab::Transition && app.focus.selected_match.is_some();
+    let hover_colour = palette.text;
     panel(&palette)
-        .child(section_label("Plan", &palette))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .child(section_label("Plan", &palette))
+                .when(can_open_planner, |header| {
+                    header.child(
+                        div()
+                            .id("plan-open")
+                            .flex_shrink_0()
+                            .cursor_pointer()
+                            .text_size(SMALL_TEXT_SIZE)
+                            .text_color(palette.accent)
+                            .hover(move |style| style.text_color(hover_colour))
+                            .child(OPEN_PLANNER_LINK)
+                            .on_click(cx.listener(|this, _, _, cx| this.open_planner(cx)))
+                            .test_support(),
+                    )
+                }),
+        )
         .child(tabs)
         .child(
             div()
@@ -1202,8 +1271,8 @@ fn clash_cell(app: &EuphoriaApp, track_index: usize, palette: &Palette) -> AnyEl
     let label = app.clash_label(track_index);
     let verdict_colour = match label {
         "Clean" => palette.accent,
-        "Vocal clash" => palette.danger,
-        "Bass clash" => crate::views::planner::clash_colour(
+        "Vocals overlap" => palette.danger,
+        "Bass overlap" => crate::views::planner::clash_colour(
             Some(euphoria_core::harmony::transition::Clash::Bass),
             palette,
         ),
@@ -1223,7 +1292,9 @@ fn clash_cell(app: &EuphoriaApp, track_index: usize, palette: &Palette) -> AnyEl
         Some(crate::transition_plan::PlanState::Ready(planned))
             if planned.stems_known() != (true, true) =>
         {
-            Some("Separate the stems of both tracks to check vocal and bass clashes.".into())
+            Some(
+                "Separate the stems of both tracks to check whether vocals or bass overlap.".into(),
+            )
         }
         _ => None,
     };

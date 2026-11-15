@@ -20,6 +20,7 @@ use crate::app::EuphoriaApp;
 use crate::deck_audio::DeckId;
 use crate::decks::{DeckMode, DeckView, SuggestionScope};
 use crate::format;
+use crate::harmony_words::relation_name;
 use crate::player::fraction_along;
 use crate::theme::Palette;
 use crate::views::favorites;
@@ -560,13 +561,29 @@ fn mixer(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
             |this, value, cx| this.set_crossfader(value, cx),
         ))
         .children(decks.load_readout().map(|readout| {
-            div()
-                .id("deck-load-readout")
-                .pt(px(6.0))
-                .text_size(px(10.0))
-                .text_color(palette.text_tertiary)
-                .child(readout)
-                .test_support()
+            let details: SharedString = readout.details().into();
+            let tooltip = move |window: &mut gpui::Window, cx: &mut gpui::App| {
+                Tooltip::new(details.clone()).build(window, cx)
+            };
+            if readout.has_dropped_frames() {
+                div()
+                    .id("deck-load-readout")
+                    .pt(px(6.0))
+                    .text_size(px(10.0))
+                    .text_color(crate::views::planner::amber())
+                    .child(readout.dropped_text())
+                    .tooltip(tooltip)
+                    .test_support()
+            } else {
+                div()
+                    .id("deck-load-hint")
+                    .pt(px(6.0))
+                    .text_size(px(10.0))
+                    .text_color(palette.text_tertiary)
+                    .child("Load")
+                    .tooltip(tooltip)
+                    .test_support()
+            }
         }))
 }
 
@@ -622,7 +639,7 @@ pub(crate) fn filter_controls(
         .map(|(index, relation)| {
             choice_button(
                 ("suggestion-relation", index),
-                relation.label(),
+                relation_name(relation),
                 counted.contains(&relation),
                 &palette,
             )
@@ -844,7 +861,7 @@ fn suggestion_rows(
                         .flex_shrink_0()
                         .text_size(SMALL_TEXT_SIZE)
                         .text_color(palette.text_tertiary)
-                        .child(suggestion.relation.label()),
+                        .child(relation_name(suggestion.relation)),
                 )
                 .on_click(cx.listener(move |this, _, _, cx| this.load_suggestion(track_index, cx)))
                 .test_support(),

@@ -34,6 +34,15 @@ use crate::views::cues::shown_cues;
 /// How many ranked windows the planner lists.
 pub(crate) const WINDOWS_LISTED: usize = 5;
 
+/// The words of the three actions on a window, shared by the plan card of
+/// the focus view and the planner.
+pub(crate) const SET_CUES_ACTION: &str = "Set cues on A and B";
+pub(crate) const PLAY_ACTION: &str = "Play on the decks";
+pub(crate) const SAVE_FAVORITE_ACTION: &str = "Save as favorite transition";
+pub(crate) const UPDATE_FAVORITE_ACTION: &str = "Update favorite transition";
+/// The text link that opens the planner from the plan card.
+pub(crate) const OPEN_PLANNER_LINK: &str = "Open planner \u{2192}";
+
 /// How many bars of A before the window the planner shows.
 pub(crate) const BARS_BEFORE: usize = 32;
 
@@ -106,6 +115,9 @@ pub(crate) struct Planner {
     pub(crate) is_open: bool,
     /// The window the planner shows, as an index into the plan's windows.
     pub(crate) window: usize,
+    /// True while the planner is to open as soon as the plan of the picked
+    /// match is worked out.
+    pub(crate) open_when_ready: bool,
 }
 
 impl Planner {
@@ -417,6 +429,7 @@ impl EuphoriaApp {
                             },
                         );
                     }
+                    this.open_planner_when_ready(cx);
                     this.pump_plans(cx);
                     cx.notify();
                 })
@@ -460,6 +473,30 @@ impl EuphoriaApp {
         self.planner.is_open = true;
         self.planner.window = 0;
         cx.notify();
+    }
+
+    /// Opens the planner once the plan of the picked match has an answer,
+    /// when it was asked to.
+    pub(crate) fn open_planner_when_ready(&mut self, cx: &mut Context<'_, Self>) {
+        if !self.planner.open_when_ready {
+            return;
+        }
+        let state = self
+            .focus
+            .selected_match
+            .and_then(|index| self.plan_state(index));
+        match state {
+            Some(PlanState::Computing) => {}
+            Some(_) => {
+                self.planner.open_when_ready = false;
+                self.open_planner(cx);
+            }
+            None => {
+                self.planner.open_when_ready = false;
+                self.notice = Some("This pair of tracks cannot be planned yet.".to_string());
+                cx.notify();
+            }
+        }
     }
 
     pub(crate) fn close_planner(&mut self, cx: &mut Context<'_, Self>) {
@@ -583,6 +620,24 @@ impl EuphoriaApp {
         cx.notify();
     }
 
+    /// Starts separating the stems of the first track of the picked pair
+    /// that has none, A before B, from the overlap line of the plan card.
+    /// One separation runs at a time, so the link stays until both are done.
+    pub(crate) fn separate_missing_plan_stems(&mut self, cx: &mut Context<'_, Self>) {
+        let Some(index) = self.focus.selected_match else {
+            return;
+        };
+        let Some(PlanState::Ready(planned)) = self.plan_state(index) else {
+            return;
+        };
+        let (a_known, b_known) = planned.stems_known();
+        if !a_known {
+            self.separate_plan_stems(Side::A, cx);
+        } else if !b_known {
+            self.separate_plan_stems(Side::B, cx);
+        }
+    }
+
     /// Starts separating the stems of A (or of B) from the planner.
     pub(crate) fn separate_plan_stems(&mut self, side: Side, cx: &mut Context<'_, Self>) {
         let index = match side {
@@ -635,9 +690,9 @@ impl ClashVerdict {
     pub(crate) fn label(self) -> &'static str {
         match self {
             ClashVerdict::Clean => "Clean",
-            ClashVerdict::VocalClash => "Vocal clash",
-            ClashVerdict::BassClash => "Bass clash",
-            ClashVerdict::NotChecked => "Not checked",
+            ClashVerdict::VocalClash => "Vocals overlap",
+            ClashVerdict::BassClash => "Bass overlap",
+            ClashVerdict::NotChecked => "Stems needed",
         }
     }
 }
@@ -762,7 +817,7 @@ fn stems_clause(planned: &PlannedTransition, window: &CandidateWindow) -> String
                 }
             };
             let bass = match (counts.bass, window.bass_swap_bar) {
-                (0, _) => "no bass clash".to_string(),
+                (0, _) => "no bass overlap".to_string(),
                 (_, Some(bar)) => format!("bass swap at bar {bar}"),
                 (bars, None) => format!("{bars} bars of both bass, no clean swap"),
             };
@@ -960,8 +1015,8 @@ mod tests {
         assert_eq!(clash_verdict(&window(0, 3, 0)), ClashVerdict::BassClash);
         assert_eq!(clash_verdict(&window(2, 3, 0)), ClashVerdict::VocalClash);
         assert_eq!(clash_verdict(&window(0, 0, 4)), ClashVerdict::NotChecked);
-        assert_eq!(ClashVerdict::VocalClash.label(), "Vocal clash");
-        assert_eq!(ClashVerdict::NotChecked.label(), "Not checked");
+        assert_eq!(ClashVerdict::VocalClash.label(), "Vocals overlap");
+        assert_eq!(ClashVerdict::NotChecked.label(), "Stems needed");
     }
 
     fn sample_window() -> CandidateWindow {
