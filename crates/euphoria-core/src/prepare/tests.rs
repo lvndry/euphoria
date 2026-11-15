@@ -574,7 +574,7 @@ fn tag_only_writes_replaygain_without_touching_the_audio_and_reverts() {
 
         let manifest_path = manifest.save(folder.path()).unwrap();
         let report = revert(&manifest_path).unwrap();
-        assert_eq!(report.restored, [input.clone()], "{label}");
+        assert_eq!(report.restored, std::slice::from_ref(&input), "{label}");
         assert_eq!(
             read_replaygain(&input).unwrap(),
             ReplayGainFields::default(),
@@ -603,7 +603,10 @@ fn revert_removes_only_what_the_run_wrote_and_checks_the_checksum() {
     std::fs::write(&unrelated, b"not ours").unwrap();
     std::fs::write(&outputs[1], b"edited by the user").unwrap();
     let manifest_path = manifest.save(folder.path()).unwrap();
-    assert_eq!(manifests_in(folder.path()), [manifest_path.clone()]);
+    assert_eq!(
+        manifests_in(folder.path()),
+        std::slice::from_ref(&manifest_path)
+    );
 
     let report = revert(&manifest_path).unwrap();
     assert_eq!(report.removed, [outputs[0].clone()]);
