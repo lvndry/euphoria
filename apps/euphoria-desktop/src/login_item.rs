@@ -11,11 +11,6 @@ pub(crate) fn is_supported() -> bool {
     objc2::runtime::AnyClass::get(c"SMAppService").is_some()
 }
 
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn is_supported() -> bool {
-    false
-}
-
 /// True when the system opens the app at login now.
 #[cfg(target_os = "macos")]
 pub(crate) fn is_enabled() -> bool {
