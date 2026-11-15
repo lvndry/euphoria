@@ -844,15 +844,13 @@ fn suggestion_rows(
             .tempo_difference_percent
             .map(format::signed_percent)
             .unwrap_or_default();
-        let energy = suggestion.energy_difference.map(|difference| {
-            if difference > 0.0 {
-                format!("energy +{difference:.0}")
-            } else if difference < 0.0 {
-                format!("energy {difference:.0}")
-            } else {
-                "same energy".to_string()
-            }
-        });
+        let energy =
+            track
+                .energy()
+                .zip(suggestion.energy_difference)
+                .map(|(energy, difference)| {
+                    crate::next_rail::energy_pill(energy, difference.round() as i32, "deck A")
+                });
         Some(
             div()
                 .id(("suggestion", track_index))
@@ -901,11 +899,19 @@ fn suggestion_rows(
                 )
                 .child(
                     div()
+                        .id(("suggestion-energy", track_index))
                         .w(px(88.0))
                         .flex_shrink_0()
+                        .whitespace_nowrap()
                         .text_size(SMALL_TEXT_SIZE)
+                        .font_features(crate::views::tabular_digits())
                         .text_color(palette.text_secondary)
-                        .children(energy),
+                        .when_some(energy, |cell, energy| {
+                            let hint = energy.hint.unwrap_or_default();
+                            cell.child(energy.text).tooltip(move |window, cx| {
+                                Tooltip::new(hint.clone()).build(window, cx)
+                            })
+                        }),
                 )
                 .child(
                     div()

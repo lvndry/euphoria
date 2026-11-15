@@ -17,7 +17,7 @@ use crate::app::EuphoriaApp;
 use crate::playback::testing::SlowOpeningOutput;
 use crate::player::PlayerStatus;
 use crate::ui_tests::{click, deck_tracks, index_of_track, open_window_on};
-use crate::views::next_rail::{play_id, row_id};
+use crate::views::next_rail::{play_id, preview_play_id, row_id};
 use crate::views::player::{BarContent, BarDetail, content};
 use crate::waveforms::Waveform;
 
@@ -143,7 +143,7 @@ fn play_the_flac(fixture: &Fixture, cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn a_click_on_a_next_row_selects_it_and_leaves_the_bar_and_the_sound_alone(
+fn a_click_on_a_next_row_opens_it_and_leaves_the_selection_the_bar_and_the_sound_alone(
     cx: &mut TestAppContext,
 ) {
     let fixture = open(cx);
@@ -153,7 +153,11 @@ fn a_click_on_a_next_row_selects_it_and_leaves_the_bar_and_the_sound_alone(
     click(fixture.window, row_id(fixture.mp3), cx);
     settle(&fixture, cx);
 
-    cx.update(|cx| assert_eq!(fixture.view.read(cx).selected, Some(fixture.mp3)));
+    cx.update(|cx| {
+        let app = fixture.view.read(cx);
+        assert_eq!(app.selected, Some(fixture.flac));
+        assert_eq!(app.next_preview.expanded(), Some(fixture.mp3));
+    });
     assert!(
         fixture.output.waiting().is_empty(),
         "a single click asks for no sound"
@@ -218,6 +222,34 @@ fn a_slow_track_leaves_the_bar_on_the_one_heard_until_both_switch_together(
         bar(&fixture, cx).detail,
         Some(BarDetail::Artist(_))
     ));
+}
+
+#[gpui::test]
+fn play_in_an_open_next_row_keeps_the_old_track_until_the_new_one_starts(cx: &mut TestAppContext) {
+    let fixture = open(cx);
+    play_the_flac(&fixture, cx);
+    let flac = path_of(&fixture, fixture.flac, cx);
+    let mp3 = path_of(&fixture, fixture.mp3, cx);
+
+    click(fixture.window, row_id(fixture.mp3), cx);
+    cx.executor()
+        .advance_clock(crate::next_preview::REVEAL_DELAY);
+    settle(&fixture, cx);
+    settle(&fixture, cx);
+    click(fixture.window, preview_play_id(fixture.mp3), cx);
+    settle(&fixture, cx);
+    assert_eq!(fixture.output.waiting(), std::slice::from_ref(&mp3));
+    assert_eq!(fixture.output.sounding(), std::slice::from_ref(&flac));
+    bar_is_all_of(&fixture, fixture.flac, "7:01", cx);
+
+    fixture.output.finish_opening();
+    settle(&fixture, cx);
+    assert_eq!(fixture.output.sounding(), std::slice::from_ref(&mp3));
+    cx.update(|cx| {
+        let app = fixture.view.read(cx);
+        assert_eq!(app.selected, Some(fixture.mp3), "the inspector follows");
+        assert_eq!(app.rail_anchor, Some(fixture.mp3));
+    });
 }
 
 #[gpui::test]

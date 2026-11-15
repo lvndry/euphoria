@@ -12,11 +12,9 @@ use crate::error::EuphoriaError;
 /// Which detector decides the key of a track.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum KeyEngine {
-    /// drone-v2 decides the key. libkeyfinder still measures the tuning and
-    /// follows the key over time, and decides the key when drone-v2 finds
-    /// none. The default when both are built in.
+    /// drone-v2 decides the key and follows it over time. The default.
     Auto,
-    /// drone-v2 alone: the cheapest, with no key over time.
+    /// The same as [`KeyEngine::Auto`], kept so that the name still parses.
     Drone,
     /// libkeyfinder alone, with tuning correction, as Euphoria analyzed keys
     /// before drone-v2.

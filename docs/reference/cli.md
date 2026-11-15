@@ -143,7 +143,7 @@ The tuning of a track and its key over time are in the detailed view and the [JS
 | `--audio-budget <MINUTES>` | Hold at most MINUTES of audio in memory at once, over all files being analyzed. The default is 60. See [memory](#memory-and-long-files). |
 | `--no-cache` | Analyze every file, and neither read nor update the [cache](#the-analysis-cache). |
 | `--reanalyze` | Analyze every file again and replace its cached result. Cannot be combined with `--no-cache`. |
-| `--key-engine <ENGINE>` | Which detector decides the key. `auto`, the default, uses the drone-v2 network for the key and libkeyfinder for the tuning and the key over time. `drone` uses the network alone, which is faster and has no key over time. `keyfinder` uses libkeyfinder alone, as Euphoria did before drone-v2. Each engine's results are cached apart. See [key detection](../concepts/accuracy.md#key-detection-with-drone-v2). |
+| `--key-engine <ENGINE>` | Which detector decides the key. `auto`, the default, uses the drone-v2 network for the key and the key over time, after a track 20 cents or more off concert pitch is brought back to it. `drone` does the same. `keyfinder` uses libkeyfinder alone, as Euphoria did before drone-v2. Each engine's results are cached apart. See [key detection](../concepts/accuracy.md#key-detection-with-drone-v2). |
 | `-h`, `--help` | Show help. |
 | `-V`, `--version` | Show the version. |
 
@@ -259,7 +259,7 @@ A key is written with its Camelot code, its name and its [Open Key](../concepts/
 
 `tuning_cents` is how far the track is tuned from A = 440 Hz, in cents from -50 to 50, where 100 cents is a semitone. Positive is sharp: at 30 the A above middle C sounds at 447.7 Hz, and at -31.3 at 432.1 Hz. It is `null` when the tuning could not be measured, which is the case for silence, for noise and for many tracks that are mostly drums. When it is 20 or more either way, the key is detected after bringing the track back to 440 Hz, so `key` names the nearest key at concert pitch.
 
-`pitch_class_profile` is how strongly each of the 12 notes sounds in the track, every octave together, from C to B, C first: 12 numbers from 0 to 1 with the loudest note at 1. It is measured on libkeyfinder's chromagram, after the tuning correction above. It is `null` for a track with no key, with `--key-engine drone`, and for a track analyzed before Euphoria measured notes, until it is analyzed again.
+`pitch_class_profile` is how strongly each of the 12 notes sounds in the track, every octave together, from C to B, C first: 12 numbers from 0 to 1 with the loudest note at 1. It is measured on Euphoria's note spectrum, on the scale of the measured tuning (see [the pitch-class profile](../concepts/accuracy.md#the-pitch-class-profile)). It is `null` for a track with no key, and for a track analyzed before Euphoria measured notes, until it is analyzed again.
 
 `key_timeline` is the key over time, as sections in order that together cover the track from its start to `duration_seconds`, except where the track is silent. Silence has no key, so it belongs to no section: a track with silence in the middle has a gap between two sections there, and one that starts or ends in silence has a first section that starts late or a last one that ends early. A track in which no change of key was found has one section in the key of the track, or one on each side of every silence, all in that key. A track with no key has none. A passage with sound but no harmony, such as a drum break, is not silence and keeps the key of the music around it. The timeline stays in `key` and shows another key only for a stretch of at least about 30 seconds, with no silence in it, where that key is clearly stronger, so on dance music most tracks have one section and `key` is one of the sections. Section boundaries are accurate to a few seconds.
 
@@ -674,9 +674,9 @@ Candidates come from the folder of `TRACK`, or from `--from`. A candidate mixes 
 $ euphoria next "Low Tide.flac" --lift --limit 3
 After Low Tide  8A  124.0 BPM  energy 6  lifting the energy
 #  Key  BPM    Tempo        Move                   Energy  Track
-1   8A  125.0  +0.8% Easy   Same key               8 (+2)  Night Drive.flac
-2   9A  124.0  +0.0% Easy   One step on the wheel  7 (+1)  Glow.flac
-3   8B  126.0  +1.6% Easy   Relative               6 (0)   Low Tide (Dub).flac
+1   8A  125.0  +0.8% Easy   Same key               8 ↑2    Night Drive.flac
+2   9A  124.0  +0.0% Easy   One step on the wheel  7 ↑1    Glow.flac
+3   8B  126.0  +1.6% Easy   Relative               6 =     Low Tide (Dub).flac
 ```
 
 | Option | Effect |
@@ -691,7 +691,7 @@ After Low Tide  8A  124.0 BPM  energy 6  lifting the energy
 
 The analysis options of [`euphoria analyze`](#options) also apply: `--jobs`, `--no-cache`, `--reanalyze` and `--tempo-range`.
 
-Each row has the key, the tempo, the tempo change as a percent with its move (`Easy`, `Pitch move` or `Big jump`), the key move in the [shared words](../concepts/keys-and-camelot.md#how-euphoria-names-a-move), and the energy with its change. The playing track is never listed. Starred transitions, which the app puts first, are not used by the command line.
+Each row has the key, the tempo, the tempo change as a percent with its move (`Easy`, `Pitch move` or `Big jump`), the key move in the [shared words](../concepts/keys-and-camelot.md#how-euphoria-names-a-move), and the energy with an arrow and the size of its change from the track's: `3 ↓6` is 6 calmer, `8 ↑1` one higher, `7 =` the same. The playing track is never listed. Starred transitions, which the app puts first, are not used by the command line.
 
 The JSON object has `schema_version` (1), `track` (path, artist, title, key, key_name, bpm, energy), `energy` (`keep`, `lift` or `drop`) and `next`: one object per candidate with `rank` from 1, the same fields as `track`, `key_move` (`same`, `adjacent`, `relative`, `diagonal`, `energy_boost`, `mood_change` or `semitone_boost`, as in `set build`), `key_move_label` (the words), `tempo_percent`, `tempo_move` (`easy`, `pitch_move` or `big_jump`), `tempo_scaling` (`direct`, `half` or `double`) and `energy_change`. Tempo and energy fields are `null` when a track has none.
 
@@ -715,12 +715,12 @@ Layer over Low Tide  8A  124.0 BPM  energy 6
    8A is the same key as A
    Same tempo, no stretch
    Vocals of A over the instrumental of B, and B has no vocals of its own; they sit in different ranges (12% overlap)
-   Same energy
+   Energy 6 = against A
 2  10A  Glow
    Shift B down 2 semitones: 10A becomes 8A, the same key as A
    Stretched 1.6% down to A's tempo
    Stems not compared: separate both tracks to check vocals against instruments
-   Energy +1 against A
+   Energy 7 ↑1 against A
 ```
 
 | Option | Effect |

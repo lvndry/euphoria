@@ -144,9 +144,7 @@ pub use library::{
     find_audio_files, is_supported_audio_file, scan_audio_files,
 };
 pub use locked_transitions::{BlendBars, LockedTransition, locked_blend};
-#[cfg(feature = "libkeyfinder")]
-pub use pitch_classes::pitch_class_profile;
-pub use pitch_classes::{PITCH_CLASS_COUNT, note_names, notes_in_key};
+pub use pitch_classes::{PITCH_CLASS_COUNT, note_names, notes_in_key, pitch_class_profile};
 pub use playlists::{
     EntryCheck, EntryLocation, PlaylistEntry, PlaylistStore, StoredPlaylist,
     default_playlists_path, locate_entry, locate_moved_files,
