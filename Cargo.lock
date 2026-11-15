@@ -2022,7 +2022,6 @@ dependencies = [
  "objc2-core-audio-types",
  "objc2-foundation 0.3.2",
  "ort",
- "pkg-config",
  "rayon",
  "roxmltree 0.21.2",
  "rubato",

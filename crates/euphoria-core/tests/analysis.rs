@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Checks what `analyze_file` reports beyond key, tempo and energy, with and
-//! without the `libkeyfinder` feature.
+//! without the `drone` feature.
 
 use std::path::PathBuf;
 
@@ -53,7 +53,7 @@ fn silence_has_no_tuning_and_no_key_over_time() {
     assert!(analysis.key_timeline.is_empty());
 }
 
-#[cfg(feature = "libkeyfinder")]
+#[cfg(feature = "drone")]
 #[test]
 fn a_track_in_one_key_is_one_section_in_that_key_from_start_to_end() {
     let analysis = analyze_file(&fixture("sine-440hz-mono.wav")).unwrap();
@@ -65,9 +65,9 @@ fn a_track_in_one_key_is_one_section_in_that_key_from_start_to_end() {
     assert_eq!(section.end_seconds, analysis.duration_seconds);
 }
 
-#[cfg(not(feature = "libkeyfinder"))]
+#[cfg(not(feature = "drone"))]
 #[test]
-fn without_libkeyfinder_there_is_no_key_over_time() {
+fn without_drone_there_is_no_key_over_time() {
     let analysis = analyze_file(&fixture("sine-440hz-mono.wav")).unwrap();
     assert!(analysis.key.is_some());
     assert!(analysis.key_timeline.is_empty());
@@ -92,7 +92,7 @@ fn silence_has_no_confidence_and_nothing_to_review() {
     assert!(!analysis.needs_review());
 }
 
-#[cfg(feature = "libkeyfinder")]
+#[cfg(feature = "drone")]
 #[test]
 fn an_analysis_names_the_runner_up_key_and_rates_the_key() {
     let analysis = analyze_file(&fixture("sine-440hz-mono.wav")).unwrap();

@@ -15,7 +15,7 @@ use crate::detect::{
 use crate::energy::rate_energy;
 use crate::error::EuphoriaError;
 use crate::key::Key;
-use crate::key_engine::{KeySource, key_engine};
+use crate::key_source::KeySource;
 use crate::quality::{QualityReport, decode_measuring_quality};
 use crate::set_stage::StageFeatures;
 use crate::tempo_range::TempoRange;
@@ -26,25 +26,21 @@ use crate::tempo_range::TempoRange;
 /// Raise the number whenever a change can alter the key, tempo or duration
 /// reported for a file, or adds something to what is reported: a detector
 /// upgrade, a tuning change, a decoding change. The suffix names the key
-/// detectors built in, since builds without the `libkeyfinder` or `drone`
-/// feature report different keys. The analysis cache adds the
-/// [`KeyEngine`] in use, so the analyses of each engine are kept apart.
+/// detector built in, since builds without the `drone` feature report
+/// different keys.
 ///
 /// The energy rating has a version of its own,
 /// [`ENERGY_MODEL_VERSION`](crate::ENERGY_MODEL_VERSION), which the cache
 /// checks as well, so recalibrating energy needs no change here.
-pub const ANALYZER_VERSION: &str = match (cfg!(feature = "libkeyfinder"), cfg!(feature = "drone")) {
-    (true, true) => "18+libkeyfinder+drone",
-    (true, false) => "18+libkeyfinder",
-    (false, true) => "18+stratum+drone",
-    (false, false) => "18+stratum",
+pub const ANALYZER_VERSION: &str = if cfg!(feature = "drone") {
+    "18+drone"
+} else {
+    "18+stratum"
 };
 
-/// The version the analysis cache records for analyses made now: the
-/// [`ANALYZER_VERSION`] and the [`KeyEngine`] chosen with
-/// [`set_key_engine`](crate::set_key_engine).
+/// The version the analysis cache records for analyses made now.
 pub fn analyzer_version() -> String {
-    format!("{ANALYZER_VERSION}/key-engine={}", key_engine())
+    ANALYZER_VERSION.to_string()
 }
 
 /// What Euphoria found in one track.
@@ -65,18 +61,16 @@ pub struct TrackAnalysis {
     pub energy: Option<u8>,
     /// How far the track is tuned from A = 440 Hz, in cents from -50 to 50
     /// with sharp as positive, or `None` when it could not be measured, as
-    /// for silence, noise and tracks that are mostly drums. With the
-    /// `libkeyfinder` feature, the key of a track at least 20 cents off is
-    /// detected after bringing it back to concert pitch, so `key` names the
-    /// nearest key at 440 Hz.
+    /// for silence, noise and tracks that are mostly drums. The key of a
+    /// track at least 20 cents off is detected after bringing it back to
+    /// concert pitch, so `key` names the nearest key at 440 Hz.
     pub tuning_cents: Option<f32>,
     /// The key over time: sections in order that together cover the track,
     /// except where it is silent. A track in which no change of key was
     /// found has one section in the key of the track, or one on either side
-    /// of each silence. Empty when the track has no detectable key, with the
-    /// drone key engine alone, and in builds without the `drone` feature
-    /// that use no libkeyfinder. It is reported only: `key` is decided from
-    /// the whole track at once.
+    /// of each silence. Empty when the track has no detectable key, and in
+    /// builds without the `drone` feature. It is reported only: `key` is
+    /// decided from the whole track at once.
     pub key_timeline: Vec<KeySection>,
     /// How the file is encoded and how good it sounds for DJ use, measured
     /// while it was decoded for the other analyses. `None` only for an
@@ -84,7 +78,7 @@ pub struct TrackAnalysis {
     pub quality: Option<QualityReport>,
     /// The key that matched the track second best, or `None` when there is
     /// no key or the key detector does not rank keys, as in builds without
-    /// the `libkeyfinder` feature.
+    /// the `drone` feature.
     pub key_runner_up: Option<Key>,
     /// How far the score of the key is above that of the runner up, the
     /// basis of [`TrackAnalysis::key_confidence`]. For drone-v2 it is the
@@ -92,8 +86,8 @@ pub struct TrackAnalysis {
     pub key_score_margin: Option<f32>,
     /// The detector that decided the key, which sets the scale of
     /// [`TrackAnalysis::key_score_margin`]. `None` when there is no key, and
-    /// in analyses stored before it was recorded, which are rated as
-    /// libkeyfinder keys.
+    /// in analyses stored before it was recorded, which are rated as the
+    /// libkeyfinder keys earlier versions found.
     pub key_source: Option<KeySource>,
     /// The tempo as the detector estimated it, before it is reported in a
     /// range, so that the range can change without analyzing again.
@@ -279,9 +273,8 @@ impl AnalysisObserver for Unobserved {}
 /// Decodes one file once and finds its key, its tempo, its energy and its
 /// audio quality.
 ///
-/// The key comes from the [`KeyEngine`](crate::KeyEngine) chosen with
-/// [`set_key_engine`](crate::set_key_engine), by default drone-v2, which
-/// also follows the key over time (see [`read_key`]). Tempo comes from the tempo only path of `stratum-dsp`, so
+/// The key comes from drone-v2, which also follows the key over time (see
+/// [`read_key`]). Tempo comes from the tempo only path of `stratum-dsp`, so
 /// its costly key analysis does not run. The energy rating takes the
 /// detected tempo into account when there is one.
 ///
@@ -323,7 +316,7 @@ pub fn analyze_file_observed(
         tuning_cents,
         timeline,
         source: key_source,
-    } = read_key(key_engine(), &audio)?;
+    } = read_key(&audio)?;
 
     // The energy rating was set with tempos in the default range, so it uses
     // that tempo whatever range the tempo is reported in.

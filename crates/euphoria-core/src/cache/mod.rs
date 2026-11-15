@@ -80,7 +80,7 @@ use crate::detect::{BeatGrid, CueSection, KeySection, SectionCue};
 use crate::energy::ENERGY_MODEL_VERSION;
 use crate::error::{ErrorSource, EuphoriaError};
 use crate::key::Key;
-use crate::key_engine::KeySource;
+use crate::key_source::KeySource;
 use crate::quality::QualityReport;
 use identity::FileStamp;
 

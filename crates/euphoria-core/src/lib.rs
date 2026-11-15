@@ -35,7 +35,7 @@ pub mod favorites;
 pub mod harmony;
 /// Musical keys, Camelot and Open Key notation.
 pub mod key;
-pub mod key_engine;
+pub mod key_source;
 /// Finding audio files in folders.
 pub mod library;
 /// Reading the key, tempo and energy of the audio the computer is playing.
@@ -126,7 +126,7 @@ pub use harmony::{
     TempoScaling, TrackFeatures, Transition, build_set, evaluate_set, mixes_into,
 };
 pub use key::{Key, Mode};
-pub use key_engine::{KeyEngine, KeySource, key_engine, set_key_engine};
+pub use key_source::KeySource;
 pub use library::{
     AudioScan, SUPPORTED_EXTENSIONS, ScanWarning, SkippedExtension, UNSUPPORTED_AUDIO_EXTENSIONS,
     find_audio_files, is_supported_audio_file, scan_audio_files,

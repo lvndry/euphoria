@@ -513,12 +513,7 @@ mod tests {
             let mut library = Library::new();
             let track = library.add_track("track.wav", "a track");
             let current_version = library.cache.analyzer_version.clone();
-            let detector = if cfg!(feature = "libkeyfinder") {
-                "libkeyfinder"
-            } else {
-                "stratum"
-            };
-            library.cache.analyzer_version = format!("{previous_version}+{detector}");
+            library.cache.analyzer_version = format!("{previous_version}+libkeyfinder");
             library.analyze(std::slice::from_ref(&track));
 
             library.cache.analyzer_version = current_version;
