@@ -85,5 +85,17 @@ class SigningOrderTests(unittest.TestCase):
         self.assertEqual([call[-1] for call in calls], [str(first), str(second)])
 
 
+
+class EntitlementsTest(unittest.TestCase):
+    def test_entitlements_go_only_with_a_developer_id(self):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import macos_sign
+
+        command = macos_sign.codesign_command("Developer ID Application: X (T)", pathlib.Path("tool"), pathlib.Path("e.plist"))
+        self.assertIn("--entitlements", command)
+        self.assertEqual(command[command.index("--entitlements") + 1], "e.plist")
+        ad_hoc = macos_sign.codesign_command("-", pathlib.Path("tool"), pathlib.Path("e.plist"))
+        self.assertNotIn("--entitlements", ad_hoc)
+
 if __name__ == "__main__":
     unittest.main()

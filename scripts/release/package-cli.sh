@@ -86,7 +86,15 @@ else
   sign_identity=${EUPHORIA_SIGN_IDENTITY:--}
   set -- "$folder/lib"/*.dylib
   [ -e "$1" ] || shift
-  python3 "$repository/scripts/macos_sign.py" files --identity "$sign_identity" "$@" "$folder/bin/euphoria"
+  if [ "$#" -gt 0 ]; then
+    python3 "$repository/scripts/macos_sign.py" files --identity "$sign_identity" "$@"
+  fi
+  # Homebrew rewrites the libraries' load paths on install and signs them
+  # again ad hoc, so their team no longer matches the tool's; without this
+  # entitlement the hardened runtime refuses to load them and the tool exits
+  # at once.
+  python3 "$repository/scripts/macos_sign.py" files --identity "$sign_identity" \
+    --entitlements "$repository/scripts/release/cli-entitlements.plist" "$folder/bin/euphoria"
   for file in "$@" "$folder/bin/euphoria"; do
     codesign --verify --strict --verbose=1 "$file"
   done

@@ -127,14 +127,14 @@ Notarizing needs an active Apple Developer Program membership at the time of eve
 
 ### Entitlements
 
-None. The app is signed with the hardened runtime and no entitlements file, because nothing needs an exception:
+**The app: none.** It is signed with the hardened runtime and no entitlements file, because nothing needs an exception:
 
 - No JIT and no unsigned executable memory: ONNX Runtime is linked statically and runs its kernels as compiled code, and nothing generates code at run time.
-- Library validation passes: libkeyfinder, FFTW and the other dylibs are re-signed with the same Developer ID as the app, so they are loaded by a binary of the same team.
+- Library validation passes: libkeyfinder, FFTW and the other dylibs are re-signed with the same Developer ID as the app, so they are loaded by a binary of the same team. The Homebrew cask copies the app as it is.
 - No audio input: the app only plays audio, so `com.apple.security.device.audio-input` is not needed.
 - No App Sandbox: it is not distributed through the Mac App Store.
 
-This was reasoned from the code and is not yet tested on a notarized build. If the first signed app crashes at start or in stem separation, read the crash report for a code signing or `EXC_BAD_ACCESS` on executable memory and add the one entitlement it points to.
+**The command line tool: `com.apple.security.cs.disable-library-validation`**, from `scripts/release/cli-entitlements.plist`. Homebrew rewrites the load paths of the tarball's libraries when it installs them and signs them again ad hoc, so they no longer carry Euphoria's team. Under the hardened runtime, library validation then refuses to load them and `euphoria` exits at once with "different Team IDs". 2026.11.2 shipped without the entitlement and its Homebrew command line tool did not start. The libraries themselves keep their Developer ID signature in the tarball, and the tool is still notarized.
 
 ### Secrets
 

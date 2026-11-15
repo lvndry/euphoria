@@ -13,8 +13,10 @@ files that are already signed. `files` signs the files in the order given.
 
 The identity `-` is an ad hoc signature, without a timestamp. Any other
 identity, a Developer ID Application certificate, is signed with the hardened
-runtime and a secure timestamp, which notarization requires. No entitlements
-are passed: nothing in Euphoria needs one under the hardened runtime.
+runtime and a secure timestamp, which notarization requires. `--entitlements`
+adds an entitlements file to every file signed by that call; only the command
+line tool uses one, because Homebrew re-signs its libraries ad hoc when it
+installs them, and the hardened runtime would otherwise refuse to load them.
 """
 
 import argparse
@@ -28,12 +30,14 @@ import macos_libraries
 AD_HOC = "-"
 
 
-def codesign_command(identity, path):
+def codesign_command(identity, path, entitlements=None):
     command = ["codesign", "--force", "--sign", identity]
     if identity == AD_HOC:
         command.append("--timestamp=none")
     else:
         command += ["--options", "runtime", "--timestamp"]
+        if entitlements is not None:
+            command += ["--entitlements", str(entitlements)]
     command.append(str(path))
     return command
 
@@ -52,9 +56,9 @@ def signing_order(bundle):
     return [*nested_files(bundle), bundle]
 
 
-def sign(identity, paths):
+def sign(identity, paths, entitlements=None):
     for path in paths:
-        subprocess.run(codesign_command(identity, path), check=True)
+        subprocess.run(codesign_command(identity, path, entitlements), check=True)
 
 
 def main():
@@ -65,6 +69,7 @@ def main():
     bundle.add_argument("bundle", type=pathlib.Path)
     files = commands.add_parser("files")
     files.add_argument("--identity", required=True)
+    files.add_argument("--entitlements", type=pathlib.Path)
     files.add_argument("files", nargs="+", type=pathlib.Path)
     arguments = parser.parse_args()
     if arguments.command == "bundle":
@@ -72,7 +77,7 @@ def main():
     else:
         paths = [path for path in arguments.files if path.is_file()]
     try:
-        sign(arguments.identity, paths)
+        sign(arguments.identity, paths, getattr(arguments, "entitlements", None))
     except subprocess.CalledProcessError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
