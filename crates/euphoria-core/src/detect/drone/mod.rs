@@ -94,14 +94,14 @@ fn network() -> Result<&'static Network, EuphoriaError> {
 pub struct DroneDetector;
 
 impl DroneDetector {
-    /// How likely each key is, or `None` when the track is silent. Audio
-    /// shorter than about 1.5 seconds, the least the network reads, is
-    /// heard followed by silence.
+    /// How likely each key is, or `None` when the track is silent or
+    /// shorter than a quarter of a second. Audio shorter than about 1.5
+    /// seconds, the least the network reads, is heard followed by silence.
     pub fn probabilities(
         &self,
         audio: &AudioBuffer,
     ) -> Result<Option<KeyProbabilities>, EuphoriaError> {
-        if audio.is_silent() {
+        if audio.is_silent() || audio.duration_seconds() < SHORTEST_SECONDS {
             return Ok(None);
         }
         let network = network()?;
@@ -149,6 +149,9 @@ impl DroneDetector {
             .unwrap_or_default())
     }
 }
+
+/// Audio shorter than this holds too little of any note to have a key.
+const SHORTEST_SECONDS: f32 = 0.25;
 
 /// Frames of features computed at once, about three minutes. Memory stays
 /// near what one segment needs however long the track is.
@@ -253,7 +256,7 @@ impl DroneDetector {
         audio: &AudioBuffer,
         tuning_cents: Option<f32>,
     ) -> Result<KeyReading, EuphoriaError> {
-        if audio.is_silent() {
+        if audio.is_silent() || audio.duration_seconds() < SHORTEST_SECONDS {
             return Ok(KeyReading::default());
         }
         let network = network()?;
@@ -361,6 +364,8 @@ mod tests {
             .collect();
         let short = AudioBuffer::new(chord, rate);
         let key = DroneDetector.detect_key(&short).unwrap();
+        let four_samples = AudioBuffer::new(vec![0.5, -0.25, 0.75, -0.5], rate);
+        assert_eq!(DroneDetector.detect_key(&four_samples).unwrap(), None);
         assert!(
             [Key::new(9, Mode::Minor), Key::new(0, Mode::Major)].contains(&key.unwrap()),
             "{key:?}"
