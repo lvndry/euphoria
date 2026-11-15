@@ -5,7 +5,7 @@
 /// way a feature is measured or the way a track's rating is drawn from its
 /// curve changes, so ratings made with different versions are never compared
 /// by mistake.
-pub const ENERGY_MODEL_VERSION: u32 = 3;
+pub const ENERGY_MODEL_VERSION: u32 = 4;
 
 /// How one feature turns into a score from 0.0 to 1.0, and how much that
 /// score counts in the rating.
@@ -64,6 +64,9 @@ pub struct EnergyModel {
 /// GiantSteps Key dataset, so ratings of dance music spread over the whole
 /// scale. The weights were fitted to the arousal that listeners gave the
 /// songs of two public datasets, and spectral flux carries most of them.
+/// Loudness then got twice its fitted weight, so that a drop rates above
+/// the breakdown before it more often, at some cost in agreement with
+/// listeners on rock, country and blues.
 /// Low frequency share and tempo carry none: they did not follow arousal in
 /// either dataset. They stay in the model, with their anchors, so that a
 /// weight can be given back.
@@ -72,7 +75,7 @@ pub const ENERGY_MODEL: EnergyModel = EnergyModel {
     integrated_loudness: FeatureAnchor {
         low: -14.0,
         high: -6.5,
-        weight: 0.2,
+        weight: 0.4,
     },
     loudness_range: FeatureAnchor {
         low: 12.0,

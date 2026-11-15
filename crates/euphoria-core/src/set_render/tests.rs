@@ -660,3 +660,60 @@ fn a_locked_blend_where_both_sing_is_offered_a_move_but_never_moved() {
     assert!(reason.contains("no vocal overlap"), "{reason}");
     assert_eq!(transition.vocal_fix, None, "a lock is never moved");
 }
+
+#[cfg(feature = "mp3")]
+#[test]
+fn an_mp3_mix_lasts_as_long_and_sounds_as_loud_as_the_wav() {
+    let folder = tempfile::tempdir().unwrap();
+    let first = folder.path().join("first.wav");
+    let second = folder.path().join("second.wav");
+    let tone = |hertz: f32, seconds: f32| -> Vec<f32> {
+        (0..(seconds * 44_100.0) as usize)
+            .map(|index| 0.4 * (std::f32::consts::TAU * hertz * index as f32 / 44_100.0).sin())
+            .collect()
+    };
+    write_mono(&first, 44_100, &tone(220.0, 20.0));
+    write_mono(&second, 44_100, &tone(330.0, 20.0));
+    let plan = MixPlan {
+        tracks: vec![
+            track(&first, 20.0, Some(grid(120.0, 0.0))),
+            track(&second, 20.0, Some(grid(125.0, 0.0))),
+        ],
+        transitions: vec![blend(4, 0, 4)],
+    };
+    let wav = folder.path().join("mix.wav");
+    let mp3 = folder.path().join("mix.mp3");
+    let rendered = render_mix(&plan, &wav, &wav_options(), &mut NoProgress).unwrap();
+    let options = RenderOptions {
+        format: MixFormat::Mp3 {
+            bitrate_kbps: DEFAULT_MP3_BITRATE_KBPS,
+        },
+        existing: ExistingOutput::Replace,
+    };
+    render_mix(&plan, &mp3, &options, &mut NoProgress).unwrap();
+
+    let (wav_samples, _) = decode(&wav);
+    let (mp3_samples, mp3_rate) = decode(&mp3);
+    assert_eq!(mp3_rate, rendered.sample_rate);
+    let wav_seconds = wav_samples.len() as f64 / 2.0 / 44_100.0;
+    let mp3_seconds = mp3_samples.len() as f64 / 2.0 / 44_100.0;
+    assert!(
+        (mp3_seconds - wav_seconds).abs() < 0.06,
+        "MP3 {mp3_seconds} s, WAV {wav_seconds} s"
+    );
+    let rms = |samples: &[f32]| {
+        (samples
+            .iter()
+            .map(|sample| f64::from(*sample).powi(2))
+            .sum::<f64>()
+            / samples.len() as f64)
+            .sqrt()
+    };
+    let level_difference = 20.0 * (rms(&mp3_samples) / rms(&wav_samples)).log10();
+    assert!(level_difference.abs() < 0.2, "{level_difference} dB");
+
+    let bytes = std::fs::read(&mp3).unwrap();
+    assert_eq!(&bytes[..3], b"ID3");
+    let tag = bytes.windows(4).filter(|window| *window == b"CHAP").count();
+    assert_eq!(tag, 2);
+}
