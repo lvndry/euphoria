@@ -20,6 +20,8 @@ pub mod cache;
 pub mod confidence;
 /// Keys and tempos set by the user.
 pub mod correction;
+/// The colours cues get in DJ programs.
+pub mod cue_colours;
 /// Key and tempo detectors.
 pub mod detect;
 /// Energy rating from 1 to 10 and the features behind it.
@@ -98,12 +100,15 @@ pub use cache::{
 };
 pub use confidence::Confidence;
 pub use correction::Correction;
+pub use cue_colours::{
+    CueColours, ENERGY_COLOUR_STEPS, ENERGY_CUE_COLOURS, energy_cue_colour, energy_step,
+};
 pub use detect::{BeatGrid, CueSection, KeySection, MAXIMUM_CUES, SectionCue};
 pub use energy::{
     ENERGY_CURVE_HOP_SECONDS, ENERGY_CURVE_WINDOW_SECONDS, ENERGY_MAXIMUM_SAMPLE_RATE,
     ENERGY_MINIMUM_SAMPLE_RATE, ENERGY_MODEL, ENERGY_MODEL_VERSION, EnergyCurvePoint,
     EnergyFeatures, EnergyModel, EnergyRating, FeatureAnchor, energy_curve, energy_features,
-    rate_energy, rate_features,
+    rate_energy, rate_features, rate_sections,
 };
 pub use error::{DecodeFailure, ErrorSource, EuphoriaError, ExportProblem};
 pub use export::{

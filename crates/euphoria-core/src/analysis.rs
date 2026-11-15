@@ -6,13 +6,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 
+use crate::audio::AudioBuffer;
 use crate::audio_budget::{budgeted_seconds, global_audio_budget};
 use crate::confidence::{Confidence, key_confidence, tempo_confidence};
 use crate::detect::{
     BeatGrid, KeyReading, KeySection, SectionCue, StratumDetector, detect_beat_grid_and_cues,
     read_key,
 };
-use crate::energy::rate_energy;
+use crate::energy::{rate_energy, rate_sections};
 use crate::error::EuphoriaError;
 use crate::key::Key;
 use crate::key_engine::{KeySource, key_engine};
@@ -335,6 +336,7 @@ pub fn analyze_file_observed(
         Some(tempo) if !heavily_damaged => detect_beat_grid_and_cues(&audio, f64::from(tempo)),
         _ => (None, Vec::new()),
     };
+    let cues = with_section_energy(cues, &audio, tempo)?;
     let energy = energy_rating.map(|rating| rating.rating);
     let loudness = energy_rating.map(|rating| rating.features.integrated_loudness_lufs);
     let loudness_range_lu = energy_rating.map(|rating| rating.features.loudness_range_lu);
@@ -358,6 +360,25 @@ pub fn analyze_file_observed(
         cues,
         loudness_range_lu,
     })
+}
+
+/// `cues` with the energy of the section each one starts, rated as the
+/// whole track is, with the same `tempo`.
+pub(crate) fn with_section_energy(
+    cues: Vec<SectionCue>,
+    audio: &AudioBuffer,
+    tempo: Option<f32>,
+) -> Result<Vec<SectionCue>, EuphoriaError> {
+    let starts: Vec<f64> = cues.iter().map(|cue| cue.seconds).collect();
+    let ratings = rate_sections(audio, &starts, tempo)?;
+    Ok(cues
+        .into_iter()
+        .zip(ratings)
+        .map(|(cue, rating)| SectionCue {
+            energy: rating.map(|rating| rating.rating),
+            ..cue
+        })
+        .collect())
 }
 
 /// Analyzes every file in parallel and returns one result per file, in the

@@ -218,6 +218,51 @@ pub fn energy_curve(
     Ok(points)
 }
 
+/// Rates each section of the audio, as [`rate_energy`] rates a whole
+/// track: the section that starts at each of `starts_seconds` runs to the
+/// next start, and the last one to the end of the audio.
+///
+/// A section that is silent, shorter than one second or past the end has
+/// no rating. Starts out of order give the earlier section no audio, so it
+/// has none either.
+///
+/// Fails as [`rate_energy`] does for an unsupported sample rate or an
+/// unusable tempo.
+pub fn rate_sections(
+    audio: &AudioBuffer,
+    starts_seconds: &[f64],
+    tempo: Option<f32>,
+) -> Result<Vec<Option<EnergyRating>>, EuphoriaError> {
+    check_tempo(tempo)?;
+    let sample_rate = audio.sample_rate();
+    check_sample_rate(sample_rate)?;
+    let samples = audio.samples();
+    let sample_index = |seconds: f64| {
+        if seconds.is_finite() && seconds > 0.0 {
+            ((seconds * f64::from(sample_rate.get())) as usize).min(samples.len())
+        } else {
+            0
+        }
+    };
+    let mut analyzer = SpectralAnalyzer::new(sample_rate);
+    let mut ratings = Vec::with_capacity(starts_seconds.len());
+    for (index, start_seconds) in starts_seconds.iter().enumerate() {
+        let start = sample_index(*start_seconds);
+        let end = starts_seconds
+            .get(index + 1)
+            .map_or(samples.len(), |next| sample_index(*next));
+        let rating = if end > start {
+            measure_features(&samples[start..end], sample_rate, &mut analyzer)?
+                .map(|features| rate_features(&features, tempo))
+                .transpose()?
+        } else {
+            None
+        };
+        ratings.push(rating);
+    }
+    Ok(ratings)
+}
+
 fn check_sample_rate(sample_rate: NonZeroU32) -> Result<(), EuphoriaError> {
     let supported = ENERGY_MINIMUM_SAMPLE_RATE..=ENERGY_MAXIMUM_SAMPLE_RATE;
     if supported.contains(&sample_rate.get()) {

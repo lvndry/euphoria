@@ -292,7 +292,7 @@ fn a_cache_from_before_energy_upgrades_in_place_and_its_tracks_are_analyzed_agai
     let schema_version: u32 = upgraded
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("a schema version");
-    assert_eq!(schema_version, 13);
+    assert_eq!(schema_version, 14);
     let old_rows: u32 = upgraded
         .query_row(
             "SELECT COUNT(*) FROM analyses WHERE analyzer_version = '1+libkeyfinder'",
@@ -461,6 +461,7 @@ fn a_confidence_cache_gains_quality_and_reanalyzes_version_six_rows() {
          ALTER TABLE analyses DROP COLUMN cues;
          ALTER TABLE analyses DROP COLUMN key_source;
          ALTER TABLE analyses DROP COLUMN loudness_range_lu;
+         ALTER TABLE analyses DROP COLUMN cue_energies;
          PRAGMA user_version = 4;
          UPDATE analyses SET analyzer_version = '6+libkeyfinder';",
         )
@@ -481,7 +482,7 @@ fn a_confidence_cache_gains_quality_and_reanalyzes_version_six_rows() {
     let version: u32 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("a schema version");
-    assert_eq!(version, 13);
+    assert_eq!(version, 14);
 }
 
 #[cfg(unix)]

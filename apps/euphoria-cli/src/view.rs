@@ -12,7 +12,7 @@ use euphoria_core::quality::{QualityReport, QualityVerdict};
 use euphoria_core::rekordbox_grid::GridSource;
 use euphoria_core::{
     Confidence, Correction, FileResult, Key, ReviewReason, TagKey, TagKeyAgreement, TempoRange,
-    TrackAnalysis,
+    TrackAnalysis, TrackCues,
 };
 
 use crate::batch::Corrections;
@@ -140,6 +140,44 @@ fn energy_bar(theme: &Theme, energy: u8) -> String {
         "━".repeat(filled),
         theme.dim("─".repeat(ENERGY_BAR_CELLS - filled))
     )
+}
+
+/// Writes each cue on a line of its own: its pad, where it is, its name and
+/// the energy of the section it starts.
+fn write_cues(writer: &mut impl Write, theme: &Theme, cues: &TrackCues) -> io::Result<()> {
+    let name_width = cues
+        .cues
+        .iter()
+        .map(|cue| width_of(&cue.name))
+        .max()
+        .unwrap_or(0);
+    for (index, cue) in cues.cues.iter().enumerate() {
+        let pad = cue
+            .hot_cue
+            .map_or_else(|| "-".to_string(), |hot_cue| hot_cue.to_string());
+        let name = Printable(&cue.name).to_string();
+        let padding = " ".repeat(name_width - width_of(&name));
+        let mut text = format!(
+            "{pad}  {:>5}  {name}{padding}",
+            format_duration(cue.seconds as f32)
+        );
+        if let Some(energy) = cue.energy {
+            text.push_str(&format!("  energy {}", theme.bold(energy)));
+        }
+        let label = if index == 0 { "Cues" } else { "" };
+        write_line(writer, theme, label, text.trim_end())?;
+    }
+    if cues.is_edited() {
+        write_line(writer, theme, "", &theme.user("set by you"))?;
+    } else if cues.cues.iter().all(|cue| cue.energy.is_none()) {
+        write_line(
+            writer,
+            theme,
+            "",
+            &theme.dim("energy not measured yet, analyze again with --reanalyze"),
+        )?;
+    }
+    Ok(())
 }
 
 /// The sound quality in a word, for the table.
@@ -825,6 +863,9 @@ pub struct FileFacts<'facts> {
     /// Where the track tends to sit in a set, among the tracks analyzed
     /// together.
     pub stage: Option<euphoria_core::SetStage>,
+    /// The track's cues: the user's when set, and otherwise those analysis
+    /// placed.
+    pub cues: Option<TrackCues>,
 }
 
 /// Writes everything known about one track, a label per line: the key with
@@ -846,6 +887,7 @@ pub fn write_detail(
         review,
         reviewed,
         stage,
+        cues,
     } = facts;
     let key_set = correction.is_some_and(|correction| correction.key.is_some());
     let bpm_set = correction.is_some_and(|correction| correction.bpm.is_some());
@@ -1021,6 +1063,10 @@ pub fn write_detail(
                 theme.dim("from tempo and loudness among these tracks; not the energy")
             ),
         )?;
+    }
+
+    if let Some(cues) = cues.filter(|cues| !cues.cues.is_empty()) {
+        write_cues(writer, theme, &cues)?;
     }
 
     if let Some(quality) = &analysis.quality {
@@ -1306,6 +1352,64 @@ Key                  BPM       Energy              Quality  Time  Review  File
         .unwrap();
         let shown = String::from_utf8(buffer).unwrap();
         assert!(shown.contains("evil\\r\\u{1b}[2K.mp3"), "{shown:?}");
+    }
+
+    #[test]
+    fn the_detail_lists_each_cue_with_the_energy_of_its_section() {
+        let show = |cues: TrackCues| {
+            let mut buffer = Vec::new();
+            write_detail(
+                &mut buffer,
+                &Theme::PLAIN,
+                Path::new("track.mp3"),
+                &analysis(0.5, 0.5),
+                &options(100),
+                None,
+                FileFacts {
+                    cues: Some(cues),
+                    ..FileFacts::default()
+                },
+            )
+            .unwrap();
+            String::from_utf8(buffer).unwrap()
+        };
+        let section = |seconds, section, energy| euphoria_core::SectionCue {
+            seconds,
+            section,
+            energy,
+        };
+        let automatic = TrackCues::automatic(&[
+            section(0.5, euphoria_core::CueSection::Start, Some(3)),
+            section(62.0, euphoria_core::CueSection::Breakdown, Some(2)),
+            section(93.0, euphoria_core::CueSection::Drop, Some(9)),
+        ]);
+        let shown = show(automatic);
+        assert!(
+            shown.contains(
+                "  Cues           A   0:01  Start      energy 3\n                 B   1:02  Breakdown  energy 2\n                 C   1:33  Drop       energy 9\n"
+            ),
+            "{shown}"
+        );
+
+        let unmeasured =
+            TrackCues::automatic(&[section(0.5, euphoria_core::CueSection::Start, None)]);
+        assert!(
+            show(unmeasured).contains("energy not measured yet, analyze again with --reanalyze")
+        );
+
+        let edited = TrackCues::edited(vec![euphoria_core::Cue {
+            seconds: 12.0,
+            name: "Vocal".to_string(),
+            hot_cue: None,
+            energy: None,
+        }]);
+        let shown = show(edited);
+        assert!(
+            shown.contains("  Cues           -   0:12  Vocal\n"),
+            "{shown}"
+        );
+        assert!(shown.contains("set by you"), "{shown}");
+        assert!(!show(TrackCues::edited(Vec::new())).contains("Cues"));
     }
 
     #[test]

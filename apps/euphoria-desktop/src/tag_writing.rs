@@ -207,7 +207,11 @@ pub(crate) fn plan_writes_reading(
         }
         .and_then(|mut plan| {
             if settings.write_cue_markers {
-                let markers = SeratoMarkers::of_cues(&written, target.edited_cues.clone());
+                let markers = SeratoMarkers::of_cues(
+                    &written,
+                    target.edited_cues.clone(),
+                    settings.cue_colours(),
+                );
                 let report = match &loaded {
                     Some(Ok(tags)) => add_serato_markers_from(&mut plan, &markers, tags)?,
                     _ => add_serato_markers(&mut plan, &markers)?,
@@ -802,6 +806,7 @@ mod tests {
             cues: vec![euphoria_core::detect::SectionCue {
                 seconds: 0.1,
                 section: euphoria_core::detect::CueSection::Start,
+                energy: None,
             }],
             ..analysis()
         }
@@ -810,6 +815,7 @@ mod tests {
     fn cue_marker_settings() -> TagSettings {
         TagSettings {
             write_cue_markers: true,
+            colour_cues_by_energy: true,
             ..TagSettings::default()
         }
     }
@@ -876,11 +882,13 @@ mod tests {
                 seconds: 0.5,
                 name: "Mine".to_string(),
                 hot_cue: euphoria_core::track_cues::HotCue::from_pad(3),
+                energy: None,
             },
             Cue {
                 seconds: 0.25,
                 name: "Memory".to_string(),
                 hot_cue: None,
+                energy: None,
             },
         ];
         let planned = plan_writes(

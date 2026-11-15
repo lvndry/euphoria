@@ -10,7 +10,7 @@ use std::num::NonZeroU32;
 use euphoria_core::{
     AudioBuffer, ENERGY_CURVE_HOP_SECONDS, ENERGY_CURVE_WINDOW_SECONDS, ENERGY_MAXIMUM_SAMPLE_RATE,
     ENERGY_MINIMUM_SAMPLE_RATE, ENERGY_MODEL_VERSION, EnergyRating, EuphoriaError, energy_curve,
-    energy_features, rate_energy, rate_features,
+    energy_features, rate_energy, rate_features, rate_sections,
 };
 
 const SAMPLE_RATE: u32 = 44_100;
@@ -248,6 +248,63 @@ fn each_curve_point_is_the_rating_of_its_window() {
     let end = start + sample_count(point.duration_seconds);
     let window = buffer(samples[start..end].to_vec());
     assert_eq!(point.rating, rate_energy(&window, Some(120.0)).unwrap());
+}
+
+#[test]
+fn each_section_is_rated_from_its_start_to_the_next() {
+    let calm = sine(440.0, 0.02, 16.0);
+    let busy = mix(
+        &pulse_train(KICK_FREQUENCY, 8.0, 0.8, 16.0),
+        &noise(0.2, 16.0),
+    );
+    let mut samples = calm.clone();
+    samples.extend(&busy);
+    samples.extend(&calm);
+    let ratings = rate_sections(&buffer(samples), &[0.0, 16.0, 32.0], Some(124.0)).unwrap();
+
+    assert_eq!(ratings.len(), 3);
+    assert_eq!(
+        ratings[0],
+        rate_energy(&buffer(calm.clone()), Some(124.0)).unwrap()
+    );
+    assert_eq!(ratings[1], rate_energy(&buffer(busy), Some(124.0)).unwrap());
+    assert_eq!(ratings[2], rate_energy(&buffer(calm), Some(124.0)).unwrap());
+    let levels: Vec<u8> = ratings
+        .iter()
+        .map(|rating| rating.expect("every section has signal").rating)
+        .collect();
+    assert!(levels[1] > levels[0], "{levels:?}");
+    assert!(levels[1] > levels[2], "{levels:?}");
+}
+
+#[test]
+fn a_section_that_is_silent_too_short_or_past_the_end_has_no_rating() {
+    let mut samples = silence(8.0);
+    samples.extend(pulse_train(KICK_FREQUENCY, 4.0, 0.5, 8.0));
+    let ratings = rate_sections(&buffer(samples), &[0.0, 8.0, 8.5, 9.0, 40.0], None).unwrap();
+    assert_eq!(ratings[0], None);
+    assert_eq!(ratings[1], None);
+    assert!(ratings[3].is_some());
+    assert_eq!(ratings[4], None);
+    assert!(
+        rate_sections(&buffer(Vec::new()), &[], None)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn rating_sections_refuses_what_rating_a_track_refuses() {
+    let audio = buffer(pulse_train(KICK_FREQUENCY, 4.0, 0.5, 4.0));
+    assert!(matches!(
+        rate_sections(&audio, &[0.0], Some(f32::NAN)),
+        Err(EuphoriaError::InvalidEnergyInput { name: "tempo", .. })
+    ));
+    let unsupported = buffer_at(vec![0.0; 10], ENERGY_MAXIMUM_SAMPLE_RATE + 1);
+    assert!(is_unsupported_rate(
+        &rate_sections(&unsupported, &[0.0], None),
+        ENERGY_MAXIMUM_SAMPLE_RATE + 1
+    ));
 }
 
 #[test]

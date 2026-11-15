@@ -132,6 +132,7 @@ pub(crate) fn changed(cues: &[Cue], change: CueChange) -> Option<Vec<Cue>> {
                 seconds,
                 name,
                 hot_cue,
+                energy: None,
             });
         }
         CueChange::Move { index, seconds } => {
@@ -631,6 +632,7 @@ mod tests {
             seconds,
             name: name.to_string(),
             hot_cue: letter.and_then(HotCue::from_letter),
+            energy: None,
         }
     }
 

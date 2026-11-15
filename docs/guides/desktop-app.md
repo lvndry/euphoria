@@ -426,6 +426,7 @@ To change the cues:
 
 - Drag a marker to move its cue. It lands on the nearest beat of the beat grid, or on the nearest first beat of a bar while you hold Shift. A track without a beat grid, or with a [tempo you set](#check-the-key-by-ear-and-correct-it), has no grid to snap to, and a cue stays where you drop it.
 - Double click the waveform to add a cue there, or click **Add at playhead** in the **Cues** list under the waveform, or press C, to add one where playing is. A new cue is called "Cue" and a number, lands on the nearest beat like a moved one, and takes the first free hot cue pad. A ninth cue, with every pad from A to H taken, is a memory cue only.
+- In the **Cues** list, each automatic cue shows the [energy of its section](../concepts/accuracy.md#energy-of-each-cue), the 1 to 10 rating of the audio from it to the next cue, beside a dot in the colour the cue gets in exports. Your own cues show none.
 - In the **Cues** list, click a name to rename the cue, and press Return to keep the new name. Click the letter before it to put the cue on another pad from A to H, or on none for a memory cue only: a cue already on that pad takes the one the cue leaves. Click the time to play from the cue, and the cross to delete it.
 - **Undo**, or Command Z when no text field has the keyboard, takes back the last change to the selected track's cues, one at a time. **Playback > Undo Cue Edit** does the same.
 - **Reset to automatic cues** forgets your cues and brings back the ones analysis placed. It can be undone too.
@@ -672,6 +673,8 @@ The edit is written with the same safety as a tag write and shares its backups, 
 4. Choose the file to write, or the Engine Library folder or VirtualDJ `database.xml` to edit. The app proposes the ones it finds in your home folder.
 5. **Review** checks everything and shows what would be written. It writes nothing. **Export** then writes, and the result appears in the notice strip.
 
+With **Cues** on, for rekordbox, Engine DJ and VirtualDJ, **Colour cues by energy** colours each automatic cue by the [energy of its section](../concepts/accuracy.md#energy-of-each-cue), blue for calm up to red for intense. Your own cues keep their pad colour. Turn it off to keep the program's own colours. It is the same setting as in [Settings](#settings), so the choice is remembered. Traktor colours a cue by its type, so the sheet does not offer it there.
+
 For rekordbox and Traktor, cues need the beat grid and your own collection file (rekordbox: File > Export Collection in xml format; Traktor: `collection.nml`). Tracks that already have cues there are left out of the file so importing it cannot change them, and the export is refused when cued tracks of that collection match no file on this computer, unless you tick the box that allows it. The file is never written over your Traktor collection.
 
 Engine DJ and VirtualDJ keep every safety of the command line, because the app calls the same code: a copy of the database is saved first and its path is shown in the review, the export is refused while the program is running, an Engine DJ library whose schema version Euphoria was not checked against is refused, and tracks with cues of their own in the program keep them.
@@ -714,6 +717,7 @@ How tags are written. Every setting has one short line under its name; where the
 | Low confidence | A key or tempo rated low confidence is left out and listed in the preview. The switch **Write low confidence values** (off) writes them. A key or tempo you corrected counts as high. |
 | Tempo | Whether the tempo is written. Choosing Serato unticks it, because Serato detects the tempo itself only for files that have none; you can tick it again. |
 | Cue markers | Whether each track's cues and beat grid are written as Serato cue points, which Serato DJ, Mixxx and VirtualDJ read. Off by default. Your edited cues go in on their pads; memory cues are left out. WAV and Ogg files get none. |
+| Colour cues by energy | Whether each automatic cue is coloured by the [energy of its section](../concepts/accuracy.md#energy-of-each-cue), blue for calm up to red for intense, in cue markers and in **File > Export Library...**. On by default. Your own cues keep their pad colour. Off keeps the colours each program gives its pads. |
 
 ![The Energy label choices with End of the comment chosen, and the In your files box under them: Key 4A, BPM 129 and the comment 4A - Energy 7 with the label in the accent colour, captioned Selected track.](../images/desktop-app/settings-label-end.png)
 

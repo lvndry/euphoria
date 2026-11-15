@@ -23,7 +23,7 @@ use euphoria_core::export::virtualdj::{
     VirtualDjOptions, VirtualDjTrack, preview_database_update, update_database_file,
 };
 use euphoria_core::{
-    AssembledLibrary, ExportContents, FileResult, PlaylistLayout, assemble_library_with,
+    AssembledLibrary, CueColours, ExportContents, FileResult, PlaylistLayout, assemble_library_with,
 };
 use gpui::{Context, PathPromptOptions};
 
@@ -108,6 +108,15 @@ impl ExportProgram {
         self.edits_in_place()
     }
 
+    /// True when the program shows the colour Euphoria gives a cue.
+    /// Traktor colours a cue by its type.
+    pub(crate) fn has_cue_colours(self) -> bool {
+        matches!(
+            self,
+            ExportProgram::Rekordbox | ExportProgram::EngineDj | ExportProgram::VirtualDj
+        )
+    }
+
     /// True when its collection can be read to protect its cues.
     pub(crate) fn has_collection(self) -> bool {
         matches!(self, ExportProgram::Rekordbox | ExportProgram::Traktor)
@@ -163,6 +172,8 @@ pub(crate) struct ExportSetup {
     pub(crate) allow_unmatched_cued_tracks: bool,
     pub(crate) output: Option<PathBuf>,
     pub(crate) target: Option<PathBuf>,
+    /// How the cues are coloured, from the colour setting.
+    pub(crate) cue_colours: CueColours,
 }
 
 impl ExportSetup {
@@ -179,6 +190,7 @@ impl ExportSetup {
             allow_unmatched_cued_tracks: false,
             output: None,
             target: program.default_target(),
+            cue_colours: CueColours::default(),
         }
     }
 
@@ -339,6 +351,7 @@ impl LibraryExportJob {
             beat_grid: setup.beat_grid,
             cues: setup.cues && setup.can_write_cues(),
             edited_cues,
+            cue_colours: setup.cue_colours,
         }
     }
 
@@ -879,8 +892,12 @@ impl EuphoriaApp {
         } else {
             ExportScope::Library
         };
+        let setup = ExportSetup {
+            cue_colours: self.tag_settings.cue_colours(),
+            ..ExportSetup::new(ExportProgram::Rekordbox, scope)
+        };
         self.library_export = Some(LibraryExportPanel {
-            setup: ExportSetup::new(ExportProgram::Rekordbox, scope),
+            setup,
             stage: ExportStage::Setup,
             problem: None,
         });

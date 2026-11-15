@@ -225,6 +225,7 @@ mod tests {
         let cues = vec![crate::detect::SectionCue {
             seconds: 0.1,
             section: crate::detect::CueSection::Start,
+            energy: None,
         }];
         let with_grid = TrackAnalysis {
             beat_grid: Some(grid),

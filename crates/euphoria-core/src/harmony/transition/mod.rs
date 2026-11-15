@@ -119,6 +119,7 @@ impl From<&SuggestedCue> for Cue {
             seconds: cue.seconds,
             name: cue.name.clone(),
             hot_cue: None,
+            energy: None,
         }
     }
 }

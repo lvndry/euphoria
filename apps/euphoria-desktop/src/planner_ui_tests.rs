@@ -28,7 +28,11 @@ const TRACK_SECONDS: f32 = 64.0;
 fn plan_track(name: &str, key: &str, bpm: f32) -> DemoTrack {
     let fixtures =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/euphoria-core/tests/fixtures");
-    let section_cue = |seconds, section| SectionCue { seconds, section };
+    let section_cue = |seconds, section| SectionCue {
+        seconds,
+        section,
+        energy: None,
+    };
     DemoTrack {
         path: fixtures.join(name),
         outcome: Ok(TrackAnalysis {

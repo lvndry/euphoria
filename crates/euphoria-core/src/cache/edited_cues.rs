@@ -273,6 +273,7 @@ fn parse_stored(text: &str) -> Option<Vec<Cue>> {
                 seconds: stored.seconds,
                 name: stored.name,
                 hot_cue,
+                energy: None,
             })
         })
         .collect::<Option<Vec<Cue>>>()?;
@@ -307,6 +308,7 @@ mod tests {
             cues: vec![SectionCue {
                 seconds: 0.5,
                 section: CueSection::Start,
+                energy: None,
             }],
         }
     }
@@ -321,11 +323,13 @@ mod tests {
                 seconds: 16.25,
                 name: "Vocal \"in\"\tand\nout".to_string(),
                 hot_cue: HotCue::from_letter('C'),
+                energy: None,
             },
             Cue {
                 seconds: 200.0,
                 name: String::new(),
                 hot_cue: None,
+                energy: None,
             },
         ]
     }
@@ -370,11 +374,13 @@ mod tests {
                 seconds: 16.25,
                 name: "Vocal".to_string(),
                 hot_cue: HotCue::from_letter('C'),
+                energy: None,
             },
             Cue {
                 seconds: 999.0,
                 name: "Past the end".to_string(),
                 hot_cue: None,
+                energy: None,
             },
         ];
         cache.set_edited_cues(&track, Some(&cues)).unwrap();
@@ -391,6 +397,7 @@ mod tests {
                 seconds: 16.25,
                 name: "Vocal".to_string(),
                 hot_cue: HotCue::from_letter('C'),
+                energy: None,
             }]
         );
         assert_eq!(
@@ -419,11 +426,13 @@ mod tests {
             seconds: 50.0,
             name: "Short end".to_string(),
             hot_cue: None,
+            energy: None,
         }];
         let long_cues = [Cue {
             seconds: 200.0,
             name: "Long end".to_string(),
             hot_cue: None,
+            energy: None,
         }];
         cache.set_edited_cues(&short, Some(&short_cues)).unwrap();
         cache.set_edited_cues(&long, Some(&long_cues)).unwrap();
@@ -482,6 +491,7 @@ mod tests {
             seconds: 999.0,
             name: "Lost".to_string(),
             hot_cue: None,
+            energy: None,
         }];
         assert!(matches!(
             cache.set_edited_cues(&track, Some(&past_the_end)),

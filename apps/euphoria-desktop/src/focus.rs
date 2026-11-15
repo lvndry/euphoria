@@ -797,6 +797,7 @@ mod tests {
             seconds,
             name: name.to_string(),
             hot_cue: None,
+            energy: None,
         }
     }
 

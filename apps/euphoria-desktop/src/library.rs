@@ -1761,6 +1761,7 @@ mod tests {
             seconds,
             name: String::new(),
             hot_cue: None,
+            energy: None,
         };
         library.set_edited_cues(
             Path::new("/music/house/saffron.mp3"),
@@ -2161,11 +2162,13 @@ mod tests {
                 seconds: 12.0,
                 name: "Intro".to_string(),
                 hot_cue: Some(euphoria_core::HotCue::from_letter('A').unwrap()),
+                energy: None,
             },
             Cue {
                 seconds: 999.0,
                 name: "Past the end".to_string(),
                 hot_cue: None,
+                energy: None,
             },
         ];
 

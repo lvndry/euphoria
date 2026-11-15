@@ -322,7 +322,7 @@ fn a_refined_grid_near_the_range_edge_exports_in_the_detected_tempos_octave() {
         ExportContents {
             beat_grid: true,
             cues: false,
-            edited_cues: Default::default(),
+            ..Default::default()
         },
     );
     let mut xml = Vec::new();

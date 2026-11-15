@@ -35,7 +35,8 @@ use std::process::ExitCode;
 use anyhow::Result;
 use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 use euphoria_core::{
-    CachedBatch, EuphoriaError, FileResult, TrackAnalysis, clear_cache, default_cache_path,
+    CachedBatch, EuphoriaError, FileResult, TrackAnalysis, TrackCues, clear_cache,
+    default_cache_path,
 };
 
 use crate::batch::AnalysisOptions;
@@ -571,6 +572,15 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
                             review: tag_keys.review_reasons(&result.path, track),
                             reviewed: tag_keys.reviewed(&result.path),
                             stage: stages.get(&result.path),
+                            cues: Some(
+                                user_edits
+                                    .get(&result.path)
+                                    .and_then(|looked_up| looked_up.as_ref().ok())
+                                    .map_or_else(
+                                        || TrackCues::of(track, None),
+                                        |edits| edits.track_cues(track),
+                                    ),
+                            ),
                         },
                     )?;
                 }

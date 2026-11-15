@@ -228,6 +228,7 @@ mod tests {
                 label: Some(LabelChoice::Grouping),
                 write_tempo: false,
                 write_cue_markers: true,
+                colour_cues_by_energy: true,
                 ..TagSettings::default()
             },
             display: DisplaySettings {

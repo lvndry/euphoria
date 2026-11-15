@@ -76,6 +76,7 @@ From libdjinterop's `include/djinterop/engine/engine_schema.hpp`. Whether Engine
 | `--key-notation <NOTATION>` | How the key is spelled in the label: `camelot` (the default), `musical` or `open-key`. In the app's export sheet it is the **Settings > Key notation** choice. |
 | `--beat-grid` | Write each track's beat grid, except grids rated low confidence. |
 | `--cues` | Write cues where each track's sections start, as hot cues 1 to 8. Needs `--beat-grid`. |
+| `--cue-colors <COLOURS>` | `energy` (the default) colours each cue analysis placed by the energy of its section, from blue for calm to red for intense; `fixed` keeps Engine DJ's pad colours. Your own cues keep their pad colour either way. See [energy of each cue](../concepts/accuracy.md#energy-of-each-cue). |
 | `--dry-run` | Check the library and say what would change, writing nothing. |
 
 ## Where the library is
@@ -91,7 +92,7 @@ A track is found by the path Engine DJ stores for it, relative to the `Engine Li
 | Key | `Track.key`, 0 to 23 along the circle of fifths from C major (0 C, 1 A minor, 2 G, and so on), and the key in the `trackData` blob. Engine DJ shows it in the notation set in its preferences. |
 | Tempo | `bpmAnalyzed` exactly and `bpm` rounded. |
 | Beat grid | `beatData`: a constant grid from four beats before the first downbeat to past the end of the track, in samples at the sample rate Engine DJ found, as libdjinterop writes it. |
-| Cues | Hot cues 1 to 8 in `quickCues`, in Engine DJ's pad colours. Pad 7's colour is Euphoria's own: no library with pad 7 set was found to copy it from. The main cue is kept. |
+| Cues | Hot cues 1 to 8 in `quickCues`. Each cue analysis placed takes the colour of the energy of its section, from Engine DJ's own pad colours: blue, cyan, green, orange and red from calm to intense (see [energy of each cue](../concepts/accuracy.md#energy-of-each-cue)). Cues you edited, and every cue with `--cue-colors fixed`, take Engine DJ's colour for their pad. Pad 7's colour is Euphoria's own: no library with pad 7 set was found to copy it from. The main cue is kept. How the players show these colours is **(not verified)**. |
 | Energy | The label at the start or end of the comment, keeping your text. A label an earlier export wrote is replaced. |
 
 ## What is kept

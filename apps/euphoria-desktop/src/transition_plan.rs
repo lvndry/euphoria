@@ -828,6 +828,7 @@ pub(crate) fn merged_cues(existing: &[Cue], suggested: &[Cue]) -> Vec<Cue> {
             seconds: cue.seconds,
             name: cue.name.clone(),
             hot_cue,
+            energy: None,
         });
     }
     merged.sort_by(|first, second| first.seconds.total_cmp(&second.seconds));
@@ -1146,6 +1147,7 @@ mod tests {
             seconds,
             name: name.to_string(),
             hot_cue: letter.and_then(HotCue::from_letter),
+            energy: None,
         }
     }
 

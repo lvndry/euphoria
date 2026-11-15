@@ -2197,6 +2197,7 @@ fn the_settings_choose_the_program_the_tags_are_written_for_and_are_remembered(
             label: Some(crate::tag_settings::LabelChoice::Grouping),
             write_tempo: true,
             write_cue_markers: false,
+            colour_cues_by_energy: true,
             ..TagSettings::default()
         }
     );
@@ -2273,6 +2274,7 @@ fn the_cue_markers_setting_writes_serato_cues_with_a_preview_and_undo_restores_e
     analysis.cues = vec![euphoria_core::detect::SectionCue {
         seconds: 0.1,
         section: euphoria_core::detect::CueSection::Start,
+        energy: None,
     }];
     let tracks = files
         .iter()
@@ -2303,11 +2305,13 @@ fn the_cue_markers_setting_writes_serato_cues_with_a_preview_and_undo_restores_e
                         seconds: 0.5,
                         name: "Mine".to_string(),
                         hot_cue: euphoria_core::track_cues::HotCue::from_pad(3),
+                        energy: None,
                     },
                     euphoria_core::Cue {
                         seconds: 0.25,
                         name: "Memory".to_string(),
                         hot_cue: None,
+                        energy: None,
                     },
                 ]),
             );
@@ -5313,10 +5317,12 @@ pub(crate) fn deck_tracks() -> Vec<DemoTrack> {
                 euphoria_core::SectionCue {
                     seconds: 0.2,
                     section: euphoria_core::CueSection::Start,
+                    energy: None,
                 },
                 euphoria_core::SectionCue {
                     seconds: 64.2,
                     section: euphoria_core::CueSection::Drop,
+                    energy: None,
                 },
             ],
             key_timeline: Vec::new(),
@@ -6010,7 +6016,11 @@ pub(crate) const CUED_TRACK_SECONDS: f32 = 32.0;
 fn cued_track(name: &str, has_grid: bool) -> DemoTrack {
     let fixtures =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/euphoria-core/tests/fixtures");
-    let section_cue = |seconds, section| euphoria_core::SectionCue { seconds, section };
+    let section_cue = |seconds, section| euphoria_core::SectionCue {
+        seconds,
+        section,
+        energy: None,
+    };
     DemoTrack {
         path: fixtures.join(name),
         outcome: Ok(TrackAnalysis {
@@ -6120,6 +6130,7 @@ fn the_cues_column_counts_edited_cues_else_automatic_ones_and_sorts(cx: &mut Tes
                 seconds,
                 name: String::new(),
                 hot_cue: None,
+                energy: None,
             };
             app.session
                 .set_edited_cues(&path, Some(vec![cue(1.0), cue(2.0), cue(3.0), cue(4.0)]));
@@ -6221,11 +6232,13 @@ fn markers_of_cues_close_together_never_overlap_and_stay_above_the_waveform(
             seconds: 1.0 + index as f64 * 0.5,
             name: "Breakdown".to_string(),
             hot_cue: Some(*pad),
+            energy: None,
         })
         .chain(std::iter::once(euphoria_core::Cue {
             seconds: 31.5,
             name: "Last".to_string(),
             hot_cue: None,
+            energy: None,
         }))
         .collect();
     cx.update(|cx| {
@@ -6480,6 +6493,7 @@ fn measuring_a_cue_lane_requests_a_frame_to_finish_its_layout(cx: &mut TestAppCo
             seconds: 1.0 + index as f64 * 0.5,
             name: "Breakdown".to_string(),
             hot_cue: Some(*pad),
+            energy: None,
         })
         .collect();
     cx.update(|cx| {
@@ -6556,6 +6570,7 @@ fn saved_cues_wait_for_analysis_duration_before_drawing_markers(cx: &mut TestApp
                     seconds: 1.0,
                     name: "Saved cue".to_string(),
                     hot_cue: euphoria_core::HotCue::from_letter('A'),
+                    energy: None,
                 }]),
             );
         })

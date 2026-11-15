@@ -29,6 +29,8 @@
 //!   written.
 //! - A hot cue is `<Poi Name="…" Pos="…" Num="1" />`, numbered from 1,
 //!   with no `Type`, as VirtualDJ writes it.
+//! - A hot cue coloured by energy gets `Color`, its opaque colour as one
+//!   decimal number, 0xAARRGGBB, as vdj-data reads and writes it.
 //! - `<Comment>` holds the comment as text.
 
 use std::collections::HashMap;
@@ -41,6 +43,7 @@ use super::rekordbox::{
     CueKind, ExistingFile, Track, escape_attribute_value, export_error, is_xml_character,
     tempo_text, write_file,
 };
+use crate::cue_colours::energy_cue_colour;
 use crate::error::{EuphoriaError, ExportProblem};
 use crate::key::{Key, Mode};
 use crate::tags::KeyNotation;
@@ -564,11 +567,16 @@ fn song_edits(
         }
     }
 
-    let hot_cues: Vec<(u8, &str, f64)> = track
+    let hot_cues: Vec<(u8, &str, f64, Option<u8>)> = track
         .cue_points
         .iter()
         .filter_map(|cue_point| match cue_point.kind {
-            CueKind::Hot(pad) => Some((pad, cue_point.name.as_str(), cue_point.time.as_secs_f64())),
+            CueKind::Hot(pad) => Some((
+                pad,
+                cue_point.name.as_str(),
+                cue_point.time.as_secs_f64(),
+                cue_point.energy,
+            )),
             CueKind::Memory => None,
         })
         .collect();
@@ -597,15 +605,16 @@ fn song_edits(
         } else {
             outcome.cues_without_pad = memory_only;
             let mut cue_elements = Vec::with_capacity(hot_cues.len());
-            for (pad, name, seconds) in hot_cues {
-                cue_elements.push(new_element(
-                    "Poi",
-                    &[
-                        ("Name", name.to_string()),
-                        ("Pos", format!("{seconds:.6}")),
-                        ("Num", (u16::from(pad) + 1).to_string()),
-                    ],
-                )?);
+            for (pad, name, seconds, energy) in hot_cues {
+                let mut attributes = vec![
+                    ("Name", name.to_string()),
+                    ("Pos", format!("{seconds:.6}")),
+                    ("Num", (u16::from(pad) + 1).to_string()),
+                ];
+                if let Some(energy) = energy {
+                    attributes.push(("Color", colour_number(energy_cue_colour(energy))));
+                }
+                cue_elements.push(new_element("Poi", &attributes)?);
             }
             let after = points.last().copied().or(after_metadata);
             for element in cue_elements {
@@ -752,6 +761,12 @@ fn comment_edit(
     }))
 }
 
+/// An opaque colour as VirtualDJ stores it: one decimal number holding
+/// alpha, red, green and blue, a byte each.
+fn colour_number([red, green, blue]: [u8; 3]) -> String {
+    u32::from_be_bytes([0xFF, red, green, blue]).to_string()
+}
+
 fn new_element(name: &str, values: &[(&str, String)]) -> Result<String, EuphoriaError> {
     let mut element = format!("<{name}");
     for (attribute, value) in values {
@@ -829,11 +844,13 @@ mod tests {
                     name: "Drop".to_string(),
                     time: std::time::Duration::from_secs(30),
                     kind: CueKind::Memory,
+                    energy: None,
                 },
                 super::super::rekordbox::CuePoint {
                     name: "Drop".to_string(),
                     time: std::time::Duration::from_secs(30),
                     kind: CueKind::Hot(1),
+                    energy: None,
                 },
             ],
             ..Track::new("/music/a.mp3", std::time::Duration::from_secs(300))

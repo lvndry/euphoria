@@ -42,9 +42,9 @@ use mp4::TEMPO as MP4_TEMPO;
 use native::{Purpose, TagFile};
 pub use preset::DjSoftware;
 pub use serato::{
-    GridOutcome, PlacedCue, SERATO_CUE_COLOURS, SERATO_HOT_CUES, SeratoCue, SeratoGrid,
-    SeratoMarkers, SeratoReport, SeratoSkip, add_serato_markers, add_serato_markers_from,
-    describe_serato_value, serato_field_name,
+    GridOutcome, PlacedCue, SERATO_CUE_COLOURS, SERATO_ENERGY_CUE_COLOURS, SERATO_HOT_CUES,
+    SeratoCue, SeratoGrid, SeratoMarkers, SeratoReport, SeratoSkip, add_serato_markers,
+    add_serato_markers_from, describe_serato_value, serato_field_name,
 };
 
 const BPM_MATCH_TOLERANCE: f64 = 0.005;

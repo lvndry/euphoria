@@ -26,6 +26,7 @@ use super::native::{Purpose, TagFile};
 use super::{FieldChange, TagFormat, WritePlan, base64};
 use crate::analysis::TrackAnalysis;
 use crate::confidence::Confidence;
+use crate::cue_colours::{CueColours, ENERGY_COLOUR_STEPS, energy_step};
 use crate::error::EuphoriaError;
 use crate::track_cues::{Cue, TrackCues};
 
@@ -65,6 +66,27 @@ const MP4_MARKERS_ENTRY_LENGTH: usize = 19;
 /// The base64 digit Mixxx and Serato add after some fields.
 const FILLER_DIGIT: u8 = b'A';
 
+/// The colours of the energy steps of
+/// [`ENERGY_CUE_COLOURS`](crate::ENERGY_CUE_COLOURS), from calm to intense,
+/// as the nearest of Serato's pad colours above: blue, cyan, green, orange
+/// and red.
+pub const SERATO_ENERGY_CUE_COLOURS: [[u8; 3]; ENERGY_COLOUR_STEPS] = [
+    SERATO_CUE_COLOURS[2],
+    SERATO_CUE_COLOURS[6],
+    SERATO_CUE_COLOURS[4],
+    SERATO_CUE_COLOURS[1],
+    SERATO_CUE_COLOURS[0],
+];
+
+/// The colour Serato shows `cue` in on pad `pad`: that of its energy when it
+/// has one, and otherwise the pad's.
+fn cue_colour(cue: &SeratoCue, pad: u8) -> [u8; 3] {
+    cue.energy
+        .map_or(SERATO_CUE_COLOURS[usize::from(pad)], |energy| {
+            SERATO_ENERGY_CUE_COLOURS[energy_step(energy)]
+        })
+}
+
 /// What to give Serato for one track.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SeratoMarkers {
@@ -81,7 +103,7 @@ impl SeratoMarkers {
     /// takes them: a grid rated low confidence is left out, and so are the
     /// cues, which sit on its bars.
     pub fn from_analysis(analysis: &TrackAnalysis) -> Self {
-        Self::of_cues(analysis, None)
+        Self::of_cues(analysis, None, CueColours::default())
     }
 
     /// The cues and beat grid of a track as a DJ uses them: `edited_cues` is
@@ -93,8 +115,14 @@ impl SeratoMarkers {
     /// left out, and so are the cues analysis placed on its bars. The
     /// user's cues are written with or without a grid, except a cue past
     /// the end of the track and a memory cue, on no hot cue pad, which is
-    /// not a Serato cue point.
-    pub fn of_cues(analysis: &TrackAnalysis, edited_cues: Option<Vec<Cue>>) -> Self {
+    /// not a Serato cue point. `cue_colours` decides whether the cues
+    /// analysis placed are coloured by the energy of their sections; the
+    /// user's keep the colour of their pad.
+    pub fn of_cues(
+        analysis: &TrackAnalysis,
+        edited_cues: Option<Vec<Cue>>,
+        cue_colours: CueColours,
+    ) -> Self {
         let grid = analysis
             .beat_grid
             .filter(|grid| grid.confidence() != Confidence::Low);
@@ -115,11 +143,14 @@ impl SeratoMarkers {
                 .cues
                 .iter()
                 .filter_map(|cue| {
-                    Some(SeratoCue::of(
-                        Duration::try_from_secs_f64(cue.seconds).ok()?,
-                        cue.section.name().to_string(),
-                        None,
-                    ))
+                    Some(
+                        SeratoCue::of(
+                            Duration::try_from_secs_f64(cue.seconds).ok()?,
+                            cue.section.name().to_string(),
+                            None,
+                        )
+                        .with_energy(cue_colours.energy_to_show(cue.energy)),
+                    )
                 })
                 .collect(),
             None => Vec::new(),
@@ -148,17 +179,26 @@ pub struct SeratoCue {
     /// The hot cue pad the cue is on, or `None` when the caller did not ask
     /// for one: the writer then takes the next pad in order.
     pub pad: Option<u8>,
+    /// The energy rating, from 1 to 10, to colour the cue by, or `None` for
+    /// the colour Serato gives its pad.
+    pub energy: Option<u8>,
 }
 
 impl SeratoCue {
     /// A cue at `position`, named `name`, on pad `pad` when the caller asks
-    /// for one.
+    /// for one, in the colour of its pad.
     pub fn of(position: Duration, name: String, pad: Option<u8>) -> Self {
         Self {
             name,
             position,
             pad,
+            energy: None,
         }
+    }
+
+    /// This cue coloured by `energy`, or by its pad when `None`.
+    pub fn with_energy(self, energy: Option<u8>) -> Self {
+        Self { energy, ..self }
     }
 }
 
@@ -622,7 +662,7 @@ fn add_markers_from_file(
         taken[pad] = true;
         taken_positions.push(position);
         let pad = pad as u8;
-        let colour = SERATO_CUE_COLOURS[usize::from(pad)];
+        let colour = cue_colour(cue, pad);
         markers2.add_cue(pad, position, colour, &cue.name);
         if usize::from(pad) < MARKERS_CUE_SLOTS {
             if old_markers.is_none() && container == Container::Mp4 {
@@ -1286,6 +1326,26 @@ mod tests {
 
     fn text(bytes: &[u8]) -> String {
         String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    #[test]
+    fn a_cue_with_an_energy_takes_the_serato_colour_of_its_step_and_one_without_its_pads() {
+        let cue = SeratoCue::of(Duration::from_secs(1), "Drop".to_string(), None);
+        assert_eq!(cue_colour(&cue, 2), [0x00, 0x00, 0xCC]);
+        let coloured: Vec<[u8; 3]> = [1, 3, 5, 8, 10]
+            .into_iter()
+            .map(|energy| cue_colour(&cue.clone().with_energy(Some(energy)), 0))
+            .collect();
+        assert_eq!(
+            coloured,
+            vec![
+                [0x00, 0x00, 0xCC],
+                [0x00, 0xCC, 0xCC],
+                [0x00, 0xCC, 0x00],
+                [0xCC, 0x88, 0x00],
+                [0xCC, 0x00, 0x00],
+            ]
+        );
     }
 
     // Each fixture is a field Serato DJ wrote, from Mixxx's test data. A

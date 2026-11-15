@@ -147,6 +147,11 @@ pub struct SectionCue {
     pub seconds: f64,
     /// What starts there.
     pub section: CueSection,
+    /// The energy rating, from 1 to 10, of the audio from this cue to the
+    /// next one, or to the end of the track for the last. `None` when that
+    /// audio is silent or shorter than a second, or the analysis was stored
+    /// before section energy was measured.
+    pub energy: Option<u8>,
 }
 
 /// Fits a beat grid to `audio` near `tempo_bpm`, as
@@ -662,7 +667,11 @@ pub(crate) fn find_cues(envelope: &OnsetEnvelope, grid: &BeatGrid) -> Vec<Sectio
         numbered_cues(&segments)
     };
     cues.into_iter()
-        .map(|(seconds, section)| SectionCue { seconds, section })
+        .map(|(seconds, section)| SectionCue {
+            seconds,
+            section,
+            energy: None,
+        })
         .collect()
 }
 #[cfg(test)]
