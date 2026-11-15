@@ -54,7 +54,7 @@ The Euphoria mark at the top left of the toolbar is also the activity indicator.
 | Column | Shows |
 | --- | --- |
 | Title | The title in the file's tags, or the file name when there is none |
-| Artist | The artist in the file's tags |
+| Artist | The artist in the file's tags. A tag that lists several artists, separated by a semicolon, a NUL or a slash with spaces around it, shows them as "BlaQRhythm, Elo Mude". A slash inside a name, as in AC/DC, stays. The tag in the file is not changed. |
 | Key | The key's code, coloured by its Camelot number: Camelot (8A) unless you choose musical (Am) or Open Key (1m) in the [settings](#settings) |
 | Musical key | The key by name, such as A minor |
 | BPM | The tempo, to one decimal |
@@ -335,6 +335,8 @@ Select a track and press Space, or click the round play button, to hear it. Pres
 - When a track reaches its end it stops there. Play starts it again from the beginning.
 
 In most themes the player is a bar along the bottom of the window, with the play button, the track, the position, the track's waveform as a seek bar and the length. In the Deck theme the play button and the position sit in the strip under the table, beside the wide waveform.
+
+To find the playing track again after browsing, click its title or its cover in the player bar. The title is underlined in the accent colour when you point at it, with the tooltip **Show in the library**. The track is selected, scrolled into view and shown in the inspector. A search, a filter, a folder or a playlist that hides it is taken off, and the focus view and the set builder close so the table is in view. It keeps playing, or stays paused, as it was. In the Deck theme, while another track is selected, the strip reads "Playing *title*", and clicking that title does the same.
 
 If a track cannot be played, the player says why in a few words, for example "This file is no longer there" or "No audio output to play through", and everything else keeps working.
 

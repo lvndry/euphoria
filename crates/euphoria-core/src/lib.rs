@@ -7,6 +7,8 @@
 
 /// Analyzing files and batches of files.
 pub mod analysis;
+/// The artists an artist tag names, and how they are shown.
+pub mod artists;
 /// The cover art of a track: embedded in its tags, or an image beside it.
 pub mod artwork;
 /// Decoding audio files to mono samples.
@@ -96,6 +98,7 @@ pub use analysis::{
     Unobserved, analyze_file, analyze_file_observed, analyze_files, analyze_files_observed,
     analyzer_version,
 };
+pub use artists::{artist_names, shown_artist};
 pub use audio::{
     AudioBuffer, DecodeDamage, MAXIMUM_SAMPLE_RATE, MINIMUM_SAMPLE_RATE, SEVERE_LOST_SHARE,
     declared_duration_seconds, decode_mono,

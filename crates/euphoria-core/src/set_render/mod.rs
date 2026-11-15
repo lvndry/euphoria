@@ -62,7 +62,9 @@ impl RenderTrack {
     /// and the file name when the tags say nothing.
     pub fn display_name(&self) -> String {
         match (&self.artist, &self.title) {
-            (Some(artist), Some(title)) => format!("{artist} - {title}"),
+            (Some(artist), Some(title)) => {
+                format!("{} - {title}", crate::artists::shown_artist(artist))
+            }
             (None, Some(title)) => title.clone(),
             _ => file_stem(&self.path),
         }
