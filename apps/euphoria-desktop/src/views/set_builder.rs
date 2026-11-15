@@ -1126,6 +1126,65 @@ fn row_button(
         .into_any_element()
 }
 
+/// The button that renders the set as one mix, or while it renders, how
+/// far it has got and Cancel.
+fn render_mix_control(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> AnyElement {
+    let palette = app.theme.palette;
+    let Some(run) = &app.set_builder.render else {
+        return secondary_button(crate::mix_render::RENDER_ACTION, &palette)
+            .id("render-mix")
+            .on_click(cx.listener(|this, _, _, cx| this.choose_mix_render(cx)))
+            .test_support()
+            .into_any_element();
+    };
+    let fraction = run.shared.fraction();
+    let label = if run.shared.is_cancelled() {
+        "Cancelling\u{2026}".to_string()
+    } else {
+        match fraction {
+            Some(fraction) => format!(
+                "Rendering {} {}%",
+                run.output
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                (fraction * 100.0).round()
+            ),
+            None => "Reading the tracks\u{2026}".to_string(),
+        }
+    };
+    div()
+        .id("render-mix-progress")
+        .flex()
+        .items_center()
+        .gap(GAP_SMALL)
+        .text_size(SMALL_TEXT_SIZE)
+        .text_color(palette.text_secondary)
+        .child(
+            div()
+                .w(px(120.0))
+                .h(px(6.0))
+                .rounded(RADIUS_SMALL)
+                .bg(palette.raised)
+                .child(
+                    div()
+                        .h_full()
+                        .w(relative(fraction.unwrap_or(0.0)))
+                        .rounded(RADIUS_SMALL)
+                        .bg(palette.accent),
+                ),
+        )
+        .child(label)
+        .child(
+            secondary_button("Cancel", &palette)
+                .id("cancel-render-mix")
+                .on_click(cx.listener(|this, _, _, cx| this.cancel_mix_render(cx)))
+                .test_support(),
+        )
+        .test_support()
+        .into_any_element()
+}
+
 fn set_actions(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let palette = app.theme.palette;
     let saved = app
@@ -1158,6 +1217,7 @@ fn set_actions(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
                 .on_click(cx.listener(|this, _, _, cx| this.export_set(cx)))
                 .test_support(),
         )
+        .child(render_mix_control(app, cx))
         .when_some(saved, |actions, name| {
             actions.child(
                 div()

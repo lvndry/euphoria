@@ -1406,3 +1406,58 @@ fn dragging_b_snaps_to_bars_and_replays_from_eight_bars_before(cx: &mut TestAppC
         "the mix point moved by two bars of A"
     );
 }
+
+#[gpui::test]
+fn a_dragged_transition_is_locked_shown_again_and_unlocked(cx: &mut TestAppContext) {
+    let setup = open_plans("plan-lock", &[0, 1], cx);
+    open_planner_view(&setup, cx);
+    settle(setup.window, cx);
+    assert!(!is_shown(setup.window, "planner-locked", cx));
+    let bar_width = cx.update(|cx| {
+        let app = setup.view.read(cx);
+        let (_, window) = app.planner_window().unwrap();
+        let bounds = app.planner.timeline_bounds.get().unwrap();
+        let total = (crate::transition_plan::BARS_BEFORE
+            + window.bars
+            + crate::transition_plan::BARS_AFTER) as f32;
+        bounds.size.width / px(1.0) / total
+    });
+    cx.update(|cx| {
+        setup.view.update(cx, |app, cx| {
+            app.begin_b_drag(100.0);
+            app.drag_b_to(100.0 + bar_width * 2.0, cx);
+            app.end_b_drag(cx);
+        })
+    });
+    cx.run_until_parked();
+    let dragged = cx.update(|cx| {
+        let app = setup.view.read(cx);
+        let (_, window) = app.planner_window().unwrap();
+        let lock = app.planner_lock().expect("the drag locked the transition");
+        assert_eq!(lock.a_start_bar, window.a_start_bar);
+        assert_eq!(lock.b_start_bar, window.b_start_bar);
+        assert_eq!(app.session.locked_transitions().len(), 1);
+        window.a_start_bar
+    });
+    settle(setup.window, cx);
+    assert!(is_shown(setup.window, "planner-locked", cx));
+
+    press(setup.window, "escape", cx);
+    click(setup.window, "plan-open", cx);
+    settle(setup.window, cx);
+    cx.update(|cx| {
+        let (_, window) = setup.view.read(cx).planner_window().unwrap();
+        assert_eq!(window.a_start_bar, dragged, "the planner opens on the lock");
+    });
+
+    click(setup.window, "planner-unlock", cx);
+    settle(setup.window, cx);
+    assert!(!is_shown(setup.window, "planner-locked", cx));
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        assert!(app.planner_lock().is_none());
+        assert!(app.session.locked_transitions().is_empty());
+        assert_eq!(app.planner.window, 0);
+        assert!(app.planner.custom.is_none());
+    });
+}

@@ -132,3 +132,39 @@ fn a_folder_or_an_unknown_format_is_refused_before_any_work() {
     assert!(!clash.status.success());
     assert!(standard_error(&clash).contains("but --format is flac"));
 }
+
+#[test]
+fn a_transition_locked_in_the_app_is_kept() {
+    use euphoria_core::{BlendBars, LockedTransition, PlaylistEntry, PlaylistStore};
+    let euphoria = Euphoria::new();
+    let folder = TemporaryFolder::new();
+    let tracks = three_tracks(folder.path());
+    let entry = |path: &Path| PlaylistEntry::for_file(path, None).expect("the file is read");
+    let lock = LockedTransition {
+        from: entry(&tracks[0]),
+        to: entry(&tracks[1]),
+        blend: BlendBars {
+            a_start_bar: 4,
+            b_start_bar: 0,
+            bars: 16,
+            bass_swap_bar: Some(9),
+        },
+    };
+    let mut store = PlaylistStore::open(&euphoria.data_directory().join("playlists.sqlite3"))
+        .expect("the playlists database opens");
+    store.lock_transition(&lock).expect("the lock is kept");
+    drop(store);
+
+    let output = euphoria.run(&[
+        "set",
+        "render",
+        tracks[0].to_str().unwrap(),
+        tracks[1].to_str().unwrap(),
+        "--dry-run",
+        "--no-cache",
+    ]);
+    assert!(output.status.success(), "{}", standard_error(&output));
+    let plan = String::from_utf8_lossy(&output.stdout);
+    assert!(plan.contains("↳ Locked, placed by hand. "), "{plan}");
+    assert!(plan.contains("16 bars"), "{plan}");
+}

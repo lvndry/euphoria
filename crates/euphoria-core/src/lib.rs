@@ -38,6 +38,7 @@ pub mod key;
 pub mod key_engine;
 /// Finding audio files in folders.
 pub mod library;
+pub mod locked_transitions;
 #[cfg(feature = "pitch-shift")]
 pub mod mashup;
 /// The energy and stem levels the transition planner reads.
@@ -126,6 +127,7 @@ pub use library::{
     AudioScan, SUPPORTED_EXTENSIONS, ScanWarning, SkippedExtension, UNSUPPORTED_AUDIO_EXTENSIONS,
     find_audio_files, is_supported_audio_file, scan_audio_files,
 };
+pub use locked_transitions::{BlendBars, LockedTransition, locked_blend};
 pub use playlists::{
     EntryCheck, EntryLocation, PlaylistEntry, PlaylistStore, StoredPlaylist,
     default_playlists_path, locate_entry, locate_moved_files,

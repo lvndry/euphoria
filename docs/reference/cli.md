@@ -575,7 +575,7 @@ Renders a set as one continuous mix: each track blended into the next at a secti
 euphoria set render [OPTIONS] <SET>...
 ```
 
-`SET` is the name of a playlist built in the desktop app, an M3U or M3U8 playlist file, or audio files in play order. A folder is refused, since it has no order. Tracks are analyzed first or read from the cache, with your corrections applied. Each transition is the best window [`euphoria plan`](#euphoria-plan) ranks that starts after the blend into the outgoing track has ended; a pair that cannot blend plays one after the other. The [guide](../guides/render-a-mix.md) explains where tracks come in and how a blend sounds.
+`SET` is the name of a playlist built in the desktop app, an M3U or M3U8 playlist file, or audio files in play order. A folder is refused, since it has no order. Tracks are analyzed first or read from the cache, with your corrections applied. Each transition is the best window [`euphoria plan`](#euphoria-plan) ranks that starts after the blend into the outgoing track has ended, unless you locked it in the desktop app's planner, which keeps it as you placed it; a pair that cannot blend plays one after the other. Sections are read from the cues each track shows, your edited cues included. The [guide](../guides/render-a-mix.md) explains where tracks come in and how a blend sounds.
 
 | Option | Meaning |
 | --- | --- |

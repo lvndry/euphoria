@@ -21,7 +21,7 @@ use euphoria_core::plan_signals::{
     SignalsCache, TrackSignals, measure_energy, signals_with_energy, stem_signature,
 };
 use euphoria_core::stems::{StemCache, StemFiles, measure_stem_levels};
-use euphoria_core::{BeatGrid, ContentHash, Cue, CueSection, HotCue, Key, TrackAnalysis};
+use euphoria_core::{BeatGrid, ContentHash, Cue, HotCue, Key, TrackAnalysis};
 use gpui::Context;
 
 use crate::app::EuphoriaApp;
@@ -122,10 +122,10 @@ struct PlanEntry {
     state: PlanState,
 }
 
-struct PlanSide {
-    path: PathBuf,
-    analysis: TrackAnalysis,
-    sections: Vec<PlanSection>,
+pub(crate) struct PlanSide {
+    pub(crate) path: PathBuf,
+    pub(crate) analysis: TrackAnalysis,
+    pub(crate) sections: Vec<PlanSection>,
     stem_files: Option<StemFiles>,
     stem_signature: Option<String>,
 }
@@ -233,23 +233,10 @@ impl Planner {
 
 /// The sections of `cues` on `grid`, as bars, for the planner.
 pub(crate) fn plan_sections(cues: &[Cue], grid: &BeatGrid) -> Vec<PlanSection> {
-    let bar_seconds = grid.bar_seconds();
-    if bar_seconds <= 0.0 {
-        return Vec::new();
-    }
-    cues.iter()
-        .filter_map(|cue| {
-            let section = CueSection::from_name(&cue.name)?;
-            let bars = (cue.seconds - grid.first_downbeat_seconds) / bar_seconds;
-            (bars.is_finite() && bars > -0.5).then(|| PlanSection {
-                start_bar: bars.round().max(0.0) as usize,
-                label: section.into(),
-            })
-        })
-        .collect()
+    euphoria_core::harmony::transition::sections_from_cues(cues, grid)
 }
 
-fn plan_side(track: &Track, app: &EuphoriaApp) -> Option<PlanSide> {
+pub(crate) fn plan_side(track: &Track, app: &EuphoriaApp) -> Option<PlanSide> {
     let mut analysis = track.analysis()?.clone();
     analysis.beat_grid = track.beat_grid();
     analysis.key = track.key();
@@ -288,7 +275,7 @@ fn fingerprint(a: &PlanSide, b: &PlanSide) -> u64 {
     hasher.finish()
 }
 
-fn signals_of(side: &PlanSide, directory: Option<&Path>) -> TrackSignals {
+pub(crate) fn signals_of(side: &PlanSide, directory: Option<&Path>) -> TrackSignals {
     let hash = ContentHash::of_file(&side.path).ok();
     let cache = match directory {
         Some(directory) => Some(SignalsCache::new(directory.to_path_buf())),
@@ -574,6 +561,7 @@ impl EuphoriaApp {
         self.planner.window = 0;
         self.planner.custom = None;
         self.planner.start_bar = None;
+        self.show_planner_lock();
         self.refresh_plan_candidates();
         cx.notify();
     }

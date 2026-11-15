@@ -29,6 +29,7 @@ pub use windows::{
     WINDOW_LENGTHS,
 };
 
+use crate::detect::{BeatGrid, CueSection};
 use crate::track_cues::Cue;
 
 /// The slowest rate a deck plays a track at.
@@ -258,4 +259,24 @@ pub fn cues_for_window(
         a: a_cues,
         b: b_cues,
     })
+}
+
+/// The sections of a track from the cues it shows, as bars of `grid`: each
+/// cue named after a section starts one. The planner reads the cues the
+/// user edited this way, so a section moved by hand moves the plan.
+pub fn sections_from_cues(cues: &[Cue], grid: &BeatGrid) -> Vec<PlanSection> {
+    let bar_seconds = grid.bar_seconds();
+    if bar_seconds <= 0.0 {
+        return Vec::new();
+    }
+    cues.iter()
+        .filter_map(|cue| {
+            let section = CueSection::from_name(&cue.name)?;
+            let bars = (cue.seconds - grid.first_downbeat_seconds) / bar_seconds;
+            (bars.is_finite() && bars > -0.5).then(|| PlanSection {
+                start_bar: bars.round().max(0.0) as usize,
+                label: section.into(),
+            })
+        })
+        .collect()
 }
