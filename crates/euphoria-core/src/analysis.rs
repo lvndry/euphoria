@@ -8,11 +8,11 @@ use rayon::prelude::*;
 
 use crate::audio::AudioBuffer;
 use crate::audio_budget::{budgeted_seconds, global_audio_budget};
-use crate::confidence::{Confidence, key_confidence, tempo_confidence};
+use crate::confidence::{Confidence, key_confidence, octave_in_doubt, tempo_confidence};
 use crate::correction::Correction;
 use crate::detect::{
-    BeatGrid, KeyReading, KeySection, SectionCue, StratumDetector, detect_beat_grid_and_cues,
-    read_key,
+    BeatGrid, KeyReading, KeySection, OctaveEvidence, SectionCue, StratumDetector,
+    detect_beat_grid_and_cues, read_key,
 };
 use crate::energy::{rate_energy, rate_sections};
 use crate::error::EuphoriaError;
@@ -35,9 +35,9 @@ use crate::tempo_range::TempoRange;
 /// [`ENERGY_MODEL_VERSION`](crate::ENERGY_MODEL_VERSION), which the cache
 /// checks as well, so recalibrating energy needs no change here.
 pub const ANALYZER_VERSION: &str = if cfg!(feature = "drone") {
-    "19+drone"
+    "20+drone"
 } else {
-    "19+stratum"
+    "20+stratum"
 };
 
 /// The version the analysis cache records for analyses made now.
@@ -102,6 +102,12 @@ pub struct TrackAnalysis {
     /// not an octave of it, the basis of [`TrackAnalysis::tempo_confidence`].
     /// `None` for a tempo from the fallback estimate, which is rated low.
     pub tempo_score_margin: Option<f32>,
+    /// How strongly the onsets back half and double the tempo instead,
+    /// measured at the tempo in the default range, the basis of
+    /// [`TrackAnalysis::tempo_octave_in_doubt`]. `None` for a tempo from the
+    /// fallback estimate, a tempo the user set, and analyses stored before
+    /// it was recorded.
+    pub tempo_octave_evidence: Option<OctaveEvidence>,
     /// Where the beats and bars fall, with the tempo of [`TrackAnalysis::bpm`]
     /// made precise, or `None` when the track has no tempo or no clear beat.
     pub beat_grid: Option<BeatGrid>,
@@ -198,6 +204,27 @@ impl TrackAnalysis {
     pub fn tempo_alternative_in(&self, range: TempoRange) -> Option<f32> {
         self.tempo_in(range)
             .and_then(|tempo| range.alternative(tempo))
+    }
+
+    /// Whether the tempo reported in `range` may be counted in the wrong
+    /// octave: half or double it is a tempo a DJ could count (see
+    /// [`TrackAnalysis::tempo_alternative_in`]), and the onsets back that
+    /// tempo more strongly than the reported one (see
+    /// [`OctaveEvidence`]). An analysis without that evidence, such as one
+    /// whose tempo came from the fallback estimate, is in doubt when its
+    /// tempo is rated low.
+    pub fn tempo_octave_in_doubt(&self, range: TempoRange) -> bool {
+        let Some(alternative) = self.tempo_alternative_in(range) else {
+            return false;
+        };
+        let measured = self.tempo_in(TempoRange::DEFAULT);
+        let reported = self.tempo_in(range);
+        match (self.tempo_octave_evidence, measured, reported) {
+            (Some(evidence), Some(measured), Some(reported)) => evidence
+                .for_octave(measured, reported, alternative)
+                .is_some_and(octave_in_doubt),
+            _ => self.tempo_confidence() == Some(Confidence::Low),
+        }
     }
 
     /// Whether the key or the tempo, reported in `range`, is in doubt, so
@@ -366,6 +393,7 @@ pub fn analyze_file_observed(
         key_source,
         tempo_estimate,
         tempo_score_margin: tempo_reading.and_then(|reading| reading.score_margin),
+        tempo_octave_evidence: tempo_reading.and_then(|reading| reading.octave_evidence),
         beat_grid,
         cues,
         loudness_range_lu,

@@ -14,6 +14,7 @@
 
 use stratum_dsp::features::period::tempogram::TempogramCandidateDebug;
 
+use crate::detect::OctaveEvidence;
 use crate::tempo_range::TempoRange;
 
 /// Tempos closer than this share of each other count as the same tempo.
@@ -121,6 +122,23 @@ impl OnsetPulse {
                 sum / self.energy
             })
             .fold(f32::MIN, f32::max)
+    }
+
+    /// How strongly the onsets repeat after one beat and after one bar of
+    /// four beats at `tempo`, added together.
+    fn beat_and_bar_repeat(&self, tempo: f32) -> f32 {
+        let frames_per_beat = 60.0 / tempo * self.frames_per_second;
+        self.repeat_strength(frames_per_beat) + self.repeat_strength(frames_per_beat * 4.0)
+    }
+
+    /// How much more strongly the onsets repeat after one beat and one bar
+    /// of half and of double `tempo` than of `tempo` itself.
+    pub(super) fn octave_evidence(&self, tempo: f32) -> OctaveEvidence {
+        let own = self.beat_and_bar_repeat(tempo);
+        OctaveEvidence {
+            half: self.beat_and_bar_repeat(tempo / 2.0) - own,
+            double: self.beat_and_bar_repeat(tempo * 2.0) - own,
+        }
     }
 
     fn features(&self, candidate: Candidate, best_score: f32) -> [f32; FEATURE_COUNT] {

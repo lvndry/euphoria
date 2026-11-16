@@ -321,6 +321,55 @@ Half or double the tempo is offered as an alternative for 267 previews (40.4%), 
 
 Rating confidence costs no measurable time: the tempogram already scores the candidate tempos the margin is taken from, and the key margin is the difference of two scores libkeyfinder already computed. On the same machine, under heavy load from other work, `euphoria analyze --no-cache` took 1.10 CPU seconds on one preview before and 1.06 after, 4.92 and 4.69 on an eight minute file, and 42.8 and 42.4 on 40 previews with 4 workers, with the same peak memory.
 
+## Tempo review
+
+Measured on 16 November 2026 on an Apple M5, macOS 27.2, with three worker threads, in one run of `euphoria-bench tempo-review bench/data/tempo --gtzan <all ten GTZAN genres>` for each range. Before: a tempo is listed when it is rated low and half or double it is plausible. After: when half or double it is plausible and the onsets repeat after one beat and one bar of it at least 0.15 more strongly than after one beat and one bar of the tempo shown. GTZAN tempos are the median beat interval of the Marchand and Peeters annotations; one of its 999 annotated excerpts does not decode.
+
+Default range, 90 to 180, GiantSteps Tempo:
+
+| Genre | Tracks | Tempo reviews before | After | Octave errors | Of those, the alternative is right | Listed before | Listed after | Right tempos listed before | After |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| drum-and-bass | 139 | 21 | 38 | 17 | 17 | 3 | 8 | 17 | 30 |
+| dubstep | 76 | 2 | 2 | 6 | 4 | 0 | 1 | 1 | 1 |
+| trance | 74 | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
+| techno | 61 | 2 | 0 | 0 | 0 | 0 | 0 | 1 | 0 |
+| electronica | 52 | 8 | 2 | 8 | 7 | 1 | 2 | 5 | 0 |
+| psy-trance | 34 | 1 | 2 | 2 | 2 | 1 | 2 | 0 | 0 |
+| breaks | 26 | 2 | 1 | 0 | 0 | 0 | 0 | 1 | 1 |
+| deep-house | 24 | 0 | 1 | 1 | 1 | 0 | 1 | 0 | 0 |
+| house | 23 | 0 | 1 | 1 | 1 | 0 | 0 | 0 | 1 |
+| electro-house | 22 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
+| tech-house | 22 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 12 other genres | 108 | 11 | 8 | 20 | 18 | 4 | 5 | 5 | 1 |
+| all | 661 | 50 | 58 | 56 | 50 | 9 | 19 | 30 | 34 |
+
+Default range, GTZAN:
+
+| Genre | Tracks | Tempo reviews before | After | Octave errors | Of those, the alternative is right | Listed before | Listed after | Right tempos listed before | After |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| blues | 100 | 13 | 9 | 19 | 10 | 3 | 5 | 8 | 3 |
+| classical | 100 | 17 | 3 | 14 | 6 | 3 | 0 | 9 | 3 |
+| country | 100 | 4 | 3 | 43 | 19 | 2 | 3 | 0 | 0 |
+| disco | 100 | 1 | 1 | 5 | 3 | 0 | 1 | 1 | 0 |
+| hiphop | 100 | 16 | 5 | 9 | 7 | 2 | 3 | 14 | 2 |
+| metal | 100 | 10 | 3 | 32 | 13 | 4 | 2 | 5 | 0 |
+| pop | 100 | 11 | 10 | 32 | 17 | 1 | 9 | 10 | 1 |
+| rock | 100 | 11 | 4 | 16 | 10 | 1 | 2 | 8 | 2 |
+| jazz | 99 | 12 | 2 | 32 | 10 | 8 | 2 | 1 | 0 |
+| reggae | 99 | 5 | 6 | 19 | 15 | 5 | 3 | 0 | 3 |
+| all | 998 | 100 | 46 | 221 | 110 | 29 | 30 | 56 | 14 |
+
+Other ranges, all tracks:
+
+| Range | Dataset | Tempo reviews before | After | Octave errors listed before | After | Right tempos listed before | After |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 70-140 | GiantSteps | 68 | 42 | 49 | 30 | 8 | 5 |
+| 70-140 | GTZAN | 107 | 49 | 28 | 21 | 61 | 18 |
+| 120-200 | GiantSteps | 53 | 66 | 10 | 25 | 31 | 35 |
+| 120-200 | GTZAN | 172 | 133 | 106 | 119 | 41 | 9 |
+
+How well single measures tell the octave errors offered the right octave from right tempos with a plausible half or double, as AUC, in the default range: tempogram score at the other octave 0.54 on GiantSteps and 0.54 on GTZAN, confidence margin 0.55 and 0.56, onset density 0.55 and 0.34, the beat grid's comb at the other octave 0.58 and 0.68, onset repeat after one beat 0.62 and 0.65, after one beat and one bar 0.64 and 0.71 (used).
+
 ## Reading the numbers
 
 - libkeyfinder is level with Essentia's best profile on key (69.4% against 69.5% MIREX) and about 8 times cheaper than stratum-dsp.

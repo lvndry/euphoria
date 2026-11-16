@@ -63,6 +63,20 @@ const TEMPO_MEDIUM_MARGIN: f32 = 0.09;
 /// octave of it by at least this is rated high.
 const TEMPO_HIGH_MARGIN: f32 = 0.45;
 
+/// A tempo is listed under Needs review when the onsets favour half or
+/// double it over it by at least this much, and a DJ could count that
+/// octave. Chosen on GiantSteps Tempo so that about as many right tempos
+/// are listed as under the low confidence rule it replaces, and checked on
+/// all ten genres of GTZAN.
+const OCTAVE_DOUBT_EVIDENCE: f32 = 0.15;
+
+/// Whether `evidence` for another octave of a tempo, as
+/// [`OctaveEvidence::for_octave`](crate::detect::OctaveEvidence::for_octave)
+/// measures it, puts the octave of the tempo in doubt.
+pub fn octave_in_doubt(evidence: f32) -> bool {
+    evidence >= OCTAVE_DOUBT_EVIDENCE
+}
+
 /// How far to trust a key, from how far its score is above the runner up's
 /// in the detector that found it. A key of unknown source, as in an
 /// analysis built by hand, is rated as a libkeyfinder key.

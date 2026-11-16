@@ -360,6 +360,7 @@ fn analysis_with_grid() -> TrackAnalysis {
         pitch_class_profile: None,
         tempo_estimate: Some(120.0),
         tempo_score_margin: Some(0.5),
+        tempo_octave_evidence: None,
         beat_grid: Some(BeatGrid {
             first_downbeat_seconds: 0.146,
             bpm: 120.0,

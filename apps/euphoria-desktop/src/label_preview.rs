@@ -370,6 +370,7 @@ fn example_analysis() -> TrackAnalysis {
         pitch_class_profile: None,
         tempo_estimate: None,
         tempo_score_margin: None,
+        tempo_octave_evidence: None,
         beat_grid: Some(euphoria_core::detect::BeatGrid {
             first_downbeat_seconds: 0.1,
             bpm: 128.0,

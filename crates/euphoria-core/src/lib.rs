@@ -122,7 +122,7 @@ pub use correction::Correction;
 pub use cue_colours::{
     CueColours, ENERGY_COLOUR_STEPS, ENERGY_CUE_COLOURS, energy_cue_colour, energy_step,
 };
-pub use detect::{BeatGrid, CueSection, KeySection, MAXIMUM_CUES, SectionCue};
+pub use detect::{BeatGrid, CueSection, KeySection, MAXIMUM_CUES, OctaveEvidence, SectionCue};
 pub use energy::{
     ENERGY_CURVE_HOP_SECONDS, ENERGY_CURVE_WINDOW_SECONDS, ENERGY_MAXIMUM_SAMPLE_RATE,
     ENERGY_MINIMUM_SAMPLE_RATE, ENERGY_MODEL, ENERGY_MODEL_VERSION, EnergyCurvePoint,

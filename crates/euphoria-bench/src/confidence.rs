@@ -336,6 +336,7 @@ mod tests {
         TempoReading {
             estimate,
             score_margin: Some(score_margin),
+            octave_evidence: None,
         }
     }
 

@@ -19,6 +19,7 @@ mod scoring;
 mod shift;
 mod statistics;
 mod tempo_errors;
+mod tempo_review;
 
 use std::path::PathBuf;
 
@@ -27,7 +28,7 @@ use euphoria_core::detect::{DroneDetector, GridTempoDetector, KeyDetector, Strat
 
 use evaluate::{Report, evaluate_keys, evaluate_tempo};
 
-const USAGE: &str = "usage: euphoria-bench [DATA_DIRECTORY] [--only key|tempo] [--tracks all|development|held-out]\n       euphoria-bench beats [DATA_DIRECTORY] [--tracks all|development|held-out]\n       euphoria-bench shift [AUDIO_DIRECTORY] [--every N]\n       euphoria-bench energy LABELS_FILE [--dump FILE]\n       euphoria-bench quality LIST_FILE\n       euphoria-bench rekordbox COLLECTION_XML [DATA_DIRECTORY] [--only key|tempo]";
+const USAGE: &str = "usage: euphoria-bench [DATA_DIRECTORY] [--only key|tempo] [--tracks all|development|held-out]\n       euphoria-bench beats [DATA_DIRECTORY] [--tracks all|development|held-out]\n       euphoria-bench shift [AUDIO_DIRECTORY] [--every N]\n       euphoria-bench energy LABELS_FILE [--dump FILE]\n       euphoria-bench quality LIST_FILE\n       euphoria-bench rekordbox COLLECTION_XML [DATA_DIRECTORY] [--only key|tempo]\n       euphoria-bench tempo-review [GIANTSTEPS_TEMPO_DIRECTORY] [--gtzan GTZAN_DIRECTORY] [--range SLOWEST-FASTEST]";
 
 /// The first argument that selects the energy benchmark.
 const ENERGY_MODE: &str = "energy";
@@ -40,6 +41,9 @@ const QUALITY_MODE: &str = "quality";
 
 /// The first argument that writes both key detectors' readings per track.
 const KEY_READINGS_MODE: &str = "key-readings";
+
+/// The first argument that measures which tempos Needs review lists.
+const TEMPO_REVIEW_MODE: &str = "tempo-review";
 
 /// The first argument that scores a rekordbox collection export.
 const REKORDBOX_MODE: &str = "rekordbox";
@@ -154,6 +158,10 @@ fn main() -> Result<()> {
     if command_line.peek().map(String::as_str) == Some(KEY_READINGS_MODE) {
         let data_directory = key_readings::parse_arguments(command_line.skip(1))?;
         return key_readings::run(&data_directory);
+    }
+    if command_line.peek().map(String::as_str) == Some(TEMPO_REVIEW_MODE) {
+        let arguments = tempo_review::parse_arguments(command_line.skip(1))?;
+        return tempo_review::run(&arguments);
     }
     if command_line.peek().map(String::as_str) == Some(REKORDBOX_MODE) {
         let arguments = rekordbox::parse_arguments(command_line.skip(1))?;

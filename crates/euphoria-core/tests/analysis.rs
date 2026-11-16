@@ -177,6 +177,7 @@ fn rated(key_score_margin: f32, tempo_estimate: f32, tempo_score_margin: f32) ->
         pitch_class_profile: None,
         tempo_estimate: Some(tempo_estimate),
         tempo_score_margin: Some(tempo_score_margin),
+        tempo_octave_evidence: None,
         beat_grid: None,
         cues: Vec::new(),
     }
@@ -273,6 +274,7 @@ fn a_track_needs_review_when_its_key_is_rated_low_or_its_tempo_low_with_a_plausi
 
     let fallback_tempo = TrackAnalysis {
         tempo_score_margin: None,
+        tempo_octave_evidence: None,
         beat_grid: None,
         cues: Vec::new(),
         ..rated(0.02, 87.0, 0.5)

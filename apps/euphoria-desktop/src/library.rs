@@ -480,8 +480,9 @@ pub(crate) enum LibraryFilter {
     /// Every track.
     #[default]
     AllTracks,
-    /// Tracks whose key or tempo is rated low, whose tags name another key,
-    /// and tracks whose analysis failed.
+    /// Tracks whose key is rated low, whose tempo may be counted in the
+    /// wrong octave, whose tags name another key, and tracks whose analysis
+    /// failed.
     NeedsReview,
     /// Tracks whose file is no longer where it was.
     Missing,
@@ -492,8 +493,8 @@ pub(crate) enum LibraryFilter {
 pub(crate) struct LibraryCounts {
     /// Every track.
     pub(crate) total: usize,
-    /// Tracks that need review: a key or tempo rated low, a key that differs
-    /// from the tags, or a failure.
+    /// Tracks that need review: a key rated low, a tempo that may be counted
+    /// in the wrong octave, a key that differs from the tags, or a failure.
     pub(crate) needs_review: usize,
     /// Tracks whose file is no longer where it was.
     pub(crate) missing: usize,
@@ -1157,6 +1158,7 @@ mod tests {
             pitch_class_profile: None,
             tempo_estimate: None,
             tempo_score_margin: None,
+            tempo_octave_evidence: None,
             beat_grid: None,
             cues: Vec::new(),
             key_timeline: Vec::new(),
@@ -1342,6 +1344,7 @@ mod tests {
             pitch_class_profile: None,
             tempo_estimate: Some(tempo_estimate),
             tempo_score_margin: Some(tempo_margin),
+            tempo_octave_evidence: None,
             ..analysis(Some("A minor"), Some(tempo_estimate), 300.0)
         }
     }
@@ -2100,6 +2103,7 @@ mod tests {
                     pitch_class_profile: None,
                     tempo_estimate: None,
                     tempo_score_margin: None,
+                    tempo_octave_evidence: None,
                     beat_grid: None,
                     cues: Vec::new(),
                     key_timeline: Vec::new(),
@@ -2149,6 +2153,7 @@ mod tests {
                 pitch_class_profile: None,
                 tempo_estimate: None,
                 tempo_score_margin: None,
+                tempo_octave_evidence: None,
                 beat_grid: None,
                 cues: Vec::new(),
                 key_timeline: Vec::new(),
@@ -2304,6 +2309,7 @@ mod tests {
                     pitch_class_profile: None,
                     tempo_estimate: None,
                     tempo_score_margin: None,
+                    tempo_octave_evidence: None,
                     beat_grid: None,
                     cues: Vec::new(),
                     key_timeline: Vec::new(),

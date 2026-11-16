@@ -386,6 +386,7 @@ fn low_confidence_values_are_struck_out_until_the_option_writes_them() {
         key_score_margin: Some(0.0),
         tempo_estimate: Some(75.0),
         tempo_score_margin: Some(0.01),
+        tempo_octave_evidence: None,
         ..tag_testing::analysis()
     };
     let skipped = preview_of(selected(&files[0], unsure.clone()), &rekordbox());
@@ -417,6 +418,7 @@ fn a_key_and_tempo_confirmed_with_looks_right_are_not_struck_out_for_low_confide
         key_score_margin: Some(0.0),
         tempo_estimate: Some(75.0),
         tempo_score_margin: Some(0.01),
+        tempo_octave_evidence: None,
         ..tag_testing::analysis()
     };
     let confirmed = |correction: euphoria_core::Correction| {

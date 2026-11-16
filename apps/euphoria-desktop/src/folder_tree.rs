@@ -29,8 +29,9 @@ pub(crate) struct FolderNode {
     pub(crate) children: Vec<usize>,
     /// How many tracks are in this folder and the folders inside it.
     pub(crate) track_count: usize,
-    /// How many of those tracks need review: a key or tempo rated low, or
-    /// a file that could not be analyzed.
+    /// How many of those tracks need review: a key rated low, a tempo that
+    /// may be counted in the wrong octave, or a file that could not be
+    /// analyzed.
     pub(crate) review_count: usize,
 }
 

@@ -314,6 +314,7 @@ impl TrackAnalysis {
         self.bpm = Some(grid.bpm as f32);
         self.tempo_estimate = None;
         self.tempo_score_margin = None;
+        self.tempo_octave_evidence = None;
         self.cues = with_section_energy(cues_on_grid(audio, &grid), audio, energy_tempo)?;
         self.beat_grid = Some(grid);
         Ok(self)

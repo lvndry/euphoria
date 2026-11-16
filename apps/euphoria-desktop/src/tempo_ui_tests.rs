@@ -45,6 +45,7 @@ fn tracks_at_120() -> Vec<DemoTrack> {
                 pitch_class_profile: None,
                 tempo_estimate: None,
                 tempo_score_margin: None,
+                tempo_octave_evidence: None,
                 beat_grid: Some(BeatGrid {
                     first_downbeat_seconds: 0.25,
                     bpm: f64::from(ORIGINAL_BPM),

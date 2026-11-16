@@ -1619,6 +1619,7 @@ mod tests {
                     ]),
                     tempo_estimate: Some(85.0),
                     tempo_score_margin: Some(0.05),
+                    tempo_octave_evidence: None,
                     beat_grid: None,
                     cues: Vec::new(),
                     key_timeline: vec![
@@ -1651,6 +1652,7 @@ mod tests {
                     pitch_class_profile: None,
                     tempo_estimate: None,
                     tempo_score_margin: None,
+                    tempo_octave_evidence: None,
                     beat_grid: None,
                     cues: Vec::new(),
                     key_timeline: Vec::new(),

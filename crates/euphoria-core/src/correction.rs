@@ -175,6 +175,7 @@ impl Correction {
             analysis.bpm = Some(bpm);
             analysis.tempo_estimate = None;
             analysis.tempo_score_margin = None;
+            analysis.tempo_octave_evidence = None;
             // A grid fitted to the detected tempo would put its beats where
             // the corrected tempo has none; a DJ program builds its own.
             analysis.beat_grid = None;
@@ -210,6 +211,7 @@ mod tests {
             pitch_class_profile: None,
             tempo_estimate: Some(87.0),
             tempo_score_margin: Some(0.01),
+            tempo_octave_evidence: None,
             beat_grid: None,
             cues: Vec::new(),
         }
