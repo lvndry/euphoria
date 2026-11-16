@@ -12,7 +12,7 @@ use std::time::SystemTime;
 
 use super::wav::WavWriter;
 use super::{
-    STEMS_CHANNELS, STEMS_MODEL, STEMS_SAMPLE_RATE, SeparationObserver, SeparationStage, Stem,
+    STEMS_CHANNELS, STEMS_SAMPLE_RATE, SeparationObserver, SeparationStage, Stem, StemMode,
     StemSink, Stems,
 };
 use crate::cache::ContentHash;
@@ -111,28 +111,45 @@ impl StemCache {
         self.limit_bytes
     }
 
-    fn entry_directory(&self, hash: &ContentHash) -> PathBuf {
+    fn entry_directory(&self, mode: StemMode, hash: &ContentHash) -> PathBuf {
         let hex: String = hash
             .as_bytes()
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect();
-        self.directory.join(format!("{STEMS_MODEL}-{hex}"))
+        self.directory.join(format!("{}-{hex}", mode.model_id()))
     }
 
-    /// The stems of the track with content `hash`, when they are cached.
-    /// Marks them as just used.
+    /// The best stems of the track with content `hash` that are cached, those
+    /// of the Advanced mode when it separated the track and those of the
+    /// Default mode otherwise. Marks them as just used.
     pub fn lookup(&self, hash: &ContentHash) -> Option<StemFiles> {
-        let files = self.cached(hash)?;
+        StemMode::BEST_FIRST
+            .into_iter()
+            .find_map(|mode| self.lookup_for(mode, hash))
+    }
+
+    /// The stems of the track with content `hash` that `mode` separated, when
+    /// they are cached. Marks them as just used.
+    pub fn lookup_for(&self, mode: StemMode, hash: &ContentHash) -> Option<StemFiles> {
+        let files = self.cached_for(mode, hash)?;
         let _ = mark_used(&files.directory);
         Some(files)
     }
 
-    /// The stems of the track with content `hash`, when they are cached,
+    /// The best stems of the track with content `hash` that are cached,
     /// without marking them as used: for checking which tracks have stems.
     pub fn cached(&self, hash: &ContentHash) -> Option<StemFiles> {
+        StemMode::BEST_FIRST
+            .into_iter()
+            .find_map(|mode| self.cached_for(mode, hash))
+    }
+
+    /// The stems of the track with content `hash` that `mode` separated, when
+    /// they are cached, without marking them as used.
+    pub fn cached_for(&self, mode: StemMode, hash: &ContentHash) -> Option<StemFiles> {
         let files = StemFiles {
-            directory: self.entry_directory(hash),
+            directory: self.entry_directory(mode, hash),
         };
         Stem::ALL
             .iter()
@@ -140,19 +157,23 @@ impl StemCache {
             .then_some(files)
     }
 
-    /// Writes `stems` as the stems of the track with content `hash`, then
-    /// removes the stems used longest ago until the cache fits its limit.
-    /// The new stems are always kept, even when they alone exceed it.
+    /// Writes `stems` as the stems the Default mode separated from the track
+    /// with content `hash`, then removes the stems used longest ago until
+    /// the cache fits its limit. The new stems are always kept, even when
+    /// they alone exceed it.
     pub fn store(&self, hash: &ContentHash, stems: &Stems) -> Result<StemFiles, EuphoriaError> {
-        self.store_streamed(hash, stems.frames, |sink| sink.write(&stems.interleaved))
+        self.store_streamed(StemMode::Default, hash, stems.frames, |sink| {
+            sink.write(&stems.interleaved)
+        })
     }
 
-    /// Stores like [`StemCache::store`] stems `frames` long that `separate`
-    /// hands to the sink it is given a block at a time, written to disk as
-    /// they come. Nothing is kept when `separate` fails or hands over
-    /// another length.
+    /// Stores like [`StemCache::store`] stems `frames` long, made by `mode`,
+    /// that `separate` hands to the sink it is given a block at a time,
+    /// written to disk as they come. Nothing is kept when `separate` fails
+    /// or hands over another length.
     pub(crate) fn store_streamed(
         &self,
+        mode: StemMode,
         hash: &ContentHash,
         frames: usize,
         separate: impl FnOnce(&mut dyn StemSink) -> Result<(), EuphoriaError>,
@@ -171,7 +192,7 @@ impl StemCache {
         separate(&mut sink)?;
         sink.finish().map_err(stem_error(incoming.path()))?;
         mark_used(incoming.path()).map_err(stem_error(incoming.path()))?;
-        let destination = self.entry_directory(hash);
+        let destination = self.entry_directory(mode, hash);
         install_entry(incoming.path(), &destination).map_err(stem_error(&destination))?;
         self.evict(&destination)
             .map_err(stem_error(&self.directory))?;
@@ -216,14 +237,18 @@ impl StemCache {
     fn evict(&self, keep: &Path) -> io::Result<()> {
         let mut entries = Vec::new();
         let mut total_bytes: u64 = 0;
-        let prefix = format!("{STEMS_MODEL}-");
+        let prefixes = StemMode::BEST_FIRST.map(|mode| format!("{}-", mode.model_id()));
         for entry in fs::read_dir(&self.directory)? {
             let entry = entry?;
             let path = entry.path();
             let name = entry.file_name();
             let managed = name
                 .to_str()
-                .and_then(|name| name.strip_prefix(&prefix))
+                .and_then(|name| {
+                    prefixes
+                        .iter()
+                        .find_map(|prefix| name.strip_prefix(prefix.as_str()))
+                })
                 .is_some_and(|hash| {
                     hash.len() == 64
                         && hash
@@ -485,11 +510,66 @@ mod tests {
         for stem in Stem::ALL {
             assert_eq!(fs::metadata(stored.path(stem)).unwrap().len(), 44 + 400);
         }
-        assert!(
-            stored
-                .directory()
-                .ends_with(format!("{STEMS_MODEL}-{}", "01".repeat(32)))
+        assert!(stored.directory().ends_with(format!(
+            "{}-{}",
+            StemMode::Default.model_id(),
+            "01".repeat(32)
+        )));
+    }
+
+    fn store_for(cache: &StemCache, mode: StemMode, byte: u8, frames: usize) -> StemFiles {
+        let stems = stems(frames);
+        cache
+            .store_streamed(mode, &hash(byte), frames, |sink| {
+                sink.write(&stems.interleaved)
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn the_two_modes_keep_their_own_stems_of_the_same_track() {
+        let folder = TemporaryFolder::new("two-modes");
+        let cache = StemCache::new(folder.0.clone(), DEFAULT_STEM_CACHE_LIMIT_BYTES);
+        let default = store_for(&cache, StemMode::Default, 1, 100);
+        assert_eq!(cache.cached_for(StemMode::Advanced, &hash(1)), None);
+        let advanced = store_for(&cache, StemMode::Advanced, 1, 200);
+        assert_ne!(default.directory(), advanced.directory());
+        assert_eq!(cache.cached_for(StemMode::Default, &hash(1)), Some(default));
+        assert_eq!(
+            cache.cached_for(StemMode::Advanced, &hash(1)),
+            Some(advanced)
         );
+    }
+
+    #[test]
+    fn a_lookup_without_a_mode_gives_the_advanced_stems_when_there_are_any() {
+        let folder = TemporaryFolder::new("best-first");
+        let cache = StemCache::new(folder.0.clone(), DEFAULT_STEM_CACHE_LIMIT_BYTES);
+        let default = store_for(&cache, StemMode::Default, 1, 100);
+        assert_eq!(cache.lookup(&hash(1)), Some(default.clone()));
+        assert_eq!(cache.cached(&hash(1)), Some(default));
+        let advanced = store_for(&cache, StemMode::Advanced, 1, 100);
+        assert_eq!(cache.lookup(&hash(1)), Some(advanced.clone()));
+        assert_eq!(cache.cached(&hash(1)), Some(advanced));
+        assert_eq!(cache.lookup(&hash(2)), None);
+    }
+
+    #[test]
+    fn eviction_counts_the_stems_of_both_modes() {
+        let folder = TemporaryFolder::new("evict-both");
+        let entry_bytes = 4 * (44 + 400);
+        let cache = StemCache::new(folder.0.clone(), 2 * entry_bytes);
+        let old_advanced = store_for(&cache, StemMode::Advanced, 1, 100);
+        set_last_used(&old_advanced, 300);
+        let old_default = store_for(&cache, StemMode::Default, 2, 100);
+        set_last_used(&old_default, 200);
+        let newest = store_for(&cache, StemMode::Advanced, 3, 100);
+        assert_eq!(cache.cached_for(StemMode::Advanced, &hash(1)), None);
+        assert_eq!(
+            cache.cached_for(StemMode::Default, &hash(2)),
+            Some(old_default)
+        );
+        assert_eq!(cache.cached_for(StemMode::Advanced, &hash(3)), Some(newest));
     }
 
     #[test]

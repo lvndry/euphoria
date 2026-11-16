@@ -15,8 +15,10 @@ mod input;
 mod levels;
 mod model;
 mod profile;
+mod scnet;
 mod segments;
 mod spectrogram;
+mod torch_checkpoint;
 mod vocal_activity;
 mod wav;
 mod weights;
@@ -27,8 +29,11 @@ use std::sync::Mutex;
 use ort::session::Session;
 use ort::value::Tensor;
 
+use weights::WeightTensor;
+
 use crate::cache::ContentHash;
 use crate::error::EuphoriaError;
+pub use scnet::AdvancedSeparator;
 use segments::{OverlapWindow, SegmentPlan};
 use spectrogram::{
     FRAMES, FREQUENCY_BINS, SEGMENT_SAMPLES, SPECTROGRAM_CHANNELS, SpectrogramTransforms,
@@ -39,7 +44,10 @@ pub use export::{
     MixExport, Mixdown, StemShift, StemsExport, export_mix, export_stems, publish_stems,
 };
 pub use levels::measure_stem_levels;
-pub use model::{WEIGHTS_BYTES, WEIGHTS_SHA256, WEIGHTS_URL, default_weights_path};
+pub use model::{
+    ADVANCED_WEIGHTS_BYTES, ADVANCED_WEIGHTS_SHA256, ADVANCED_WEIGHTS_URL, WEIGHTS_BYTES,
+    WEIGHTS_SHA256, WEIGHTS_URL, advanced_weights_path, default_weights_path,
+};
 pub use profile::{StemActivity, layerable_profile, profile_stems, stem_activity};
 pub use vocal_activity::{
     VOCAL_ACTIVITY_FILE_NAME, VocalActivity, VocalLevels, VocalWindow, vocal_activity,
@@ -52,6 +60,42 @@ pub const STEMS_CHANNELS: usize = 2;
 /// Names the model whose stems are cached, so that stems from another
 /// model are never served in their place.
 pub const STEMS_MODEL: &str = "htdemucs-955717e8";
+/// Names the model whose stems the Advanced mode caches.
+pub const ADVANCED_STEMS_MODEL: &str = "scnet-xl-ihf-ac25975f";
+
+/// Which network separates a track. Stems of the two modes are kept apart
+/// in the cache.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+pub enum StemMode {
+    /// The faster network, htdemucs.
+    #[default]
+    Default,
+    /// The slower network, SCNet XL IHF, which separates more cleanly and
+    /// needs more time and memory.
+    Advanced,
+}
+
+impl StemMode {
+    /// The modes, the one that makes the best stems first.
+    pub const BEST_FIRST: [StemMode; 2] = [StemMode::Advanced, StemMode::Default];
+
+    /// Names the model of this mode in the stem cache.
+    pub const fn model_id(self) -> &'static str {
+        match self {
+            StemMode::Default => STEMS_MODEL,
+            StemMode::Advanced => ADVANCED_STEMS_MODEL,
+        }
+    }
+
+    /// Where the weights of this mode are kept in Euphoria's data folder.
+    pub fn weights_path(self) -> Result<PathBuf, EuphoriaError> {
+        match self {
+            StemMode::Default => default_weights_path(),
+            StemMode::Advanced => advanced_weights_path(),
+        }
+    }
+}
+
 /// Environment variable setting how many threads separation runs on.
 pub const STEMS_THREADS_VARIABLE: &str = "EUPHORIA_STEMS_THREADS";
 
@@ -218,9 +262,10 @@ impl StemSeparator {
         observer: &dyn SeparationObserver,
     ) -> Result<Self, EuphoriaError> {
         observer.stage(SeparationStage::LoadingModel);
-        let bytes = model::load_weights(weights_path, &|received, total| {
-            observer.downloading(received, total)
-        })?;
+        let bytes =
+            model::load_weights(&model::DEFAULT_WEIGHTS, weights_path, &|received, total| {
+                observer.downloading(received, total)
+            })?;
         let tensors =
             weights::read_safetensors(&bytes).map_err(|reason| EuphoriaError::Separation {
                 reason: format!(
@@ -230,37 +275,7 @@ impl StemSeparator {
                 source: None,
             })?;
         drop(bytes);
-        let environment = environment()?;
-        let mut builder = Session::builder(&environment)
-            .map_err(runtime_error("cannot start ONNX Runtime"))?
-            // The ort crate otherwise lets ONNX Runtime pick the most power
-            // efficient device, which on a Mac is Core ML: there this model
-            // needs about 16 GB and its stems are wrong.
-            .with_auto_device(ort::session::builder::AutoDevicePolicy::PreferCPU)
-            .map_err(|error| runtime_error("cannot start ONNX Runtime")(error.into()))?
-            .with_intra_threads(separation_threads())
-            .map_err(|error| runtime_error("cannot start ONNX Runtime")(error.into()))?;
-        // ONNX Runtime's memory pattern and CPU arena keep the peak of
-        // every intermediate tensor allocated; without them a segment
-        // needs about 2 GB less.
-        builder = builder
-            .with_memory_pattern(false)
-            .map_err(|error| runtime_error("cannot start ONNX Runtime")(error.into()))?;
-        builder = builder
-            .with_execution_providers([ort::ep::CPU::default().with_arena_allocator(false).build()])
-            .map_err(|error| runtime_error("cannot start ONNX Runtime")(error.into()))?;
-        for tensor in tensors {
-            let value = Tensor::from_array((tensor.shape, tensor.values))
-                .map_err(runtime_error("cannot hold the weights"))?;
-            builder = builder
-                .with_external_initializer(&tensor.name, value.into_dyn())
-                .map_err(|error| {
-                    runtime_error("cannot give the weights to the network")(error.into())
-                })?;
-        }
-        let session = builder
-            .commit_from_memory(model::GRAPH)
-            .map_err(runtime_error("cannot load the network"))?;
+        let (session, environment) = build_session(model::GRAPH, tensors)?;
         Ok(Self {
             session,
             _environment: environment,
@@ -305,25 +320,14 @@ impl StemSeparator {
         observer: &dyn SeparationObserver,
         sink: &mut dyn StemSink,
     ) -> Result<usize, EuphoriaError> {
-        if left.len() != right.len() {
-            return Err(EuphoriaError::Separation {
-                reason: "the left and right channels must have the same number of samples".into(),
-                source: None,
-            });
-        }
+        check_channels(left, right)?;
         observer.stage(SeparationStage::Separating);
         let frames = left.len();
-        if frames == 0 {
-            return Err(EuphoriaError::Separation {
-                reason: "there is no audio to separate".into(),
-                source: None,
-            });
-        }
         let (mean, deviation) = mono_mean_and_deviation(left, right);
         let normalise = |sample: f32| (sample - mean) / deviation;
         let restore = |sample: f32| sample * deviation + mean;
 
-        let plan = SegmentPlan::new(frames);
+        let plan = SegmentPlan::new(frames, SEGMENT_SAMPLES);
         let source_channels = Stem::ALL.len() * STEMS_CHANNELS;
         let mut window = OverlapWindow::new(source_channels);
         let mut finished = vec![Vec::new(); source_channels];
@@ -382,16 +386,7 @@ impl StemSeparator {
             }
             drop(outputs);
             window.take_until(segment.final_until(), &mut finished);
-            for (stem_index, block) in blocks.iter_mut().enumerate() {
-                let left_channel = &finished[stem_index * STEMS_CHANNELS];
-                let right_channel = &finished[stem_index * STEMS_CHANNELS + 1];
-                block.clear();
-                for (left_sample, right_sample) in left_channel.iter().zip(right_channel) {
-                    block.push(restore(*left_sample));
-                    block.push(restore(*right_sample));
-                }
-            }
-            sink.write(&blocks)?;
+            write_blocks(&finished, &mut blocks, restore, sink)?;
             observer.separated(done + 1, plan.len());
         }
         Ok(frames)
@@ -419,28 +414,76 @@ impl StemSink for CollectedStems {
     }
 }
 
+/// A loaded network of either mode.
+#[derive(Debug)]
+enum Engine {
+    Default(StemSeparator),
+    Advanced(AdvancedSeparator),
+}
+
+impl Engine {
+    fn load(
+        mode: StemMode,
+        weights_path: &Path,
+        observer: &dyn SeparationObserver,
+    ) -> Result<Self, EuphoriaError> {
+        Ok(match mode {
+            StemMode::Default => Self::Default(StemSeparator::load_from(weights_path, observer)?),
+            StemMode::Advanced => {
+                Self::Advanced(AdvancedSeparator::load_from(weights_path, observer)?)
+            }
+        })
+    }
+
+    fn separate_into(
+        &mut self,
+        left: &[f32],
+        right: &[f32],
+        observer: &dyn SeparationObserver,
+        sink: &mut dyn StemSink,
+    ) -> Result<usize, EuphoriaError> {
+        match self {
+            Self::Default(separator) => separator.separate_into(left, right, observer, sink),
+            Self::Advanced(separator) => separator.separate_into(left, right, observer, sink),
+        }
+    }
+}
+
 /// Separates tracks and keeps their stems in a [`StemCache`], loading the
 /// model only when a track is not cached yet.
 #[derive(Debug)]
 pub struct CachedSeparator {
     cache: StemCache,
+    mode: StemMode,
     weights_path: PathBuf,
-    separator: Option<StemSeparator>,
+    separator: Option<Engine>,
 }
 
 impl CachedSeparator {
-    /// Uses the cache and the model in Euphoria's data folder.
+    /// Uses the cache and the Default mode model in Euphoria's data folder.
     pub fn open_default() -> Result<Self, EuphoriaError> {
-        Ok(Self::new(
+        Self::open(StemMode::Default)
+    }
+
+    /// Uses the cache and the model of `mode` in Euphoria's data folder.
+    pub fn open(mode: StemMode) -> Result<Self, EuphoriaError> {
+        Ok(Self::new_for(
+            mode,
             StemCache::open_default()?,
-            default_weights_path()?,
+            mode.weights_path()?,
         ))
     }
 
-    /// Uses `cache`, and the model weights at `weights_path`.
+    /// Uses `cache`, and the Default mode model weights at `weights_path`.
     pub fn new(cache: StemCache, weights_path: PathBuf) -> Self {
+        Self::new_for(StemMode::Default, cache, weights_path)
+    }
+
+    /// Uses `cache`, and the model weights of `mode` at `weights_path`.
+    pub fn new_for(mode: StemMode, cache: StemCache, weights_path: PathBuf) -> Self {
         Self {
             cache,
+            mode,
             weights_path,
             separator: None,
         }
@@ -449,6 +492,21 @@ impl CachedSeparator {
     /// The cache the stems are kept in.
     pub fn cache(&self) -> &StemCache {
         &self.cache
+    }
+
+    /// The mode that separates tracks that are not cached yet.
+    pub fn mode(&self) -> StemMode {
+        self.mode
+    }
+
+    /// The stems already cached for `hash` that this mode accepts: any
+    /// stems for the Default mode, since those of the Advanced mode are the
+    /// better ones, and only its own for the Advanced mode.
+    fn cached_stems(&self, hash: &ContentHash) -> Option<StemFiles> {
+        match self.mode {
+            StemMode::Default => self.cache.lookup(hash),
+            StemMode::Advanced => self.cache.lookup_for(StemMode::Advanced, hash),
+        }
     }
 
     /// The stems of the file at `path`, from the cache when it holds them,
@@ -464,21 +522,22 @@ impl CachedSeparator {
                 source,
             })
         };
-        if let Some(files) = self.cache.lookup(&content_hash()?) {
+        if let Some(files) = self.cached_stems(&content_hash()?) {
             return Ok(files);
         }
         let _turn = self.cache.separation_turn(observer)?;
         let hash = content_hash()?;
-        if let Some(files) = self.cache.lookup(&hash) {
+        if let Some(files) = self.cached_stems(&hash) {
             return Ok(files);
         }
+        let mode = self.mode;
         let separator = match &mut self.separator {
             Some(separator) => separator,
-            empty => empty.insert(StemSeparator::load_from(&self.weights_path, observer)?),
+            empty => empty.insert(Engine::load(mode, &self.weights_path, observer)?),
         };
         observer.stage(SeparationStage::Decoding);
         let [left, right] = input::decode_stereo(path, STEMS_SAMPLE_RATE)?;
-        self.cache.store_streamed(&hash, left.len(), |sink| {
+        self.cache.store_streamed(mode, &hash, left.len(), |sink| {
             separator.separate_into(&left, &right, observer, sink)?;
             observer.stage(SeparationStage::Saving);
             if content_hash()? != hash {
@@ -531,6 +590,84 @@ fn mono_mean_and_deviation(left: &[f32], right: &[f32]) -> (f32, f32) {
     (mean as f32, deviation as f32)
 }
 
+/// Checks that `left` and `right` are the two channels of some audio.
+fn check_channels(left: &[f32], right: &[f32]) -> Result<(), EuphoriaError> {
+    if left.len() != right.len() {
+        return Err(EuphoriaError::Separation {
+            reason: "the left and right channels must have the same number of samples".into(),
+            source: None,
+        });
+    }
+    if left.is_empty() {
+        return Err(EuphoriaError::Separation {
+            reason: "there is no audio to separate".into(),
+            source: None,
+        });
+    }
+    Ok(())
+}
+
+/// Interleaves the blended channels in `finished`, restored by `restore`,
+/// into one block per stem and hands the blocks to `sink`.
+fn write_blocks(
+    finished: &[Vec<f32>],
+    blocks: &mut [Vec<f32>; 4],
+    restore: impl Fn(f32) -> f32,
+    sink: &mut dyn StemSink,
+) -> Result<(), EuphoriaError> {
+    for (stem_index, block) in blocks.iter_mut().enumerate() {
+        let left_channel = &finished[stem_index * STEMS_CHANNELS];
+        let right_channel = &finished[stem_index * STEMS_CHANNELS + 1];
+        block.clear();
+        for (left_sample, right_sample) in left_channel.iter().zip(right_channel) {
+            block.push(restore(*left_sample));
+            block.push(restore(*right_sample));
+        }
+    }
+    sink.write(blocks)
+}
+
+/// An ONNX Runtime session for `graph`, a network without weights, with
+/// `tensors` given to it as its weights. The environment is returned too
+/// and must outlive the session.
+fn build_session(
+    graph: &[u8],
+    tensors: Vec<WeightTensor>,
+) -> Result<(Session, ort::environment::Environment), EuphoriaError> {
+    let environment = environment()?;
+    let mut builder = Session::builder(&environment)
+        .map_err(runtime_error("cannot start ONNX Runtime"))?
+        // The ort crate otherwise lets ONNX Runtime pick the most power
+        // efficient device, which on a Mac is Core ML: there this model
+        // needs about 16 GB and its stems are wrong.
+        .with_auto_device(ort::session::builder::AutoDevicePolicy::PreferCPU)
+        .map_err(|error| runtime_error("cannot start ONNX Runtime")(error.into()))?
+        .with_intra_threads(separation_threads())
+        .map_err(|error| runtime_error("cannot start ONNX Runtime")(error.into()))?;
+    // ONNX Runtime's memory pattern and CPU arena keep the peak of
+    // every intermediate tensor allocated; without them a segment
+    // needs about 2 GB less.
+    builder = builder
+        .with_memory_pattern(false)
+        .map_err(|error| runtime_error("cannot start ONNX Runtime")(error.into()))?;
+    builder = builder
+        .with_execution_providers([ort::ep::CPU::default().with_arena_allocator(false).build()])
+        .map_err(|error| runtime_error("cannot start ONNX Runtime")(error.into()))?;
+    for tensor in tensors {
+        let value = Tensor::from_array((tensor.shape, tensor.values))
+            .map_err(runtime_error("cannot hold the weights"))?;
+        builder = builder
+            .with_external_initializer(&tensor.name, value.into_dyn())
+            .map_err(|error| {
+                runtime_error("cannot give the weights to the network")(error.into())
+            })?;
+    }
+    let session = builder
+        .commit_from_memory(graph)
+        .map_err(runtime_error("cannot load the network"))?;
+    Ok((session, environment))
+}
+
 fn runtime_error(reason: &'static str) -> impl Fn(ort::Error) -> EuphoriaError {
     move |error| EuphoriaError::Separation {
         reason: reason.to_string(),
@@ -555,6 +692,127 @@ mod tests {
             _environment: environment,
             transforms: SpectrogramTransforms::new(),
         }
+    }
+
+    fn synthetic_advanced_separator() -> AdvancedSeparator {
+        let environment = environment().unwrap();
+        let session = Session::builder(&environment)
+            .unwrap()
+            .with_auto_device(ort::session::builder::AutoDevicePolicy::PreferCPU)
+            .unwrap()
+            .commit_from_memory(include_bytes!("fixtures/zero_stems_advanced.onnx"))
+            .unwrap();
+        AdvancedSeparator::for_tests(session, environment)
+    }
+
+    #[test]
+    fn the_advanced_mode_streams_stems_as_long_as_the_track() {
+        let left: Vec<f32> = (0..600_000)
+            .map(|index| (index as f32 * 0.003).sin() * 0.4)
+            .collect();
+        let right = left.clone();
+        let mut separator = synthetic_advanced_separator();
+        let folder = crate::cache::test_support::TemporaryFolder::new();
+        let cache = StemCache::new(folder.path().to_path_buf(), DEFAULT_STEM_CACHE_LIMIT_BYTES);
+        let mut written = 0;
+        let files = cache
+            .store_streamed(
+                StemMode::Advanced,
+                &ContentHash::from_bytes([9; 32]),
+                left.len(),
+                |sink| {
+                    written = separator.separate_into(&left, &right, &Unobserved, sink)?;
+                    Ok(())
+                },
+            )
+            .unwrap();
+        assert_eq!(written, left.len());
+        for stem in Stem::ALL {
+            assert_eq!(
+                std::fs::metadata(files.path(stem)).unwrap().len(),
+                44 + 4 * left.len() as u64
+            );
+        }
+        assert!(
+            files
+                .directory()
+                .to_string_lossy()
+                .contains(StemMode::Advanced.model_id())
+        );
+    }
+
+    #[test]
+    fn the_advanced_mode_refuses_channels_of_different_lengths() {
+        let mut separator = synthetic_advanced_separator();
+        let mut collected = CollectedStems::default();
+        assert!(
+            separator
+                .separate_into(&[0.0, 0.5], &[0.0], &Unobserved, &mut collected)
+                .is_err()
+        );
+        assert!(
+            separator
+                .separate_into(&[], &[], &Unobserved, &mut collected)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn the_default_mode_serves_stems_the_advanced_mode_made_and_not_the_reverse() {
+        let folder = crate::cache::test_support::TemporaryFolder::new();
+        let directory = folder.path();
+        let path = directory.join("track.wav");
+        wav::write_wav(&path, &[0.0; 4096], 2, STEMS_SAMPLE_RATE).unwrap();
+        let hash = ContentHash::of_file(&path).unwrap();
+        let cache = StemCache::new(directory.join("cache"), DEFAULT_STEM_CACHE_LIMIT_BYTES);
+        let advanced_files = cache
+            .store_streamed(StemMode::Advanced, &hash, 2048, |sink| {
+                sink.write(&[
+                    vec![0.0; 4096],
+                    vec![0.0; 4096],
+                    vec![0.0; 4096],
+                    vec![0.0; 4096],
+                ])
+            })
+            .unwrap();
+
+        let mut default_mode = CachedSeparator::new_for(
+            StemMode::Default,
+            cache.clone(),
+            directory.join("unused-weights"),
+        );
+        assert_eq!(
+            default_mode.stems(&path, &Unobserved).unwrap(),
+            advanced_files
+        );
+
+        let other = directory.join("other.wav");
+        wav::write_wav(&other, &[0.1; 4096], 2, STEMS_SAMPLE_RATE).unwrap();
+        let other_hash = ContentHash::of_file(&other).unwrap();
+        cache
+            .store_streamed(StemMode::Default, &other_hash, 2048, |sink| {
+                sink.write(&[
+                    vec![0.0; 4096],
+                    vec![0.0; 4096],
+                    vec![0.0; 4096],
+                    vec![0.0; 4096],
+                ])
+            })
+            .unwrap();
+        let mut advanced_mode = CachedSeparator::new_for(
+            StemMode::Advanced,
+            cache.clone(),
+            directory.join("unused-weights"),
+        );
+        advanced_mode.separator = Some(Engine::Advanced(synthetic_advanced_separator()));
+        let upgraded = advanced_mode.stems(&other, &Unobserved).unwrap();
+        assert!(
+            upgraded
+                .directory()
+                .to_string_lossy()
+                .contains(StemMode::Advanced.model_id())
+        );
+        assert!(cache.cached_for(StemMode::Default, &other_hash).is_some());
     }
 
     #[test]
@@ -585,11 +843,16 @@ mod tests {
         let folder = crate::cache::test_support::TemporaryFolder::new();
         let cache = StemCache::new(folder.path().to_path_buf(), DEFAULT_STEM_CACHE_LIMIT_BYTES);
         let files = cache
-            .store_streamed(&ContentHash::from_bytes([7; 32]), left.len(), |sink| {
-                separator
-                    .separate_into(&left, &right, &Unobserved, sink)
-                    .map(|_| ())
-            })
+            .store_streamed(
+                StemMode::Default,
+                &ContentHash::from_bytes([7; 32]),
+                left.len(),
+                |sink| {
+                    separator
+                        .separate_into(&left, &right, &Unobserved, sink)
+                        .map(|_| ())
+                },
+            )
             .unwrap();
         let expected = folder.path().join("expected");
         std::fs::create_dir_all(&expected).unwrap();
@@ -651,7 +914,7 @@ mod tests {
                 StemCache::new(directory.join("cache"), DEFAULT_STEM_CACHE_LIMIT_BYTES),
                 directory.join("unused-weights"),
             );
-            separator.separator = Some(synthetic_separator());
+            separator.separator = Some(Engine::Default(synthetic_separator()));
             let result = separator.stems(
                 &path,
                 &ReplaceSource {
