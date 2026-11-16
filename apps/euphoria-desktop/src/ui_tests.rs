@@ -2158,17 +2158,25 @@ fn opening_settings_discards_a_tag_preview_still_being_planned(cx: &mut TestAppC
     assert!(!scratch.log_directory().exists());
 }
 
-/// Scrolls the settings down by `pixels`.
-fn scroll_settings(window: AnyWindowHandle, pixels: f32, cx: &mut TestAppContext) {
+/// Scrolls the settings until the element `id` is at the top of the body.
+pub(crate) fn scroll_settings_to(
+    window: AnyWindowHandle,
+    id: impl Into<gpui::ElementId>,
+    cx: &mut TestAppContext,
+) {
+    let id = id.into();
     cx.update_window(window, |_, window, cx| {
         window.render_frame(cx);
+        let below_top =
+            window.find(id).bounds().top() - window.find("settings-body").bounds().top();
         window.scroll(
             "settings-body",
-            gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(-pixels))),
+            gpui::ScrollDelta::Pixels(gpui::point(px(0.0), -below_top)),
             cx,
         );
     })
     .unwrap();
+    cx.run_until_parked();
 }
 
 #[gpui::test]
@@ -2182,24 +2190,16 @@ fn the_settings_choose_the_program_the_tags_are_written_for_and_are_remembered(
 
     cx.update(|cx| view.update(cx, |app, cx| app.open_settings(cx)));
     cx.update(|cx| assert!(view.read(cx).settings_open));
-    click(window, ("program", 1_usize), cx);
     click(window, ("notation", 2_usize), cx);
-    scroll_settings(window, 80.0, cx);
+    scroll_settings_to(window, ("program", 0_usize), cx);
+    click(window, ("program", 1_usize), cx);
     click(window, ("label-place", 2_usize), cx);
     cx.update(|cx| {
         let settings = view.read(cx).tag_settings;
         assert_eq!(settings.program, ProgramChoice::Serato);
         assert!(!settings.write_tempo, "Serato starts without the tempo");
     });
-    cx.update_window(window, |_, window, cx| {
-        window.render_frame(cx);
-        window.scroll(
-            "settings-body",
-            gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(-150.0))),
-            cx,
-        );
-    })
-    .unwrap();
+    scroll_settings_to(window, "write-tempo", cx);
     click(window, "write-tempo", cx);
     click(window, "close-settings", cx);
     cx.update(|cx| assert!(!view.read(cx).settings_open));
@@ -2248,8 +2248,8 @@ fn the_settings_preview_follows_the_label_place_as_it_is_chosen(cx: &mut TestApp
     let (window, view) = open_taggable_files(&scratch, &files, None, cx);
     cx.update(|cx| view.update(cx, |app, cx| app.open_settings(cx)));
     cx.run_until_parked();
+    scroll_settings_to(window, ("program", 0_usize), cx);
     click(window, ("program", 0_usize), cx);
-    scroll_settings(window, 80.0, cx);
     click(window, ("label-place", 0_usize), cx);
     cx.run_until_parked();
     let comment_of = |cx: &mut TestAppContext| {

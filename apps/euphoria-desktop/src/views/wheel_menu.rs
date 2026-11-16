@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! The menu that clicking the Camelot wheel opens: the key moves the Next
-//! list, "Mixes well with" and the wheel count, each a toggle, and whether
-//! the wheel marks the matching keys at all. It floats above the whole
-//! window and closes on a click outside it or on Escape.
+//! list, "Mixes well with" and the wheel count, each a toggle after its
+//! colour on the wheel, a way back to the default moves, whether the wheel
+//! marks the matching keys at all, and a way to the same choices in the
+//! settings. It floats above the whole window and closes on a click outside
+//! it or on Escape.
 
 use euphoria_core::harmony::Relation;
 use euphoria_core::harmony::words::relation_name;
@@ -15,6 +17,7 @@ use gpui::{
 
 use crate::app::EuphoriaApp;
 use crate::theme::Palette;
+use crate::views::wheel::move_swatch;
 use crate::views::{
     GAP_SMALL, GAP_TIGHT, RADIUS_LARGE, RADIUS_SMALL, SMALL_TEXT_SIZE, section_label,
 };
@@ -23,6 +26,8 @@ use crate::views::{
 const MENU_WIDTH: f32 = 230.0;
 /// Height of one toggle in the menu.
 const ROW_HEIGHT: f32 = 26.0;
+/// Width of the column of checks.
+const CHECK_WIDTH: f32 = 12.0;
 /// The least room kept between the menu and the edges of the window.
 const WINDOW_MARGIN: f32 = 8.0;
 
@@ -42,6 +47,7 @@ pub(crate) fn wheel_menu(
                 ("wheel-key-move", index),
                 relation_name(relation),
                 counted.contains(&relation),
+                Some(move_swatch(relation, &palette)),
                 &palette,
             )
             .on_click(cx.listener(move |this, _, _, cx| this.toggle_wheel_relation(relation, cx)))
@@ -51,6 +57,7 @@ pub(crate) fn wheel_menu(
         "wheel-show-matching-keys",
         "Show matching keys",
         app.display.show_matching_keys,
+        None,
         &palette,
     )
     .on_click(cx.listener(|this, _, _, cx| this.toggle_matching_keys(cx)))
@@ -74,8 +81,22 @@ pub(crate) fn wheel_menu(
         }))
         .child(section_label("Key moves", &palette).px(GAP_SMALL))
         .children(moves)
-        .child(div().h(px(1.0)).my(GAP_TIGHT).bg(palette.line))
+        .child(
+            action("wheel-reset-key-moves", "Reset to default moves", &palette)
+                .on_click(cx.listener(|this, _, _, cx| this.reset_key_moves(cx)))
+                .test_support(),
+        )
+        .child(divider(&palette))
         .child(show_matching)
+        .child(
+            action(
+                "wheel-all-key-settings",
+                "All key settings\u{2026}",
+                &palette,
+            )
+            .on_click(cx.listener(|this, _, _, cx| this.open_key_moves_setting(cx)))
+            .test_support(),
+        )
         .child(
             div()
                 .px(GAP_SMALL)
@@ -97,13 +118,19 @@ pub(crate) fn wheel_menu(
     )
 }
 
-/// One toggle of the menu: a check when it is on, and its label.
-fn toggle(
-    id: impl Into<ElementId>,
-    label: &'static str,
-    is_on: bool,
-    palette: &Palette,
-) -> Stateful<Div> {
+fn divider(palette: &Palette) -> Div {
+    div().h(px(1.0)).my(GAP_TIGHT).bg(palette.line)
+}
+
+/// A row of the menu that does something rather than toggle, lined up with
+/// the labels of the toggles.
+fn action(id: &'static str, label: &'static str, palette: &Palette) -> Stateful<Div> {
+    row(id, palette)
+        .child(div().w(px(CHECK_WIDTH)))
+        .child(div().text_color(palette.text_secondary).child(label))
+}
+
+fn row(id: impl Into<ElementId>, palette: &Palette) -> Stateful<Div> {
     let hover_background = palette.raised;
     div()
         .id(id)
@@ -115,12 +142,25 @@ fn toggle(
         .rounded(RADIUS_SMALL)
         .cursor_pointer()
         .hover(move |style| style.bg(hover_background))
+}
+
+/// One toggle of the menu: a check when it is on, the move's colour on the
+/// wheel when it has one, and its label.
+fn toggle(
+    id: impl Into<ElementId>,
+    label: &'static str,
+    is_on: bool,
+    swatch: Option<Div>,
+    palette: &Palette,
+) -> Stateful<Div> {
+    row(id, palette)
         .child(
             div()
-                .w(px(12.0))
+                .w(px(CHECK_WIDTH))
                 .text_color(palette.accent)
                 .child(if is_on { "\u{2713}" } else { "" }),
         )
+        .children(swatch)
         .child(
             div()
                 .text_color(if is_on {

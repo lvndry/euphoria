@@ -435,6 +435,69 @@ impl Session {
         }
     }
 
+    /// Points the track of `old`, with its playlists and favorites, at
+    /// `new`, where a rescan found the same audio, `content`. The track
+    /// keeps its analysis, so nothing is analyzed again. Returns whether
+    /// the playlists or the favorites changed, or `None` when nothing moved
+    /// because `new` is already in the library or a playlist or a favorite
+    /// recorded other audio for `old`.
+    pub(crate) fn follow_moved_file(
+        &mut self,
+        old: &Path,
+        new: &Path,
+        content: euphoria_core::ContentHash,
+    ) -> Option<bool> {
+        let recorded = [
+            self.playlists.content_of(old),
+            self.favorites.content_of(old),
+        ];
+        if recorded
+            .iter()
+            .flatten()
+            .any(|recorded| *recorded != content)
+        {
+            return None;
+        }
+        if !self.library.move_track(old, new.to_path_buf()) {
+            return None;
+        }
+        let playlists_changed = self.playlists.relink(old, new, content);
+        let favorites_changed = self.favorites.relink(old, new, content);
+        Some(playlists_changed || favorites_changed)
+    }
+
+    /// Takes the tracks of files that are gone out of the library. A track
+    /// a playlist or a favorite holds stays as a missing track, so the user
+    /// can locate it or remove it. Returns how many tracks were taken out
+    /// or marked missing.
+    pub(crate) fn drop_gone_files(&mut self, paths: &[PathBuf]) -> usize {
+        let held: HashSet<&PathBuf> = self
+            .playlists
+            .all()
+            .iter()
+            .flat_map(|playlist| playlist.tracks.iter())
+            .chain(self.favorites.paths())
+            .collect();
+        let mut dropped = 0;
+        for path in paths {
+            let changed = if held.contains(path) {
+                self.library
+                    .track_by_path(path)
+                    .is_some_and(|track| !track.is_missing())
+                    && self
+                        .library
+                        .record_outcome(path, Err(TrackFailure::Missing))
+            } else {
+                self.library.remove(path)
+            };
+            if changed {
+                self.reanalyzing.remove(path);
+                dropped += 1;
+            }
+        }
+        dropped
+    }
+
     /// Takes the missing tracks among `paths` out of the library, the
     /// playlists and the favorites. Returns the paths taken out.
     pub(crate) fn remove_missing(&mut self, paths: &[PathBuf]) -> Vec<PathBuf> {
@@ -593,6 +656,24 @@ impl Session {
     /// or being analyzed, missing tracks and files not in the library are
     /// left out. Returns how many were queued.
     pub(crate) fn analyze_again(&mut self, paths: &[PathBuf]) -> usize {
+        let queued = self.requeue(paths);
+        let count = queued.len();
+        self.workers.enqueue_fresh(queued);
+        count
+    }
+
+    /// Queues the tracks at `paths`, whose files changed on disk, for
+    /// analysis through the cache: a file whose audio the cache knows is
+    /// filled in from it, and only new audio is analyzed. Returns how many
+    /// were queued.
+    pub(crate) fn analyze_changed(&mut self, paths: &[PathBuf]) -> usize {
+        let queued = self.requeue(paths);
+        let count = queued.len();
+        self.workers.enqueue(queued);
+        count
+    }
+
+    fn requeue(&mut self, paths: &[PathBuf]) -> Vec<PathBuf> {
         let mut queued = Vec::new();
         for path in paths {
             if !self.reanalyzing.contains(path) && self.library.requeue_for_analysis(path) {
@@ -600,10 +681,8 @@ impl Session {
                 queued.push(path.clone());
             }
         }
-        let count = queued.len();
-        self.progress.enqueue(count);
-        self.workers.enqueue_fresh(queued);
-        count
+        self.progress.enqueue(queued.len());
+        queued
     }
 
     /// Stops the files still waiting for a worker. Files being analyzed

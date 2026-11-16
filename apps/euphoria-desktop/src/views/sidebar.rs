@@ -5,6 +5,7 @@
 //! tree of the subfolders that hold tracks. Only the folder rows in view are
 //! built, so a tree of hundreds of folders stays quick.
 
+use gpui::component::menu::{ContextMenuExt, PopupMenuItem};
 use gpui::component::scroll::Scrollbar;
 use gpui::component::tooltip::Tooltip;
 use gpui::component::{Icon, IconName};
@@ -18,6 +19,7 @@ use crate::app::EuphoriaApp;
 use crate::format;
 use crate::library::LibraryFilter;
 use crate::panels::SIDEBAR_WIDTH;
+use crate::rescan::{RESCAN_FOLDER_ITEM, RESCAN_TOOLTIP};
 use crate::theme::Palette;
 use crate::views::{GAP_SMALL, GAP_TIGHT, RADIUS_MEDIUM, RADIUS_SMALL};
 use crate::views::{LABEL_TEXT_SIZE, section_label};
@@ -153,11 +155,18 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
                 .test_support(),
         )
         .child(
-            section_label("Folders", &palette)
+            div()
+                .flex()
                 .flex_shrink_0()
+                .items_center()
+                .justify_between()
                 .px(px(8.0))
                 .pt(px(16.0))
-                .pb(px(4.0)),
+                .pb(px(4.0))
+                .child(section_label("Folders", &palette))
+                .when(!app.session.library().folders().is_empty(), |header| {
+                    header.child(rescan_button(app, &palette, cx))
+                }),
         )
         .child(folder_tree(app, &palette, cx))
         .child(crate::views::playlists::sidebar_section(app, cx))
@@ -169,6 +178,42 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
                 .text_color(palette.text_tertiary)
                 .child(PRIVACY_NOTE),
         )
+}
+
+/// The button that looks through the folders again. It dims and does
+/// nothing while folders are being searched.
+fn rescan_button(app: &EuphoriaApp, palette: &Palette, cx: &mut Context<'_, EuphoriaApp>) -> Div {
+    let hover_background = palette.raised;
+    let is_searching = app.scans.is_running();
+    let button = div()
+        .flex()
+        .items_center()
+        .justify_center()
+        .size(px(18.0))
+        .rounded(RADIUS_SMALL)
+        .text_color(palette.text_tertiary)
+        .child(
+            Icon::default()
+                .path(crate::assets::REFRESH_ICON_PATH)
+                .size(px(12.0)),
+        );
+    let button = if is_searching {
+        button.opacity(0.4)
+    } else {
+        button
+    };
+    div().child(
+        button
+            .id("rescan-folders")
+            .when(!is_searching, |button| {
+                button
+                    .cursor_pointer()
+                    .hover(move |style| style.bg(hover_background))
+                    .on_click(cx.listener(|this, _, _, cx| this.rescan_folders(cx)))
+            })
+            .tooltip(|window, cx| Tooltip::new(RESCAN_TOOLTIP).build(window, cx))
+            .test_support(),
+    )
 }
 
 /// The added folders and their subfolders, scrolling when taller than the
@@ -251,6 +296,8 @@ fn folder_row(
     let full_path: SharedString = node.path.to_string_lossy().into_owned().into();
     let shown_path = node.path.clone();
     let toggled_path = node.path.clone();
+    let rescanned_path = node.path.clone();
+    let app_handle = cx.entity().downgrade();
 
     let disclosure = if node.children.is_empty() {
         div()
@@ -310,6 +357,19 @@ fn folder_row(
             this.show_folder(shown_path.clone(), cx);
         }))
         .test_support()
+        .context_menu(move |menu, _, _| {
+            let app_handle = app_handle.clone();
+            let rescanned_path = rescanned_path.clone();
+            menu.item(
+                PopupMenuItem::new(RESCAN_FOLDER_ITEM).on_click(move |_, _, cx| {
+                    app_handle
+                        .update(cx, |this, cx| {
+                            this.rescan_folder(rescanned_path.clone(), cx)
+                        })
+                        .ok();
+                }),
+            )
+        })
         .into_any_element(),
     )
 }

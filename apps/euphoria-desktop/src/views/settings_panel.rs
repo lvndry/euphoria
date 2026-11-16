@@ -1,9 +1,11 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The settings panel: how keys and tempos are shown, and how tags are
-//! written, and how tracks are separated into stems.
+//! The settings panel: how keys and tempos are shown, the key moves, how
+//! tags are written, and how tracks are separated into stems.
 
+use euphoria_core::harmony::Relation;
+use euphoria_core::harmony::words::relation_name;
 use gpui::component::input::Input;
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
@@ -16,13 +18,89 @@ use crate::surface_motion::Modal;
 use crate::tag_settings::{LabelChoice, NotationChoice, ProgramChoice};
 use crate::theme::Palette;
 use crate::track_filters::STAGE_EXPLANATION;
-use crate::views::controls::{segment, segmented, toggle_row};
+use crate::views::controls::{segment, segmented, text_link, toggle_row};
+use crate::views::wheel::move_swatch;
 use crate::views::{
     GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, LABEL_TEXT_SIZE, RADIUS_MEDIUM, TITLE_TEXT_SIZE,
 };
 use crate::views::{
     SMALL_TEXT_SIZE, dialog_primary_button, modal, secondary_button, section_label,
 };
+
+/// The place of the key moves among the parts of the settings body, where
+/// "All key settings" scrolls to.
+pub(crate) const KEY_MOVES_PART: usize = 5;
+
+/// One line on each key move, from 8A.
+fn move_explanation(relation: Relation) -> &'static str {
+    match relation {
+        Relation::Same => "8A to 8A.",
+        Relation::Adjacent => "7A or 9A from 8A.",
+        Relation::Relative => "8B from 8A: the major or minor with the same notes.",
+        Relation::Diagonal => "7B from 8A, or 9A from 8B: one step and the other letter.",
+        Relation::EnergyBoost => "10A from 8A: two steps up, a whole tone higher.",
+        Relation::MoodChange => "11B from 8A: the same home note in the other mode.",
+        Relation::SemitoneBoost => "3A from 8A: a semitone higher.",
+    }
+}
+
+/// The key moves the wheel, the Next list and "Mixes well with" use, each a
+/// switch after its colour on the wheel, and a link back to the defaults.
+fn key_moves(
+    app: &EuphoriaApp,
+    palette: &Palette,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> impl IntoElement {
+    let counted = app.decks.filter.mix_options().relations;
+    let rows = Relation::ALL
+        .into_iter()
+        .enumerate()
+        .map(|(index, relation)| {
+            div()
+                .flex()
+                .items_center()
+                .gap(GAP_SMALL)
+                .pl(GAP_SMALL)
+                .child(move_swatch(relation, palette))
+                .child(
+                    toggle_row(
+                        ("key-move", index),
+                        relation_name(relation),
+                        move_explanation(relation),
+                        counted.contains(&relation),
+                        &app.switches,
+                        palette,
+                    )
+                    .flex_1()
+                    .min_w_0()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.toggle_wheel_relation(relation, cx);
+                    }))
+                    .test_support(),
+                )
+        });
+    div()
+        .id("key-moves")
+        .flex()
+        .flex_col()
+        .gap(GAP_TIGHT)
+        .child(section_label("Key moves", palette))
+        .child(
+            div()
+                .text_size(SMALL_TEXT_SIZE)
+                .text_color(palette.text_secondary)
+                .child("The wheel, the Next list and Mixes well with use these moves."),
+        )
+        .children(rows)
+        .child(
+            div().pt(GAP_TIGHT).child(
+                text_link("reset-key-moves", "Reset to default moves", palette)
+                    .on_click(cx.listener(|this, _, _, cx| this.reset_key_moves(cx)))
+                    .test_support(),
+            ),
+        )
+        .test_support()
+}
 
 /// The settings panel.
 pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> AnyElement {
@@ -254,7 +332,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
         toggle_row(
             "show-matching-keys",
             "Show matching keys on the wheel",
-            "Marks the keys that mix with the selected one. Click the wheel to choose the key moves.",
+            "Marks the keys that mix with the selected one, each in the colour of its move.",
             display.show_matching_keys,
             &app.switches,
             &palette,
@@ -263,6 +341,8 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
         .test_support()
         .into_any_element(),
     );
+    debug_assert_eq!(parts.len(), KEY_MOVES_PART);
+    parts.push(key_moves(app, &palette, cx).into_any_element());
     parts.push(part_heading("Writing tags", &palette).into_any_element());
     let writing_box_index = parts.len();
     parts.push(label_preview_box(app, "label-preview", &palette).into_any_element());
