@@ -1,0 +1,41 @@
+SCNet XL attribution
+
+Euphoria's Advanced mode graph export is adapted from the SCNet network,
+https://github.com/starrytong/SCNet, as it is implemented in
+Music-Source-Separation-Training,
+https://github.com/ZFTurbo/Music-Source-Separation-Training.
+The network is described in "SCNet: Sparse Compression Network for Music
+Source Separation" (Tong et al., https://arxiv.org/abs/2401.13276).
+Both codes are licensed under the MIT License reproduced below.
+
+The separately downloaded pretrained weights are the SCNet XL IHF checkpoint
+model_scnet_ep_36_sdr_10.0891.ckpt, published in the v1.0.15 release of
+Music-Source-Separation-Training:
+https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/tag/v1.0.15
+Euphoria does not redistribute them. The code license does not establish a
+license for those weights. Their publisher states none, and the SCNet authors
+say their own checkpoint was trained on the MUSDB dataset, whose audio is
+licensed for research use.
+
+MIT License
+
+Copyright (c) 2024 starrytong
+Copyright (c) 2024 Roman Solovyev (ZFTurbo)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

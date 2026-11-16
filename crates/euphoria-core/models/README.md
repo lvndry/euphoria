@@ -36,6 +36,52 @@ as each segment is blended, so memory does not grow with the length of
 the track. Quality against the reference Python Demucs, speed and peak
 memory are measured in [the stems page](../../../docs/concepts/stems.md).
 
+# SCNet XL model provenance
+
+`scnet-xl.onnx` contains the network graph of the Advanced stems mode without
+learned weights. It is embedded in the binary and exported by
+[`export_scnet_xl_onnx.py`](../../../scripts/stems/export_scnet_xl_onnx.py)
+for a segment of 242,550 samples (5.5 seconds at 44.1 kHz): the input is the
+spectrum `[1, 4, 2049, 238]` and the output `[1, 4, 4, 2049, 238]`. Its SHA-256
+is `44989b3f92a8db183e2ab9ca29340c0d578963fa4f4ce203765c4eb582e5ad18`. Two
+exports with the pinned environment give this exact file, and a test checks the
+embedded graph against this hash.
+
+The network is SCNet, adapted from
+[Music-Source-Separation-Training](https://github.com/ZFTurbo/Music-Source-Separation-Training)
+at commit `1f700c386e0dd763fe0a57242bb9420dce987354`, whose model code comes from
+[SCNet](https://github.com/starrytong/SCNet). Both are MIT licensed; the complete
+notice and the distinction below are distributed in
+[`scnet-NOTICE.txt`](../../../licenses/scnet-NOTICE.txt). The export replaces
+the real FFT along time in the separation network by the equivalent
+multiplication by cosine and sine matrices, because ONNX has no such operator
+and a segment always has the same number of frames; the replaced network matches
+the original to 2e-7 and the graph with its weights to 2e-3 on a random segment.
+The recorded export environment is the one for the htdemucs graph, plus ONNX
+Runtime 1.32.0 and PyYAML 6.0.3, pinned in
+[`requirements.txt`](../../../scripts/stems/requirements.txt).
+
+The separately downloaded weights are `model_scnet_ep_36_sdr_10.0891.ckpt` from
+[the v1.0.15 release of Music-Source-Separation-Training](https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/tag/v1.0.15).
+The expected size is 214,063,778 bytes and the SHA-256 is
+`ac25975f0f5704f3d1a3c3c251505b7a0f417a22eafe82773440ee4f7e14b74f`. The
+downloader verifies that hash on every load. The file is a PyTorch checkpoint:
+Euphoria reads its 510 tensors with a reader that never runs anything in the
+file (it accepts three named pickle globals, float32 tensors and contiguous
+layouts, and nothing else).
+
+The code's MIT license does **not** establish a license for the pretrained
+weights. Their publisher states none, and the SCNet authors say their own
+checkpoint was trained on the MUSDB dataset, whose audio is licensed for
+research use. Euphoria does not redistribute the weights or claim a license
+grant for them. Because the release is hosted by a third party, the download
+fails, and the Advanced mode is unavailable, if that file is ever removed.
+
+Segments of 5.5 seconds overlap by a quarter and are blended with triangular
+weights, and the stems are written to disk as each segment is blended, so memory
+does not grow with the length of the track. The audio is not normalised before
+the network, which is how this checkpoint was configured (`normalize: false`).
+
 # drone-v2 model provenance
 
 The weights of drone-v2, the key detection network that `euphoria-core` runs

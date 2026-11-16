@@ -1,8 +1,8 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The htdemucs model: the network graph built into Euphoria, and the
-//! weights downloaded once from the Demucs author's published files.
+//! The separation models: each network graph is built into Euphoria, and
+//! its weights are downloaded once from the model author's published files.
 
 use std::fs::File;
 use std::io::{Read, Write};
@@ -27,41 +27,93 @@ pub const WEIGHTS_SHA256: &str = "d9fa14133cfcc034a6758923bb3a8ca9f8dfd0b5821346
 /// The size of the weights file in bytes.
 pub const WEIGHTS_BYTES: u64 = 84_025_440;
 const WEIGHTS_FILE_NAME: &str = "htdemucs-955717e8.safetensors";
+
+/// The SCNet XL network without its weights, exported by
+/// `scripts/stems/export_scnet_xl_onnx.py`.
+pub(crate) const ADVANCED_GRAPH: &[u8] = include_bytes!("../../models/scnet-xl.onnx");
+
+/// Where the Advanced mode weights are downloaded from: the SCNet XL IHF
+/// checkpoint as the Music-Source-Separation-Training project publishes it
+/// in its `v1.0.15` release.
+pub const ADVANCED_WEIGHTS_URL: &str = "https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/download/v1.0.15/model_scnet_ep_36_sdr_10.0891.ckpt";
+/// The SHA-256 of the Advanced mode weights file. A download that does not
+/// match is discarded.
+pub const ADVANCED_WEIGHTS_SHA256: &str =
+    "ac25975f0f5704f3d1a3c3c251505b7a0f417a22eafe82773440ee4f7e14b74f";
+/// The size of the Advanced mode weights file in bytes.
+pub const ADVANCED_WEIGHTS_BYTES: u64 = 214_063_778;
+const ADVANCED_WEIGHTS_FILE_NAME: &str = "scnet-xl-ihf-ac25975f.ckpt";
+
+/// A weights file to download: where it comes from, what it must hash to
+/// and how large it is.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct WeightsFile {
+    pub(crate) url: &'static str,
+    pub(crate) sha256: &'static str,
+    pub(crate) bytes: u64,
+    pub(crate) file_name: &'static str,
+}
+
+/// The htdemucs weights, for the Default mode.
+pub(crate) const DEFAULT_WEIGHTS: WeightsFile = WeightsFile {
+    url: WEIGHTS_URL,
+    sha256: WEIGHTS_SHA256,
+    bytes: WEIGHTS_BYTES,
+    file_name: WEIGHTS_FILE_NAME,
+};
+
+/// The SCNet XL IHF weights, for the Advanced mode.
+pub(crate) const ADVANCED_WEIGHTS: WeightsFile = WeightsFile {
+    url: ADVANCED_WEIGHTS_URL,
+    sha256: ADVANCED_WEIGHTS_SHA256,
+    bytes: ADVANCED_WEIGHTS_BYTES,
+    file_name: ADVANCED_WEIGHTS_FILE_NAME,
+};
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
-// Includes headers, redirects and the complete 84 MB response body.
+// Includes headers, redirects and the complete response body, up to 214 MB.
 const DOWNLOAD_DEADLINE: Duration = Duration::from_secs(600);
 const READ_BUFFER_BYTES: usize = 1 << 16;
 static PARTIAL_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Where the weights are kept in Euphoria's data folder.
 pub fn default_weights_path() -> Result<PathBuf, EuphoriaError> {
-    Ok(crate::cache::location::default_data_directory()?
-        .join("models")
-        .join(WEIGHTS_FILE_NAME))
+    weights_path(&DEFAULT_WEIGHTS)
 }
 
-/// Reads the weights at `path`, downloading them first when the file is
-/// missing. `downloaded` hears the bytes received so far and the total.
+/// Where the Advanced mode weights are kept in Euphoria's data folder.
+pub fn advanced_weights_path() -> Result<PathBuf, EuphoriaError> {
+    weights_path(&ADVANCED_WEIGHTS)
+}
+
+fn weights_path(file: &WeightsFile) -> Result<PathBuf, EuphoriaError> {
+    Ok(crate::cache::location::default_data_directory()?
+        .join("models")
+        .join(file.file_name))
+}
+
+/// Reads the weights `file` at `path`, downloading them first when the file
+/// is missing. `downloaded` hears the bytes received so far and the total.
 ///
-/// The file is checked against [`WEIGHTS_SHA256`] every time it is read, so
-/// a damaged file is reported, never used. Downloads have a ten-minute
+/// The file is checked against its SHA-256 every time it is read, so a
+/// damaged file is reported, never used. Downloads have a ten-minute
 /// deadline covering connection, redirects, headers and the response body.
 pub(crate) fn load_weights(
+    file: &WeightsFile,
     path: &Path,
     downloaded: &dyn Fn(u64, u64),
 ) -> Result<Vec<u8>, EuphoriaError> {
     if !path.exists() {
-        download_weights(WEIGHTS_URL, path, downloaded)?;
+        download_weights(file, file.url, path, downloaded)?;
     }
     let bytes = std::fs::read(path).map_err(|source| EuphoriaError::Open {
         path: path.to_path_buf(),
         source,
     })?;
     let actual = sha256_hex(&bytes);
-    if actual != WEIGHTS_SHA256 {
+    if actual != file.sha256 {
         return Err(EuphoriaError::ModelIntegrity {
             path: path.to_path_buf(),
-            expected: WEIGHTS_SHA256,
+            expected: file.sha256,
             actual,
         });
     }
@@ -69,14 +121,16 @@ pub(crate) fn load_weights(
 }
 
 fn download_weights(
+    file: &WeightsFile,
     url: &str,
     destination: &Path,
     downloaded: &dyn Fn(u64, u64),
 ) -> Result<(), EuphoriaError> {
-    download_weights_with_deadline(url, destination, downloaded, DOWNLOAD_DEADLINE)
+    download_weights_with_deadline(file, url, destination, downloaded, DOWNLOAD_DEADLINE)
 }
 
 fn download_weights_with_deadline(
+    file: &WeightsFile,
     url: &str,
     destination: &Path,
     downloaded: &dyn Fn(u64, u64),
@@ -113,15 +167,15 @@ fn download_weights_with_deadline(
         .get("content-length")
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(WEIGHTS_BYTES);
+        .unwrap_or(file.bytes);
     let mut reader = response
         .into_body()
         .into_with_config()
-        .limit(WEIGHTS_BYTES + 1)
+        .limit(file.bytes + 1)
         .reader();
 
-    let (file, partial) = create_partial(destination).map_err(file_error)?;
-    let saved = save_download(&mut reader, file, total, downloaded);
+    let (partial_file, partial) = create_partial(destination).map_err(file_error)?;
+    let saved = save_download(&mut reader, partial_file, total, downloaded);
     let actual = match saved {
         Ok(actual) => actual,
         Err(error) => {
@@ -132,11 +186,11 @@ fn download_weights_with_deadline(
             });
         }
     };
-    if actual != WEIGHTS_SHA256 {
+    if actual != file.sha256 {
         let _ = std::fs::remove_file(&partial);
         return Err(EuphoriaError::ModelIntegrity {
             path: destination.to_path_buf(),
-            expected: WEIGHTS_SHA256,
+            expected: file.sha256,
             actual,
         });
     }
@@ -226,6 +280,28 @@ mod tests {
     }
 
     #[test]
+    fn the_advanced_graph_is_an_onnx_model_without_weights() {
+        assert!(
+            ADVANCED_GRAPH.len() < 8 * 1024 * 1024,
+            "{} bytes",
+            ADVANCED_GRAPH.len()
+        );
+        assert!(
+            ADVANCED_GRAPH
+                .windows(b"scnet-xl.weights".len())
+                .any(|window| window == b"scnet-xl.weights"),
+            "the weights are external initializers"
+        );
+    }
+
+    #[test]
+    fn the_advanced_graph_is_the_recorded_export() {
+        const ADVANCED_GRAPH_SHA256: &str =
+            "44989b3f92a8db183e2ab9ca29340c0d578963fa4f4ce203765c4eb582e5ad18";
+        assert_eq!(sha256_hex(ADVANCED_GRAPH), ADVANCED_GRAPH_SHA256);
+    }
+
+    #[test]
     fn hashes_are_written_in_lowercase_hex() {
         assert_eq!(
             sha256_hex(b"abc"),
@@ -255,7 +331,7 @@ mod tests {
                 .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\nabc")
                 .unwrap();
         });
-        let result = download_weights(&url, &destination, &|_, _| {});
+        let result = download_weights(&DEFAULT_WEIGHTS, &url, &destination, &|_, _| {});
         server.join().unwrap();
         let original_bytes = std::fs::read(&original).unwrap();
         let unowned_link_remains = std::fs::symlink_metadata(&partial)
@@ -296,6 +372,7 @@ mod tests {
             });
             let began = std::time::Instant::now();
             let result = download_weights_with_deadline(
+                &DEFAULT_WEIGHTS,
                 &url,
                 &destination,
                 &|_, _| {},
@@ -318,8 +395,13 @@ mod tests {
     fn an_unreachable_server_is_a_download_error_and_leaves_no_file() {
         let folder = std::env::temp_dir().join(format!("euphoria-weights-{}", std::process::id()));
         let destination = folder.join("weights.safetensors");
-        let error = download_weights("http://127.0.0.1:9/weights", &destination, &|_, _| {})
-            .expect_err("nothing listens on the discard port");
+        let error = download_weights(
+            &DEFAULT_WEIGHTS,
+            "http://127.0.0.1:9/weights",
+            &destination,
+            &|_, _| {},
+        )
+        .expect_err("nothing listens on the discard port");
         assert!(
             matches!(error, EuphoriaError::ModelDownload { .. }),
             "{error:?}"

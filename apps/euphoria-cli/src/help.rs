@@ -74,6 +74,10 @@ pub fn stems_examples() -> StyledStr {
                 "euphoria stems track.mp3 -o stems --force",
                 "The same, replacing earlier files",
             ),
+            (
+                "euphoria stems track.mp3 -o stems --mode advanced",
+                "Cleaner stems from the slower model",
+            ),
         ],
         "Stems are 16 bit stereo WAV files at 44.1 kHz. Separation is never perfect: \
          expect a little bleed between stems. See docs/concepts/stems.md.",

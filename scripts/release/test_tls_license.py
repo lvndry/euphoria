@@ -15,6 +15,7 @@ REPOSITORY = pathlib.Path(__file__).resolve().parents[2]
 LIBRARIES = (
     "webpki-root-certs-CDLA-Permissive-2.0",
     "demucs-NOTICE",
+    "scnet-NOTICE",
     "lame-LGPL-2.0",
     "mp3lame-LGPL-3.0",
 )

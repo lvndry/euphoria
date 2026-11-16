@@ -12,8 +12,8 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use clap::{Args, ValueEnum};
 use euphoria_core::stems::{
-    CachedSeparator, MixExport, Mixdown, SeparationObserver, SeparationStage, Stem, export_mix,
-    publish_stems,
+    CachedSeparator, MixExport, Mixdown, SeparationMode, SeparationObserver, SeparationStage, Stem,
+    export_mix, publish_stems,
 };
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 
@@ -39,6 +39,27 @@ pub struct StemsArguments {
     /// track, instead of the four stems.
     #[arg(long, value_enum, value_name = "MIX")]
     mix: Option<MixArgument>,
+    /// How the track is separated: `default` is faster, `advanced` separates
+    /// more cleanly but takes several times as long and more memory.
+    #[arg(long, value_enum, value_name = "MODE", default_value_t = ModeArgument::Default)]
+    mode: ModeArgument,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ModeArgument {
+    /// Faster.
+    Default,
+    /// Slower, with cleaner stems.
+    Advanced,
+}
+
+impl From<ModeArgument> for SeparationMode {
+    fn from(argument: ModeArgument) -> Self {
+        match argument {
+            ModeArgument::Default => SeparationMode::Default,
+            ModeArgument::Advanced => SeparationMode::Advanced,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -108,7 +129,7 @@ pub fn run(arguments: &StemsArguments) -> Result<ExitCode> {
         }
     }
 
-    let mut separator = CachedSeparator::open_default().map_err(with_causes)?;
+    let mut separator = CachedSeparator::open(arguments.mode.into()).map_err(with_causes)?;
     let progress = SeparationProgress::new(&arguments.file);
     let started = Instant::now();
     let separated = separator.stems(&arguments.file, &progress);

@@ -1050,7 +1050,7 @@ The command exits with status 0 when every track is written, and with status 1 w
 
 ## euphoria stems
 
-Separates a track into vocals, drums, bass and the rest, with the Demucs htdemucs model, and writes one WAV file per stem. The model, 84 MB, is downloaded the first time. Separation runs on this computer.
+Separates a track into vocals, drums, bass and the rest, with the Demucs htdemucs model, and writes one WAV file per stem. The model, 84 MB, is downloaded the first time. Separation runs on this computer. With `--mode advanced` a larger model separates the track, more cleanly and about seven times more slowly.
 
 ```
 euphoria stems [OPTIONS] -o <DIR> <FILE>
@@ -1072,10 +1072,13 @@ Vocals  /Users/you/Music/stems/vocals.wav
 | `-o`, `--output <DIR>` | The folder to write the stems to, created when missing. Required. |
 | `--force` | Replace stem files already in the folder. |
 | `--mix <MIX>` | Write one file instead of the four stems: `acapella` or `instrumental`, named after the track, into the folder. |
+| `--mode <MODE>` | `default`, the faster, or `advanced`, which separates more cleanly and takes about 114 seconds per minute of audio and about 4.5 GB of memory on a recent Mac. Defaults to `default`. |
 
 The stems are written as `vocals.wav`, `drums.wav`, `bass.wav` and `other.wav`, 16 bit stereo WAV files at 44.1 kHz. Each one is listed on standard output with its path, and standard error gets a note: how long the separation took, or that the stems came from the cache. Separated tracks are cached, so separating the same track again is instant.
 
 With `--mix acapella` or `--mix instrumental`, one file is written into the folder instead of the four stems: `<file name without extension> (Acapella).wav` or `<file name without extension> (Instrumental).wav`, the same 16 bit stereo WAV files at 44.1 kHz. The acapella is the vocals stem, and the instrumental is the drums, bass and other stems summed in 32 bit floating point; when the sum goes past full scale it is scaled down as a whole so its peak is exactly full scale, and standard error gets a note with the dB it was scaled down by. `--force` replaces the file when it already exists.
+
+The Advanced mode downloads its model, 214 MB, the first time. Stems it made are used whenever the same track is separated again in either mode; stems made by the default mode are not used by `--mode advanced`, which separates the track again.
 
 The command exits with status 0 when the stems are written. It exits with status 1 with a message on standard error when the file is not there, a stem file already exists in the folder without `--force`, an output would replace the input file, or the model download or the separation fails.
 
