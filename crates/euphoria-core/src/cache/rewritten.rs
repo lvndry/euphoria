@@ -181,7 +181,8 @@ impl Cache {
     }
 }
 
-/// Copies the correction and the edited cues of `from` to `to`, each unless
+/// Copies the correction, the edited cues and the saved loops of `from` to
+/// `to`, each unless
 /// `to` has its own, when a write or an undo turns one content into the
 /// other.
 fn carry_user_edits(
@@ -200,6 +201,11 @@ fn carry_user_edits(
     connection.execute(
         "INSERT OR IGNORE INTO edited_cues (content_hash, cues, edited_at)
          SELECT ?2, cues, edited_at FROM edited_cues WHERE content_hash = ?1",
+        params![from.as_bytes(), to.as_bytes()],
+    )?;
+    connection.execute(
+        "INSERT OR IGNORE INTO saved_loops (content_hash, loops, saved_at)
+         SELECT ?2, loops, saved_at FROM saved_loops WHERE content_hash = ?1",
         params![from.as_bytes(), to.as_bytes()],
     )?;
     Ok(())

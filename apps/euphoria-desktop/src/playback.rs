@@ -40,6 +40,21 @@ const READ_AHEAD_CHUNKS: usize = 48;
 /// full, or the track has been decoded to its end.
 const DECODER_PAUSE: Duration = Duration::from_millis(4);
 
+/// How long the end of a loop crossfades into its start, short enough to
+/// keep the beat where it is and long enough that the join never clicks.
+const LOOP_CROSSFADE_SECONDS: f64 = 0.005;
+
+/// How long the sound fades out before, and in after, a jump made while a
+/// loop is set or changed, so the jump never clicks.
+const DECLICK_SECONDS: f64 = 0.003;
+
+/// The shortest loop the player plays, in seconds.
+pub(crate) const SHORTEST_LOOP_SECONDS: f64 = 0.05;
+
+/// Most loop passes the decoder joins in one chunk, which only a loop far
+/// shorter than a chunk of the file ever needs.
+const MOST_WRAPS_PER_CHUNK: usize = 64;
+
 /// Why a track cannot be played, in words short enough for the player.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum PlaybackProblem {
@@ -88,6 +103,45 @@ struct SeekRequests {
     /// Where the window should show the position, until sound from there is
     /// playing.
     shown: Option<f32>,
+    /// Whether the latest seek fades the sound out and back in, for a jump
+    /// that keeps the music going, rather than cutting at once.
+    is_soft: bool,
+}
+
+/// A loop in frames of the track: from `start` up to, and not including,
+/// `end`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LoopFrames {
+    pub(crate) start: u64,
+    pub(crate) end: u64,
+}
+
+impl LoopFrames {
+    fn length(self) -> u64 {
+        self.end - self.start
+    }
+
+    /// `frame` brought into the loop, keeping its place in the bar: a frame
+    /// before the loop is left alone, one at or past its end is moved back
+    /// by whole passes.
+    fn folded(self, frame: u64) -> u64 {
+        if frame < self.end || self.length() == 0 {
+            return frame;
+        }
+        self.start + (frame - self.start) % self.length()
+    }
+}
+
+/// The loop the decoder plays and how far it has decoded, behind one lock
+/// so the window can change the loop knowing what was decoded under the
+/// old one.
+#[derive(Debug, Default)]
+struct LoopShared {
+    region: Option<LoopFrames>,
+    /// The frame of the track the decoder reads next.
+    decoded_input_frame: u64,
+    /// How many times the decoder has jumped back to a loop's start.
+    decoded_wraps: u64,
 }
 
 /// What the sound of one track is doing, shared between the decoder, the
@@ -114,6 +168,13 @@ pub(crate) struct VoiceState {
     tempo_mode: AtomicU8,
     /// The sound is held, so nothing follows its position.
     is_held: AtomicBool,
+    looping: Mutex<LoopShared>,
+    /// The loop's first and end frames, for the window to read without the
+    /// lock, `u64::MAX` without a loop.
+    loop_start_frame: AtomicU64,
+    loop_end_frame: AtomicU64,
+    /// The decoder's count of loop jumps as of the chunk being heard.
+    heard_wraps: AtomicU64,
 }
 
 impl VoiceState {
@@ -132,6 +193,10 @@ impl VoiceState {
             tempo_key_lock: AtomicBool::new(true),
             tempo_mode: AtomicU8::new(0),
             is_held: AtomicBool::new(false),
+            looping: Mutex::new(LoopShared::default()),
+            loop_start_frame: AtomicU64::new(u64::MAX),
+            loop_end_frame: AtomicU64::new(u64::MAX),
+            heard_wraps: AtomicU64::new(0),
         }
     }
 
@@ -218,7 +283,81 @@ impl VoiceState {
         if let Some(shown) = self.lock_seek_requests().shown {
             return shown;
         }
-        self.frames_played.load(Ordering::Relaxed) as f32 / self.sample_rate.get() as f32
+        self.heard_frame() as f32 / self.sample_rate.get() as f32
+    }
+
+    /// The frame heard now, brought back into the loop when the sound
+    /// handed out has just crossed its end.
+    fn heard_frame(&self) -> u64 {
+        let played = self.frames_played.load(Ordering::Relaxed);
+        match self.loop_frames() {
+            Some(region) => region.folded(played),
+            None => played,
+        }
+    }
+
+    fn loop_frames(&self) -> Option<LoopFrames> {
+        let start = self.loop_start_frame.load(Ordering::Relaxed);
+        let end = self.loop_end_frame.load(Ordering::Relaxed);
+        (start != u64::MAX && end != u64::MAX && end > start).then_some(LoopFrames { start, end })
+    }
+
+    /// The loop the sound plays, in seconds from the start of the track.
+    #[cfg(test)]
+    pub(crate) fn loop_seconds(&self) -> Option<(f64, f64)> {
+        let region = self.loop_frames()?;
+        let rate = f64::from(self.sample_rate.get());
+        Some((region.start as f64 / rate, region.end as f64 / rate))
+    }
+
+    /// Loops the sound between `region`, in seconds from the start of the
+    /// track, or stops looping with `None`, so it plays on past the end.
+    /// With `entry` the sound jumps there; otherwise it carries on from the
+    /// playhead. Every change takes effect seamlessly where nothing ahead
+    /// was decoded under the old loop; otherwise the sound fades for a few
+    /// milliseconds around the playhead and goes on under the new one.
+    pub(crate) fn set_loop(&self, region: Option<(f64, f64)>, entry: Option<f64>) {
+        let rate = f64::from(self.sample_rate.get());
+        let region = region
+            .filter(|(start, end)| {
+                start.is_finite()
+                    && end.is_finite()
+                    && *start >= 0.0
+                    && end - start >= SHORTEST_LOOP_SECONDS
+            })
+            .map(|(start, end)| LoopFrames {
+                start: (start * rate).round() as u64,
+                end: (end * rate).round() as u64,
+            });
+        let mut looping = self.lock_looping();
+        let heard = self.heard_frame();
+        let decoded_another_way = looping.decoded_wraps > self.heard_wraps.load(Ordering::Relaxed)
+            || region.is_some_and(|region| looping.decoded_input_frame > region.end);
+        looping.region = region;
+        let (start, end) = region.map_or((u64::MAX, u64::MAX), |region| (region.start, region.end));
+        self.loop_start_frame.store(start, Ordering::Relaxed);
+        self.loop_end_frame.store(end, Ordering::Relaxed);
+        drop(looping);
+        let target = match entry {
+            Some(seconds) => Some((seconds.max(0.0) * rate).round() as u64),
+            None if decoded_another_way => {
+                let ahead = heard + (DECLICK_SECONDS * rate).round() as u64;
+                Some(region.map_or(ahead, |region| region.folded(ahead)))
+            }
+            None => None,
+        };
+        if let Some(frame) = target {
+            let mut requests = self.lock_seek_requests();
+            let seconds = (frame as f64 / rate) as f32;
+            requests.for_decoder = Some(seconds);
+            requests.shown = Some(seconds);
+            requests.is_soft = true;
+            self.seek_count.fetch_add(1, Ordering::Release);
+        }
+    }
+
+    fn lock_looping(&self) -> MutexGuard<'_, LoopShared> {
+        self.looping.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Jumps to `seconds` from the beginning. What was decoded ahead is
@@ -229,6 +368,7 @@ impl VoiceState {
         let mut requests = self.lock_seek_requests();
         requests.for_decoder = Some(seconds);
         requests.shown = Some(seconds);
+        requests.is_soft = false;
         self.seek_count.fetch_add(1, Ordering::Release);
     }
 
@@ -270,6 +410,7 @@ impl VoiceState {
             .max(0.0);
         requests.for_decoder = Some(seconds);
         requests.shown = Some(seconds);
+        requests.is_soft = false;
         self.seek_count.fetch_add(1, Ordering::Release);
     }
 
@@ -399,6 +540,13 @@ impl Reader {
             Reader::Stems(stems) => stems.seek(seconds),
         }
     }
+
+    fn seek_frame(&mut self, frame: u64) -> Result<u64, EuphoriaError> {
+        match self {
+            Reader::File(stream) => stream.seek_frame(frame),
+            Reader::Stems(stems) => stems.seek_frame(frame),
+        }
+    }
 }
 
 /// The four stem files of a track, decoded in step. Each chunk holds, for
@@ -476,6 +624,19 @@ impl StemReader {
         self.is_at_end.fill(false);
         Ok(reached)
     }
+
+    fn seek_frame(&mut self, frame: u64) -> Result<u64, EuphoriaError> {
+        let mut reached = frame;
+        for (index, stream) in self.streams.iter_mut().enumerate() {
+            let landed = stream.seek_frame(frame)?;
+            if index == 0 {
+                reached = landed;
+            }
+        }
+        self.pending.iter_mut().for_each(VecDeque::clear);
+        self.is_at_end.fill(false);
+        Ok(reached)
+    }
 }
 
 /// What the decoder hands to the audio thread.
@@ -489,6 +650,9 @@ enum Decoded {
         /// Frames of the track played per frame of the chunk.
         rate: f64,
         samples: Vec<f32>,
+        /// How many times the decoder had jumped back to a loop's start by
+        /// the end of the chunk.
+        wraps: u64,
     },
     /// The track has no more audio after this point.
     End { seek_count: u64, end_frame: u64 },
@@ -508,6 +672,12 @@ struct Decoder {
     next_frame: f64,
     is_at_end: bool,
     shift: Shift,
+    /// The frame of the track the stream reads next.
+    input_frame: u64,
+    /// Loops whose end the decoded sound will cross, after which the
+    /// position the chunks carry moves back to the loop's start.
+    folds: VecDeque<LoopFrames>,
+    wraps: u64,
 }
 
 /// The pitch shifter of a playing track, rebuilt when the shift changes or
@@ -609,6 +779,21 @@ impl Shift {
     }
 }
 
+/// Fades the first `frames` frames of `incoming` in while `outgoing` fades
+/// out under them, so that their sum keeps the level of either.
+fn crossfade_into(incoming: &mut [f32], outgoing: &[f32], samples_per_frame: usize, frames: usize) {
+    for frame in 0..frames.min(incoming.len() / samples_per_frame) {
+        let progress = (frame as f32 + 0.5) / frames as f32;
+        let fade_in = (progress * std::f32::consts::FRAC_PI_2).sin().powi(2);
+        let first = frame * samples_per_frame;
+        let incoming_frame = &mut incoming[first..first + samples_per_frame];
+        for (offset, sample) in incoming_frame.iter_mut().enumerate() {
+            let leaving = outgoing.get(first + offset).copied().unwrap_or(0.0);
+            *sample = *sample * fade_in + leaving * (1.0 - fade_in);
+        }
+    }
+}
+
 /// The samples of each layer of `samples`, in which every frame holds
 /// `channels` samples of each of `layer_count` layers in turn.
 fn split_layers(samples: &[f32], channels: usize, layer_count: usize) -> Vec<Vec<f32>> {
@@ -670,9 +855,12 @@ impl Decoder {
         let Some(seconds) = request else {
             return true;
         };
-        match self.stream.seek(seconds) {
+        match self.stream.seek_frame(self.state.frames_at(seconds)) {
             Ok(reached) => {
-                self.next_frame = self.state.frames_at(reached) as f64;
+                self.next_frame = reached as f64;
+                self.input_frame = reached;
+                self.folds.clear();
+                self.state.lock_looping().decoded_input_frame = reached;
                 self.is_at_end = false;
                 if let Err(problem) = self.shift.rebuild() {
                     self.state.stop_on(problem);
@@ -692,9 +880,8 @@ impl Decoder {
 
     fn decode_next(&mut self) -> Decoded {
         loop {
-            let mut samples = Vec::new();
-            let samples = match self.stream.read_chunk(&mut samples) {
-                Ok(true) => match self.shift.apply(
+            let samples = match self.next_input() {
+                Ok(Some(samples)) => match self.shift.apply(
                     samples,
                     self.state.semitones.load(Ordering::Relaxed),
                     self.state.tempo(),
@@ -702,7 +889,7 @@ impl Decoder {
                     Ok(samples) => samples,
                     Err(problem) => return Decoded::Problem(problem),
                 },
-                Ok(false) => {
+                Ok(None) => {
                     let tail = match self.shift.finish() {
                         Ok(tail) => tail,
                         Err(problem) => return Decoded::Problem(problem),
@@ -729,13 +916,84 @@ impl Decoder {
             let rate = self.shift.tempo.rate();
             self.state.note_tempo_mode(self.shift.tempo.mode());
             self.next_frame += (samples.len() / samples_per_frame) as f64 * rate;
+            while let Some(fold) = self.folds.front().copied() {
+                if self.next_frame < fold.end as f64 {
+                    break;
+                }
+                self.next_frame -= fold.length() as f64;
+                self.folds.pop_front();
+            }
             return Decoded::Chunk {
                 seek_count: self.seek_count,
                 start_frame,
                 rate,
                 samples,
+                wraps: self.wraps,
             };
         }
+    }
+
+    fn samples_per_frame(&self) -> usize {
+        usize::from(self.stream.channel_count().get()) * self.stream.layer_count()
+    }
+
+    /// Reads the next chunk of the track as the sound should play it: where
+    /// the chunk crosses the end of the loop, what follows the end is
+    /// crossfaded into the loop's start, read from there exactly. `None` at
+    /// the end of the track, outside a loop.
+    fn next_input(&mut self) -> Result<Option<Vec<f32>>, EuphoriaError> {
+        let samples_per_frame = self.samples_per_frame();
+        let crossfade_frames =
+            (LOOP_CROSSFADE_SECONDS * f64::from(self.state.sample_rate())).round() as usize;
+        let mut looping = self.state.lock_looping();
+        let mut segment = Vec::new();
+        let mut has_more = self.stream.read_chunk(&mut segment)?;
+        let mut segment_start = self.input_frame;
+        let mut output = Vec::new();
+        for _ in 0..MOST_WRAPS_PER_CHUNK {
+            let segment_end = segment_start + (segment.len() / samples_per_frame) as u64;
+            let crosses_end = looping.region.filter(|region| {
+                segment_start <= region.end
+                    && segment_end > region.start
+                    && (segment_end > region.end || !has_more)
+            });
+            let Some(region) = crosses_end else {
+                self.input_frame = segment_end;
+                output.append(&mut segment);
+                break;
+            };
+            let kept_frames = (region.end.min(segment_end) - segment_start) as usize;
+            let mut outgoing = segment.split_off(kept_frames * samples_per_frame);
+            output.append(&mut segment);
+            let mut more = Vec::new();
+            while has_more && outgoing.len() < crossfade_frames * samples_per_frame {
+                has_more = self.stream.read_chunk(&mut more)?;
+                outgoing.append(&mut more);
+            }
+            outgoing.truncate(crossfade_frames * samples_per_frame);
+            let reached = self.stream.seek_frame(region.start)?;
+            let mut head = Vec::new();
+            has_more = true;
+            while has_more && head.len() < crossfade_frames * samples_per_frame {
+                has_more = self.stream.read_chunk(&mut more)?;
+                head.append(&mut more);
+            }
+            if head.is_empty() {
+                self.input_frame = reached;
+                break;
+            }
+            crossfade_into(&mut head, &outgoing, samples_per_frame, crossfade_frames);
+            self.wraps += 1;
+            self.folds.push_back(region);
+            segment = head;
+            segment_start = reached;
+        }
+        looping.decoded_input_frame = self.input_frame;
+        looping.decoded_wraps = self.wraps;
+        if output.is_empty() && !has_more {
+            return Ok(None);
+        }
+        Ok(Some(output))
     }
 
     /// Waits for room in the read ahead and puts `message` there. Gives the
@@ -800,6 +1058,29 @@ pub(crate) struct TrackSource {
     /// Whether to wait for the decoder rather than play silence, for tests
     /// that pull samples far faster than real time.
     is_patient: bool,
+    declick: Declick,
+    /// Frames a declick fades over.
+    declick_frames: usize,
+    /// The gain of the frame being handed out.
+    frame_gain: f32,
+}
+
+/// Where the sound is in fading around a soft seek.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Declick {
+    Steady,
+    /// The sound from before the seek fades out over these last frames.
+    FadingOut {
+        frames_left: usize,
+    },
+    /// The sound from after the seek has faded in this far.
+    FadingIn {
+        frames_done: usize,
+    },
+}
+
+fn declick_frames(sample_rate: NonZeroU32) -> usize {
+    ((DECLICK_SECONDS * f64::from(sample_rate.get())).round() as usize).max(1)
 }
 
 impl TrackSource {
@@ -875,9 +1156,12 @@ impl TrackSource {
         // Decode enough preroll here for the first shifted sound to be
         // ready before the audio callback asks. This runs off the UI thread.
         let mut first_chunk;
+        let samples_per_input_frame = usize::from(channel_count.get()) * layer_count;
+        let mut input_frame = start_frame;
         let has_audio = loop {
             let mut input = Vec::new();
             let has_audio = stream.read_chunk(&mut input).map_err(problem)?;
+            input_frame += (input.len() / samples_per_input_frame) as u64;
             first_chunk = if has_audio {
                 shift.apply(input, semitones, PlaybackTempo::default())?
             } else {
@@ -914,7 +1198,11 @@ impl TrackSource {
             chunk_start_frame: start_frame,
             chunk_rate: 1.0,
             is_patient: false,
+            declick: Declick::Steady,
+            declick_frames: declick_frames(stream.sample_rate()),
+            frame_gain: 1.0,
         };
+        state.lock_looping().decoded_input_frame = input_frame;
         let decoder = Decoder {
             stream,
             state,
@@ -923,6 +1211,9 @@ impl TrackSource {
             next_frame: (start_frame + frames_in_first_chunk) as f64,
             is_at_end: !has_audio,
             shift,
+            input_frame,
+            folds: VecDeque::new(),
+            wraps: 0,
         };
         std::thread::Builder::new()
             .name("euphoria-playback-decoder".to_string())
@@ -980,7 +1271,9 @@ impl TrackSource {
                     start_frame,
                     rate,
                     samples,
+                    wraps,
                 }) => {
+                    self.state.heard_wraps.store(wraps, Ordering::Relaxed);
                     self.chunk_rate = rate;
                     self.chunk = samples;
                     self.chunk_seek_count = seek_count;
@@ -1061,6 +1354,29 @@ impl TrackSource {
     }
 }
 
+impl TrackSource {
+    /// The gain of the next frame, a step further through any declick.
+    fn next_declick_gain(&mut self) -> f32 {
+        let length = self.declick_frames as f32;
+        match &mut self.declick {
+            Declick::Steady => 1.0,
+            Declick::FadingOut { frames_left } => {
+                let gain = *frames_left as f32 / length;
+                *frames_left = frames_left.saturating_sub(1);
+                gain
+            }
+            Declick::FadingIn { frames_done } => {
+                *frames_done += 1;
+                let gain = *frames_done as f32 / length;
+                if *frames_done >= self.declick_frames {
+                    self.declick = Declick::Steady;
+                }
+                gain
+            }
+        }
+    }
+}
+
 impl Iterator for TrackSource {
     type Item = f32;
 
@@ -1070,9 +1386,29 @@ impl Iterator for TrackSource {
             return Some(0.0);
         }
         let latest_seek_count = self.state.seek_count.load(Ordering::Acquire);
+        let channel_count = usize::from(self.channel_count.get());
+        let seek_is_waiting = self.chunk_seek_count != latest_seek_count;
+        if seek_is_waiting
+            && self.declick == Declick::Steady
+            && self.next_sample.is_multiple_of(channel_count)
+            && self.state.lock_seek_requests().is_soft
+        {
+            self.declick = if self.next_sample < self.chunk_samples() {
+                Declick::FadingOut {
+                    frames_left: self.declick_frames,
+                }
+            } else {
+                Declick::FadingIn { frames_done: 0 }
+            };
+        }
+        let is_fading_out =
+            matches!(self.declick, Declick::FadingOut { frames_left } if frames_left > 0);
         let needs_chunk =
-            self.next_sample >= self.chunk_samples() || self.chunk_seek_count != latest_seek_count;
+            self.next_sample >= self.chunk_samples() || (seek_is_waiting && !is_fading_out);
         if needs_chunk {
+            if matches!(self.declick, Declick::FadingOut { .. }) {
+                self.declick = Declick::FadingIn { frames_done: 0 };
+            }
             if self.state.is_finished() {
                 return None;
             }
@@ -1095,7 +1431,10 @@ impl Iterator for TrackSource {
                 }
             }
         }
-        let sample = self.mixed_sample();
+        if self.next_sample.is_multiple_of(channel_count) {
+            self.frame_gain = self.next_declick_gain();
+        }
+        let sample = self.mixed_sample() * self.frame_gain;
         self.next_sample += 1;
         if self
             .next_sample
@@ -1569,6 +1908,7 @@ pub(crate) mod testing {
                     start_frame,
                     rate: 1.0,
                     samples,
+                    wraps: 0,
                 })
                 .expect("the controlled source is still alive");
         }
@@ -1601,11 +1941,16 @@ pub(crate) mod testing {
             chunk_start_frame: start_frame,
             chunk_rate: 1.0,
             is_patient: false,
+            declick: Declick::Steady,
+            declick_frames: declick_frames(sample_rate),
+            frame_gain: 1.0,
         };
         (source, ControlledFeed(sender))
     }
 }
 
+#[cfg(test)]
+mod loop_tests;
 #[cfg(test)]
 mod stem_tests;
 #[cfg(test)]

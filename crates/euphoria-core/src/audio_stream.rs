@@ -176,17 +176,44 @@ impl AudioStream {
     /// returned for such a seek is the one asked for.
     pub fn seek(&mut self, seconds: f32) -> Result<f32, EuphoriaError> {
         let seconds = seconds.max(0.0);
+        match self.seek_to_time(f64::from(seconds))? {
+            SeekOutcome::Finished(reached) => Ok(reached as f32),
+            SeekOutcome::Landed(Landing::Before(_)) => Ok(seconds),
+            SeekOutcome::Landed(Landing::After(units)) => {
+                let overshoot = self.frames_in(units) as f32 / self.sample_rate.get() as f32;
+                Ok(seconds + overshoot)
+            }
+        }
+    }
+
+    /// Moves to `frame`, counted in frames of the track from its start, so
+    /// that the next chunk read begins exactly there. Returns the frame
+    /// reached, which is `frame` unless the file cannot be read from that
+    /// far in. A frame at or past the declared end leaves the stream at its
+    /// end, as [`AudioStream::seek`] does.
+    pub fn seek_frame(&mut self, frame: u64) -> Result<u64, EuphoriaError> {
+        let rate = f64::from(self.sample_rate.get());
+        // Half a frame in, so that rounding the time to nanoseconds and back
+        // to the time base never lands on the frame before.
+        match self.seek_to_time((frame as f64 + 0.5) / rate)? {
+            SeekOutcome::Finished(reached) => Ok((reached * rate).round() as u64),
+            SeekOutcome::Landed(Landing::Before(_)) => Ok(frame),
+            SeekOutcome::Landed(Landing::After(units)) => Ok(frame + self.frames_in(units)),
+        }
+    }
+
+    fn seek_to_time(&mut self, seconds: f64) -> Result<SeekOutcome, EuphoriaError> {
         self.first_chunk = None;
         self.frames_to_skip = 0;
         if let Some(duration) = self.duration_seconds
-            && seconds >= duration
+            && seconds >= f64::from(duration)
         {
             self.is_finished = true;
-            return Ok(duration);
+            return Ok(SeekOutcome::Finished(f64::from(duration)));
         }
-        let Some(time) = Time::try_from_secs_f64(f64::from(seconds)) else {
+        let Some(time) = Time::try_from_secs_f64(seconds) else {
             self.is_finished = true;
-            return Ok(seconds);
+            return Ok(SeekOutcome::Finished(seconds));
         };
         if self.is_finished {
             // Some demuxers cannot seek once they have read to the end, so a
@@ -213,12 +240,9 @@ impl AudioStream {
         match landing(seeked.required_ts.get(), seeked.actual_ts.get()) {
             Some(Landing::Before(units)) => {
                 self.frames_to_skip = self.frames_in(units);
-                Ok(seconds)
+                Ok(SeekOutcome::Landed(Landing::Before(units)))
             }
-            Some(Landing::After(units)) => {
-                let overshoot = self.frames_in(units) as f32 / self.sample_rate.get() as f32;
-                Ok(seconds + overshoot)
-            }
+            Some(after) => Ok(SeekOutcome::Landed(after)),
             None => Err(EuphoriaError::Decode {
                 path: self.path.clone(),
                 failure: DecodeFailure::Malformed,
@@ -241,6 +265,14 @@ impl AudioStream {
             .as_secs_f64();
         (seconds * f64::from(self.sample_rate.get())).round() as u64
     }
+}
+
+/// What a seek did.
+enum SeekOutcome {
+    /// The stream is at its end, which is at this many seconds.
+    Finished(f64),
+    /// The demuxer moved, to where the landing says.
+    Landed(Landing),
 }
 
 /// Where a seek put the demuxer relative to the timestamp that was wanted,
@@ -451,6 +483,26 @@ mod tests {
                 remaining.abs_diff(expected) <= 64,
                 "{name}: {remaining} samples left, expected about {expected}"
             );
+        }
+    }
+
+    #[test]
+    fn seeking_to_a_frame_resumes_on_exactly_that_frame() {
+        for name in [
+            "sine-440hz-mono.wav",
+            "sine-440hz-mono.flac",
+            "sine-440hz-stereo.wav",
+        ] {
+            let path = fixture(name);
+            let mut stream = AudioStream::open(&path).unwrap();
+            let channel_count = usize::from(stream.channel_count().get());
+            let everything = read_everything(&mut stream);
+            for frame in [0_u64, 1, 4_095, 4_096, 11_025, 22_050, 30_001] {
+                assert_eq!(stream.seek_frame(frame).unwrap(), frame, "{name}");
+                let rest = read_everything(&mut stream);
+                let first = frame as usize * channel_count;
+                assert_eq!(rest, everything[first..], "{name} at frame {frame}");
+            }
         }
     }
 

@@ -92,6 +92,8 @@ pub mod tempo_range;
 pub mod track_cues;
 /// Filtering tracks by tempo, energy and sound quality.
 pub mod track_filter;
+/// Loops a user saved on a track.
+pub mod track_loops;
 /// Reading the title, artist and key stored in audio files.
 pub mod track_name;
 
@@ -164,4 +166,5 @@ pub use tag_key::{KeyDifference, TagKey, TagKeyAgreement};
 pub use tempo_range::TempoRange;
 pub use track_cues::{Cue, CueOrigin, HotCue, TrackCues, check_cues};
 pub use track_filter::{FilterableTrack, QualityChoice, TrackFilters, TypedTrackFilters};
+pub use track_loops::{MAXIMUM_SAVED_LOOPS, SavedLoop, check_loops, loops_within};
 pub use track_name::{TrackName, read_track_name};

@@ -41,6 +41,9 @@ mod first_run;
 #[cfg(test)]
 mod first_run_ui_tests;
 mod focus;
+mod focus_loops;
+#[cfg(test)]
+mod focus_loops_ui_tests;
 #[cfg(test)]
 mod focus_ui_tests;
 mod folder_tree;
@@ -203,13 +206,14 @@ use gpui::{
 };
 
 use crate::actions::{
-    AddCueAtPlayhead, AddFolder, AddToSet, AnalyzeAgain, BuildSet, CloseFocusView, EditTags,
-    ExportLibrary, FocusSearch, OpenCommandPalette, OpenEuphoria, OpenFocusView, OpenLive,
-    OpenSetBuilder, OpenSettings, PlanTransition, PlayNextRow, PlayPaletteTrack, Quit,
-    RescanFolders, ResetColumnWidths, RevealTrack, SelectAllTracks, SeparateStems, StopAnalysis,
-    ToggleDecks, ToggleFavorite, ToggleLiveKeepRunning, ToggleLiveListening, ToggleLiveOpenAtLogin,
-    ToggleMetronome, TogglePlayback, ToggleSidebar, UndoCueEdit, UndoTagWrite, UseDeckTheme,
-    UseGraphiteTheme, UsePaperTheme, UseSlateTheme, WriteTags,
+    AddCueAtPlayhead, AddFolder, AddToSet, AnalyzeAgain, BuildSet, CloseFocusView, DoubleLoop,
+    EditTags, ExportLibrary, FocusSearch, HalveLoop, OpenCommandPalette, OpenEuphoria,
+    OpenFocusView, OpenLive, OpenSetBuilder, OpenSettings, PlanTransition, PlayNextRow,
+    PlayPaletteTrack, Quit, RescanFolders, ResetColumnWidths, RevealTrack, SelectAllTracks,
+    SeparateStems, StopAnalysis, ToggleDecks, ToggleFavorite, ToggleLiveKeepRunning,
+    ToggleLiveListening, ToggleLiveOpenAtLogin, ToggleLoop, ToggleMetronome, TogglePlayback,
+    ToggleSidebar, UndoCueEdit, UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UsePaperTheme,
+    UseSlateTheme, WriteTags,
 };
 use crate::app::EuphoriaApp;
 use crate::playback::SystemOutput;
@@ -229,6 +233,9 @@ const NOT_IN_PALETTE_CONTEXT: &str = "!CommandPalette";
 /// Where the space bar belongs to the player: anywhere in the window but a
 /// text field.
 pub(crate) const SPACE_BAR_CONTEXT: &str = "Library && !Input";
+
+/// Where the loop keys work: the focus view, outside a text field.
+pub(crate) const FOCUS_KEYS_CONTEXT: &str = "FocusView && !Input";
 
 /// Opens the analysis cache the command line tool also uses and reads what
 /// it holds.
@@ -449,6 +456,15 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         KeyBinding::new("s", ToggleFavorite, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("a", AddToSet, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("m", ToggleMetronome, Some(SPACE_BAR_CONTEXT)),
+        KeyBinding::new("l", ToggleLoop, Some(FOCUS_KEYS_CONTEXT)),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-left", HalveLoop, Some(FOCUS_KEYS_CONTEXT)),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-right", DoubleLoop, Some(FOCUS_KEYS_CONTEXT)),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-left", HalveLoop, Some(FOCUS_KEYS_CONTEXT)),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-right", DoubleLoop, Some(FOCUS_KEYS_CONTEXT)),
         // F stars, so Enter opens the focus view.
         KeyBinding::new("enter", OpenFocusView, Some(SPACE_BAR_CONTEXT)),
         // In the list of tracks to play next, Enter plays the one selected.
@@ -510,6 +526,9 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
     register_view_command::<OpenSettings>(view, cx, |view, cx| view.open_settings(cx));
     register_view_command::<SelectAllTracks>(view, cx, |view, cx| view.select_all_shown(cx));
     register_view_command::<AddCueAtPlayhead>(view, cx, |view, cx| view.add_cue_at_playhead(cx));
+    register_view_command::<ToggleLoop>(view, cx, |view, cx| view.toggle_key_loop(cx));
+    register_view_command::<HalveLoop>(view, cx, |view, cx| view.resize_loop(0.5, cx));
+    register_view_command::<DoubleLoop>(view, cx, |view, cx| view.resize_loop(2.0, cx));
     register_view_command::<UndoCueEdit>(view, cx, |view, cx| view.undo_latest(cx));
     register_view_command::<ToggleMetronome>(view, cx, |view, cx| view.toggle_metronome(cx));
     register_view_command::<ToggleFavorite>(view, cx, |view, cx| {

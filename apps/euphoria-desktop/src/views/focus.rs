@@ -103,7 +103,7 @@ pub(crate) fn render(
     let Some(track) = app.selected_track() else {
         return page.test_support().into_any_element();
     };
-    page.child(top_bar(app, cx))
+    page.child(top_bar(track, app, cx))
         .child(header(track, app, cx))
         .child(timeline(track, app, cx))
         .child(bottom(track, app, cx))
@@ -111,9 +111,10 @@ pub(crate) fn render(
         .into_any_element()
 }
 
-fn top_bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
+fn top_bar(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let palette = app.theme.palette;
     let hover_background = palette.line;
+    let loop_bar = crate::views::loops::loop_bar(track, app, cx);
     let back = div()
         .id("focus-back")
         .flex()
@@ -252,6 +253,8 @@ fn top_bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
         .items_center()
         .gap(GAP_SMALL)
         .child(back)
+        .child(div().w(GAP_MEDIUM))
+        .child(loop_bar)
         .child(div().flex_1())
         .child(zoom_button("focus-zoom-out", "\u{2212}", 2.0))
         .child(zoom_button("focus-zoom-in", "+", 0.5))
@@ -542,6 +545,7 @@ fn timeline(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>)
                 app.focus.overview_bounds.clone(),
                 px(OVERVIEW_HEIGHT),
             ))
+            .children(crate::views::loops::overview_tint(app, duration))
             .children(outline)
             .on_mouse_down(
                 MouseButton::Left,
@@ -660,11 +664,14 @@ fn timeline(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>)
                 app.focus.axis_bounds.clone(),
                 px(DETAIL_HEIGHT),
             ))
+            .children(crate::views::loops::detail_overlay(app, &viewport, cx))
             .children(flags)
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, event: &MouseDownEvent, _, cx| {
-                    if event.click_count == 2 {
+                    if event.modifiers.secondary(cx) {
+                        this.start_drawing_loop(event.position.x);
+                    } else if event.click_count == 2 {
                         this.add_cue_at_pointer(event.position.x, event.modifiers, cx);
                     } else {
                         this.seek_in_detail(event.position.x, cx);
@@ -1479,7 +1486,16 @@ fn plan(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> 
                         .test_support(),
                 ),
             ).into_any_element(),
-        PlanTab::Cues => cues::section(track, app, Some(px(BOTTOM_HEIGHT - 110.0)), cx).into_any_element(),
+        PlanTab::Cues => div()
+            .id("focus-cues-and-loops")
+            .flex()
+            .flex_col()
+            .gap(GAP_MEDIUM)
+            .max_h(px(BOTTOM_HEIGHT - 110.0))
+            .overflow_y_scroll()
+            .children(crate::views::loops::saved_loops(track, app, cx))
+            .child(cues::section(track, app, None, cx))
+            .into_any_element(),
     };
     let can_open_planner =
         app.focus.plan_tab == PlanTab::Transition && app.focus.selected_match.is_some();

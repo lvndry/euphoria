@@ -141,6 +141,7 @@ pub(crate) fn find_changes(
     found.cached.retain(|file, _| kept.contains(file));
     found.corrections.retain(|file, _| kept.contains(file));
     found.edited_cues.retain(|file, _| kept.contains(file));
+    found.saved_loops.retain(|file, _| kept.contains(file));
 
     let changed = cache
         .map(|cache| {

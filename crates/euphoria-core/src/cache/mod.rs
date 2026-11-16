@@ -59,6 +59,7 @@ mod fingerprints;
 mod identity;
 pub(crate) mod location;
 mod rewritten;
+mod saved_loops;
 mod single;
 
 use std::collections::HashMap;
@@ -89,7 +90,7 @@ use identity::FileStamp;
 /// One entry per schema version, each bringing a database from the version
 /// before it. `PRAGMA user_version` holds how many have been applied, so a
 /// schema change is a new entry at the end and never an edit to an old one.
-const MIGRATIONS: [&str; 16] = [
+const MIGRATIONS: [&str; 17] = [
     "
     CREATE TABLE analyses (
         content_hash     BLOB    NOT NULL PRIMARY KEY,
@@ -171,6 +172,13 @@ const MIGRATIONS: [&str; 16] = [
 ",
     "
     ALTER TABLE analyses ADD COLUMN cue_energies TEXT;
+",
+    "
+    CREATE TABLE saved_loops (
+        content_hash BLOB    NOT NULL PRIMARY KEY,
+        loops        TEXT    NOT NULL,
+        saved_at     INTEGER NOT NULL
+    ) WITHOUT ROWID;
 ",
 ];
 
@@ -1552,7 +1560,7 @@ mod tests {
         let cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 16);
+        assert_eq!(SCHEMA_VERSION, 17);
         let snapshot = cache.snapshot().unwrap();
         assert_eq!(
             snapshot.analyses.len(),
@@ -1663,7 +1671,7 @@ mod tests {
         let mut cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 16);
+        assert_eq!(SCHEMA_VERSION, 17);
         assert_ne!(ANALYZER_VERSION, version_7_analyzer);
         assert!(
             cache.snapshot().unwrap().analyses.is_empty(),
@@ -1717,7 +1725,7 @@ mod tests {
         let mut cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 16);
+        assert_eq!(SCHEMA_VERSION, 17);
         let snapshot = cache.snapshot().unwrap();
         assert_eq!(
             snapshot.analyses.len(),

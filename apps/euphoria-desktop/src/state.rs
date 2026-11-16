@@ -35,6 +35,8 @@ pub(crate) struct Scan {
     pub(crate) corrections: HashMap<PathBuf, euphoria_core::Correction>,
     /// The cues the user set for those files.
     pub(crate) edited_cues: HashMap<PathBuf, Vec<euphoria_core::Cue>>,
+    /// The loops the user saved for those files.
+    pub(crate) saved_loops: HashMap<PathBuf, Vec<euphoria_core::SavedLoop>>,
     /// One message for each path that could not be read.
     pub(crate) problems: Vec<String>,
     /// The paths that are no longer there, such as a folder on a drive that
@@ -99,6 +101,17 @@ pub(crate) fn scan_counting(
                     ));
                     return false;
                 }
+            }
+            match cache.saved_loops_for(file) {
+                Ok(loops) if !loops.is_empty() => {
+                    scan.saved_loops.insert(file.clone(), loops);
+                }
+                Ok(_) => {}
+                Err(error) => scan.problems.push(format!(
+                    "cannot read saved loops for {}: {}",
+                    file.display(),
+                    error.chain()
+                )),
             }
             if let Some(analysis) = cache.stored_analysis(file) {
                 scan.cached.insert(file.clone(), analysis);
@@ -643,6 +656,9 @@ impl Session {
             if let Some(cues) = scan.edited_cues.remove(&file) {
                 self.library.set_edited_cues(&file, Some(cues));
             }
+            if let Some(loops) = scan.saved_loops.remove(&file) {
+                self.library.set_saved_loops(&file, loops);
+            }
         }
         let queued = files_to_analyze.len();
         self.progress.enqueue(queued);
@@ -705,6 +721,13 @@ impl Session {
     /// thread.
     pub(crate) fn set_edited_cues(&mut self, path: &Path, cues: Option<Vec<euphoria_core::Cue>>) {
         self.library.set_edited_cues(path, cues);
+    }
+
+    /// Sets the loops the user saved for the track at `path`, in the
+    /// library at once. Keeping them in the cache is
+    /// [`CachedAnalyzer::set_saved_loops`], off the main thread.
+    pub(crate) fn set_saved_loops(&mut self, path: &Path, loops: Vec<euphoria_core::SavedLoop>) {
+        self.library.set_saved_loops(path, loops);
     }
 
     /// Shows every tempo in `range`, without analyzing anything again.
@@ -1206,6 +1229,37 @@ mod tests {
         let reopened = session.library().tracks()[0].cues();
         assert!(reopened.is_edited());
         assert_eq!(reopened.cues, cues);
+    }
+
+    #[test]
+    fn loops_kept_in_the_cache_come_back_on_the_next_launch() {
+        let folder = TemporaryFolder::new("saved-loops");
+        let track = folder.0.join("track.wav");
+        std::fs::copy(fixtures_folder().join("sine-440hz-mono.wav"), &track).unwrap();
+        let loops = vec![euphoria_core::SavedLoop {
+            start_seconds: 0.25,
+            end_seconds: 0.75,
+            name: "Loop 1".to_string(),
+        }];
+        {
+            let cache = folder.open_cache();
+            let mut session = Session::start(Some(cache.clone())).unwrap();
+            session.add(scan(std::slice::from_ref(&folder.0), Some(&cache)));
+            wait_until_idle(&mut session);
+            cache.set_saved_loops(&track, &loops).unwrap();
+        }
+
+        let cache = folder.open_cache();
+        let found = scan(std::slice::from_ref(&folder.0), Some(&cache));
+        assert_eq!(found.saved_loops.get(&track), Some(&loops));
+        let mut session = Session::start(Some(cache)).unwrap();
+        session.add(found);
+        let reopened = &session.library().tracks()[0];
+        assert_eq!(reopened.saved_loops, loops);
+        assert!(
+            !reopened.cues().is_edited(),
+            "saving a loop keeps the automatic cues"
+        );
     }
 
     #[test]

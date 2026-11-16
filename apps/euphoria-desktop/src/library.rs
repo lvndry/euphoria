@@ -11,8 +11,9 @@ use std::path::{Path, PathBuf};
 
 use euphoria_core::quality::{QualityReport, QualityVerdict};
 use euphoria_core::{
-    BeatGrid, Correction, Cue, Key, KeyDifference, LibraryDistribution, SetStage, StageFeatures,
-    TagKey, TagKeyAgreement, TempoRange, TrackAnalysis, TrackCues, TrackName, stage_of,
+    BeatGrid, Correction, Cue, Key, KeyDifference, LibraryDistribution, SavedLoop, SetStage,
+    StageFeatures, TagKey, TagKeyAgreement, TempoRange, TrackAnalysis, TrackCues, TrackName,
+    stage_of,
 };
 
 use crate::camelot::CamelotPosition;
@@ -93,6 +94,8 @@ pub(crate) struct Track {
     /// The cues the user set, which replace those analysis placed, even
     /// when empty. `None` keeps the automatic cues.
     pub(crate) edited_cues: Option<Vec<Cue>>,
+    /// The loops the user saved, in order of their start.
+    pub(crate) saved_loops: Vec<SavedLoop>,
 
     /// The beat grid as analysis fitted it, the source every tempo range is
     /// applied to. Projecting from the stored grid each time, instead of the
@@ -142,6 +145,7 @@ impl Track {
             status: TrackStatus::Queued,
             correction: Correction::default(),
             edited_cues: None,
+            saved_loops: Vec::new(),
             canonical_beat_grid: None,
             tempo_range,
         }
@@ -700,6 +704,7 @@ impl Library {
         relinked.status = TrackStatus::Missing;
         relinked.correction = self.tracks[index].correction;
         relinked.edited_cues = self.tracks[index].edited_cues.take();
+        relinked.saved_loops = std::mem::take(&mut self.tracks[index].saved_loops);
         self.tracks[index] = relinked;
         self.index_by_path.remove(old);
         self.index_by_path.insert(new, index);
@@ -845,6 +850,21 @@ impl Library {
             return false;
         };
         track.edited_cues = cues.map(|cues| TrackCues::edited(cues).cues);
+        self.revision += 1;
+        true
+    }
+
+    /// Sets the loops the user saved for the track at `path`. Returns false
+    /// when the file is not in the library.
+    pub(crate) fn set_saved_loops(&mut self, path: &Path, loops: Vec<SavedLoop>) -> bool {
+        let Some(track) = self
+            .index_by_path
+            .get(path)
+            .and_then(|index| self.tracks.get_mut(*index))
+        else {
+            return false;
+        };
+        track.saved_loops = euphoria_core::track_loops::sorted_loops(loops);
         self.revision += 1;
         true
     }
