@@ -66,6 +66,19 @@ impl StemFiles {
         &self.directory
     }
 
+    /// The mode that made these stems, told from the name of their folder,
+    /// `<model>-<64 hex digits>`. `None` for a folder named otherwise.
+    pub fn mode(&self) -> Option<SeparationMode> {
+        let name = self.directory.file_name()?.to_str()?;
+        SeparationMode::BEST_FIRST.into_iter().find(|mode| {
+            name.strip_prefix(mode.model_id())
+                .and_then(|rest| rest.strip_prefix('-'))
+                .is_some_and(|hex| {
+                    hex.len() == 64 && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
+                })
+        })
+    }
+
     /// Deletes the four files and their folder, so the track has to be
     /// separated again. Stems already gone count as removed.
     pub fn remove(&self) -> Result<(), EuphoriaError> {
@@ -515,6 +528,25 @@ mod tests {
             SeparationMode::Default.model_id(),
             "01".repeat(32)
         )));
+    }
+
+    #[test]
+    fn stems_tell_which_mode_made_them_from_their_folder() {
+        let folder = TemporaryFolder::new("mode-of-files");
+        let cache = StemCache::new(folder.0.clone(), DEFAULT_STEM_CACHE_LIMIT_BYTES);
+        for mode in SeparationMode::BEST_FIRST {
+            let stored = store_for(&cache, mode, 3, 10);
+            assert_eq!(stored.mode(), Some(mode));
+        }
+        let hex = "ab".repeat(32);
+        let named = |name: String| StemFiles::in_directory(PathBuf::from("/stems").join(name));
+        assert_eq!(named("track".to_string()).mode(), None);
+        assert_eq!(
+            named(format!("{}-short", SeparationMode::Default.model_id())).mode(),
+            None
+        );
+        assert_eq!(named(format!("other-{hex}")).mode(), None);
+        assert_eq!(StemFiles::in_directory(PathBuf::from("/")).mode(), None);
     }
 
     fn store_for(cache: &StemCache, mode: SeparationMode, byte: u8, frames: usize) -> StemFiles {
