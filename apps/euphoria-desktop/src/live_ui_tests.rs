@@ -798,6 +798,205 @@ fn the_next_heading_says_what_the_list_follows(cx: &mut TestAppContext) {
     });
 }
 
+/// Draws the frames a change asks for, reusing what was cached as the app
+/// does, where a test's `render_frame` draws everything again.
+fn draw_frames(window: AnyWindowHandle, cx: &mut TestAppContext) {
+    for _ in 0..4 {
+        cx.run_until_parked();
+        cx.update_window(window, |_, window, cx| window.draw(cx).clear(cx))
+            .unwrap();
+    }
+}
+
+fn with_level(model: &LiveModel, rms_db: f32) -> euphoria_core::live::LiveReading {
+    let mut reading = model.reading;
+    reading.level = Some(euphoria_core::live::LevelReading {
+        rms_db,
+        peak_db: rms_db + 6.0,
+    });
+    reading.heard_seconds += 0.1;
+    reading
+}
+
+fn list_renders(view: &Entity<LiveView>, cx: &mut TestAppContext) -> usize {
+    cx.update(|cx| view.read(cx).list.read(cx).renders)
+}
+
+#[gpui::test]
+fn a_change_of_the_level_alone_moves_the_dot_and_leaves_the_next_list_alone(
+    cx: &mut TestAppContext,
+) {
+    let mut setup = Setup::music();
+    setup.many_tracks = true;
+    let (model, _) = model(setup, cx);
+    start(&model, cx);
+    let (window, view) = open_small_panel(&model, 420.0, cx);
+    poll_until(&model, cx, hears_a_key);
+    cx.update(|cx| {
+        let level = model.read(cx).level.clone();
+        level.update(cx, |level, _| level.allow_motion());
+    });
+    hear_c_major(&model, cx);
+    draw_frames(window, cx);
+    assert!(list_renders(&view, cx) > 0, "the list was drawn");
+    let renders_before = list_renders(&view, cx);
+    let mut positions = Vec::new();
+    for step in 0..6 {
+        std::thread::sleep(crate::motion::FAST + Duration::from_millis(10));
+        cx.update(|cx| {
+            model.update(cx, |model, cx| {
+                let reading = with_level(model, -40.0 + 12.0 * (step % 3) as f32);
+                model.pretend_polled(reading, cx);
+            })
+        });
+        draw_frames(window, cx);
+        positions.push(cx.update(|cx| model.read(cx).level.read(cx).position));
+    }
+    positions.dedup();
+    assert!(
+        positions.len() > 1,
+        "the dot followed the level: {positions:?}"
+    );
+    assert_eq!(
+        list_renders(&view, cx),
+        renders_before,
+        "the Next list was not drawn again"
+    );
+}
+
+#[gpui::test]
+fn scrolling_the_next_list_never_resizes_the_window_and_a_change_waits_for_it_to_settle(
+    cx: &mut TestAppContext,
+) {
+    let mut setup = Setup::music();
+    setup.many_tracks = true;
+    let (model, _) = model(setup, cx);
+    start(&model, cx);
+    let (window, view) = open_small_panel(&model, 700.0, cx);
+    cx.update(|cx| view.update(cx, |view, _| view.top_left = Some((0.0, 0.0))));
+    poll_until(&model, cx, hears_a_key);
+    hear_c_major(&model, cx);
+    draw_frames(window, cx);
+    let first = cx.update(|cx| view.update(cx, |view, _| std::mem::take(&mut view.resizes)));
+    assert!(
+        !first.is_empty(),
+        "the window took the height of its content"
+    );
+    let max_offset = cx.update(|cx| view.read(cx).scroll.max_offset().y);
+    assert!(max_offset > px(0.0), "the list scrolls");
+
+    for step in 1..=12 {
+        cx.update_window(window, |_, window, cx| {
+            window.scroll(
+                "live-next-list",
+                gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(-8.0))),
+                cx,
+            );
+        })
+        .unwrap();
+        if step == 6 {
+            cx.update(|cx| {
+                view.update(cx, |view, cx| {
+                    view.picker_open = true;
+                    cx.notify();
+                })
+            });
+        }
+        cx.update(|cx| {
+            model.update(cx, |model, cx| {
+                let reading = with_level(model, -40.0 + 4.0 * (step % 5) as f32);
+                model.pretend_polled(reading, cx);
+            })
+        });
+        draw_frames(window, cx);
+    }
+    let offset = cx.update(|cx| view.read(cx).scroll.offset().y);
+    assert!(offset < px(0.0), "the list scrolled");
+    cx.update(|cx| {
+        assert_eq!(
+            view.read(cx).resizes,
+            Vec::new(),
+            "no resize while the list scrolls"
+        )
+    });
+
+    std::thread::sleep(crate::motion::LAYOUT + Duration::from_millis(30));
+    cx.executor().advance_clock(crate::motion::LAYOUT);
+    draw_frames(window, cx);
+    cx.update(|cx| {
+        assert_eq!(
+            view.read(cx).resizes.len(),
+            1,
+            "the opened source picker resized the window once the scroll settled"
+        )
+    });
+}
+
+#[gpui::test]
+fn rows_that_appear_grow_the_panel(cx: &mut TestAppContext) {
+    let (model, _) = model(Setup::music(), cx);
+    start(&model, cx);
+    let (window, view) = open_small_panel(&model, 420.0, cx);
+    cx.update(|cx| view.update(cx, |view, _| view.top_left = Some((0.0, 0.0))));
+    draw_frames(window, cx);
+    let empty_height = cx.update(|cx| view.read(cx).sizing.window_height);
+    cx.update(|cx| assert_eq!(view.read(cx).list.read(cx).renders, 0));
+
+    poll_until(&model, cx, hears_a_key);
+    hear_c_major(&model, cx);
+    draw_frames(window, cx);
+    let rows = cx.update(|cx| model.read(cx).next_rows.len());
+    assert!(rows >= 2, "the library has tracks that mix in: {rows}");
+    let full_height = cx.update(|cx| view.read(cx).sizing.window_height);
+    assert!(
+        full_height > empty_height + 2.0 * 51.0,
+        "the panel grew from {empty_height} to {full_height} for {rows} rows"
+    );
+    cx.update(|cx| {
+        assert_eq!(
+            view.read(cx).resizes.last().map(|(_, height)| *height),
+            Some(full_height)
+        )
+    });
+}
+
+#[test]
+fn the_panel_ignores_small_changes_of_the_same_content_and_follows_new_parts() {
+    use crate::views::live::{PanelSizing, Sizing, Structure};
+    let now = Instant::now();
+    let shown = Structure {
+        rows: 4,
+        ..Structure::default()
+    };
+    let mut sizing = PanelSizing::new(560.0);
+    assert_eq!(
+        sizing.decide(400.0, shown, 700.0, now),
+        Sizing::Resize(400.0)
+    );
+    assert_eq!(sizing.decide(405.5, shown, 700.0, now), Sizing::Keep);
+    assert_eq!(sizing.decide(395.0, shown, 700.0, now), Sizing::Keep);
+    let more = Structure { rows: 5, ..shown };
+    assert_eq!(
+        sizing.decide(455.0, more, 700.0, now),
+        Sizing::Resize(455.0)
+    );
+    assert_eq!(
+        sizing.decide(480.0, more, 700.0, now),
+        Sizing::Resize(480.0)
+    );
+    sizing.note_scroll(-30.0, now);
+    let fewer = Structure { rows: 3, ..shown };
+    assert!(matches!(
+        sizing.decide(345.0, fewer, 700.0, now),
+        Sizing::AfterScroll(_)
+    ));
+    let later = now + crate::motion::LAYOUT;
+    assert_eq!(
+        sizing.decide(345.0, fewer, 700.0, later),
+        Sizing::Resize(345.0)
+    );
+}
+
 #[gpui::test]
 fn the_tempo_and_energy_sit_centred_against_the_key(cx: &mut TestAppContext) {
     let (model, _) = model(Setup::music(), cx);
