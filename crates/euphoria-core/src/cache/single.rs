@@ -11,6 +11,7 @@ use crate::analysis::{TrackAnalysis, analyze_file};
 use crate::correction::Correction;
 use crate::error::EuphoriaError;
 use crate::track_cues::{Cue, TrackCues};
+use crate::track_loops::SavedLoop;
 
 /// The analysis of one file through the cache.
 #[derive(Debug)]
@@ -152,6 +153,31 @@ impl CachedAnalyzer {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .set_edited_cues(path, cues)
+    }
+
+    /// [`Cache::saved_loops_for`] on the cache this analyzer stores into.
+    pub fn saved_loops_for(&self, path: &Path) -> Result<Vec<SavedLoop>, EuphoriaError> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .saved_loops_for(path)
+    }
+
+    /// [`Cache::verified_saved_loops_for`] on the cache this analyzer
+    /// stores into.
+    pub fn verified_saved_loops_for(&self, path: &Path) -> Result<Vec<SavedLoop>, EuphoriaError> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .verified_saved_loops_for(path)
+    }
+
+    /// [`Cache::set_saved_loops`] on the cache this analyzer stores into.
+    pub fn set_saved_loops(&self, path: &Path, loops: &[SavedLoop]) -> Result<(), EuphoriaError> {
+        self.cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .set_saved_loops(path, loops)
     }
 
     /// [`Cache::track_cues_for`] on the cache this analyzer stores into.

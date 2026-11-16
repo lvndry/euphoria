@@ -2175,6 +2175,7 @@ impl EuphoriaApp {
                 self.follow_playhead(cx);
             }
             Some(PlayerRequest::SeekTo(seconds)) => {
+                self.loop_follows_seek(f64::from(seconds));
                 if let Some(active) = &self.voice {
                     active.state.seek_to(seconds);
                 }
@@ -2210,6 +2211,7 @@ impl EuphoriaApp {
                     match self.output.play(source) {
                         Ok(voice) => {
                             self.voice = Some(ActiveVoice { voice, state });
+                            self.loop_follows_voice();
                             self.load_player_waveform(cx);
                             self.follow_playhead(cx);
                         }
@@ -3224,7 +3226,11 @@ impl Render for EuphoriaApp {
         div()
             .id("euphoria")
             .track_focus(&self.window_focus)
-            .key_context(views::LIBRARY_KEY_CONTEXT)
+            .key_context(if self.focus.is_open {
+                views::FOCUS_VIEW_KEY_CONTEXT
+            } else {
+                views::LIBRARY_KEY_CONTEXT
+            })
             .on_action(
                 cx.listener(|this, _: &crate::actions::OpenFocusView, window, cx| {
                     this.open_focus_view(window, cx);
@@ -3266,6 +3272,9 @@ impl Render for EuphoriaApp {
                         this.close_planner(cx);
                         return;
                     }
+                    if this.exit_loop_by_key(cx) {
+                        return;
+                    }
                     if this.focus.is_open {
                         this.close_focus_view(cx);
                         return;
@@ -3295,7 +3304,8 @@ impl Render for EuphoriaApp {
             }))
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
                 if event.pressed_button == Some(MouseButton::Left) {
-                    if !this.drag_cue_to(event.position.x, event.modifiers, cx)
+                    if !this.drag_loop_to(event.position.x, event.modifiers, cx)
+                        && !this.drag_cue_to(event.position.x, event.modifiers, cx)
                         && !this.drag_window_to(event.position.x, cx)
                     {
                         this.resize_to(event.position, window, cx);
@@ -3304,6 +3314,7 @@ impl Render for EuphoriaApp {
                     this.finish_resizing(cx);
                     this.finish_moving_window();
                     this.release_cue(cx);
+                    this.finish_loop_drag(cx);
                 }
             }))
             .on_mouse_up(
@@ -3312,6 +3323,7 @@ impl Render for EuphoriaApp {
                     this.finish_resizing(cx);
                     this.finish_moving_window();
                     this.release_cue(cx);
+                    this.finish_loop_drag(cx);
                 }),
             )
             .child(views::toolbar::render(self, cx))

@@ -341,6 +341,12 @@ pub enum EuphoriaError {
         /// What is wrong with them.
         reason: &'static str,
     },
+    /// A set of saved loops that cannot be kept.
+    #[error("cannot keep these loops: {reason}")]
+    InvalidLoops {
+        /// What is wrong with them.
+        reason: &'static str,
+    },
     /// No folder for Euphoria's data could be worked out from the environment.
     #[error(
         "cannot find a folder for Euphoria's data: set the EUPHORIA_DATA_DIR environment variable to one"

@@ -541,6 +541,7 @@ fn timeline(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>)
                 app.focus.overview_bounds.clone(),
                 px(OVERVIEW_HEIGHT),
             ))
+            .children(crate::views::loops::overview_tint(app, duration))
             .children(outline)
             .on_mouse_down(
                 MouseButton::Left,
@@ -659,11 +660,14 @@ fn timeline(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>)
                 app.focus.axis_bounds.clone(),
                 px(DETAIL_HEIGHT),
             ))
+            .children(crate::views::loops::detail_overlay(app, &viewport, cx))
             .children(flags)
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, event: &MouseDownEvent, _, cx| {
-                    if event.click_count == 2 {
+                    if event.modifiers.secondary(cx) {
+                        this.start_drawing_loop(event.position.x);
+                    } else if event.click_count == 2 {
                         this.add_cue_at_pointer(event.position.x, event.modifiers, cx);
                     } else {
                         this.seek_in_detail(event.position.x, cx);
@@ -831,6 +835,11 @@ fn timeline(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>)
         .children(overview)
         .child(windowed)
         .child(readout_line)
+        .child(
+            div()
+                .pl(px(GUTTER + LANE_GAP))
+                .child(crate::views::loops::loop_bar(track, app, cx)),
+        )
         .test_support()
         .into_any_element()
 }
@@ -1465,7 +1474,16 @@ fn plan(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> 
                         .test_support(),
                 ),
             ).into_any_element(),
-        PlanTab::Cues => cues::section(track, app, Some(px(BOTTOM_HEIGHT - 110.0)), cx).into_any_element(),
+        PlanTab::Cues => div()
+            .id("focus-cues-and-loops")
+            .flex()
+            .flex_col()
+            .gap(GAP_MEDIUM)
+            .max_h(px(BOTTOM_HEIGHT - 110.0))
+            .overflow_y_scroll()
+            .children(crate::views::loops::saved_loops(track, app, cx))
+            .child(cues::section(track, app, None, cx))
+            .into_any_element(),
     };
     let can_open_planner =
         app.focus.plan_tab == PlanTab::Transition && app.focus.selected_match.is_some();

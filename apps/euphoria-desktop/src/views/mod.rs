@@ -21,6 +21,7 @@ pub(crate) mod key_shift;
 pub(crate) mod library_export_panel;
 pub(crate) mod live;
 pub(crate) mod logo;
+pub(crate) mod loops;
 pub(crate) mod mashup;
 pub(crate) mod next_rail;
 pub(crate) mod note_strip;
@@ -56,6 +57,10 @@ use crate::theme::Palette;
 /// The key context of the window, which keyboard shortcuts for the library
 /// and the player are bound in.
 pub(crate) const LIBRARY_KEY_CONTEXT: &str = "Library";
+
+/// The key context of the window while the focus view is open: the
+/// library's, with the loop keys besides.
+pub(crate) const FOCUS_VIEW_KEY_CONTEXT: &str = "Library FocusView";
 
 /// The context of the list of tracks to play next, where Enter plays the
 /// selected one.

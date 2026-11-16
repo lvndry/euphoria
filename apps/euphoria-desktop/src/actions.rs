@@ -60,6 +60,13 @@ actions!(
         PlayNextRow,
         /// Leaves the focus view for the library.
         CloseFocusView,
+        /// Loops 4 bars from the beat at or before the playhead in the focus
+        /// view, or leaves the loop playing.
+        ToggleLoop,
+        /// Halves the loop playing in the focus view.
+        HalveLoop,
+        /// Doubles the loop playing in the focus view.
+        DoubleLoop,
         /// Opens the set builder page.
         OpenSetBuilder,
         /// Builds the set on the set builder page.

@@ -16,6 +16,7 @@ use gpui::Context;
 use serde::{Deserialize, Serialize};
 
 use crate::app::EuphoriaApp;
+use crate::focus_loops::{ActiveLoop, LoopDrag};
 use crate::library::Track;
 use crate::track_overview::{EnergyCurve, EnergyStep};
 use crate::views::waveform::SeenBounds;
@@ -420,6 +421,12 @@ pub(crate) struct FocusView {
     pub(crate) is_moving_window: bool,
     /// The list of tracks mixed into, to tell which rows are in view.
     pub(crate) mixes_scroll: gpui::ScrollHandle,
+    /// The loop the player plays.
+    pub(crate) active_loop: Option<ActiveLoop>,
+    /// What a press on the waveform is doing to the loop.
+    pub(crate) loop_drag: Option<LoopDrag>,
+    /// The loop as it is being drawn or moved, before the button comes up.
+    pub(crate) drawn_loop: Option<(f64, f64)>,
     stems: HashMap<PathBuf, StemsLane>,
     checking_stems: HashSet<PathBuf>,
 }
@@ -442,6 +449,9 @@ impl FocusView {
             overview_bounds: SeenBounds::default(),
             is_moving_window: false,
             mixes_scroll: gpui::ScrollHandle::new(),
+            active_loop: None,
+            loop_drag: None,
+            drawn_loop: None,
             stems: HashMap::new(),
             checking_stems: HashSet::new(),
         }
@@ -524,7 +534,9 @@ impl EuphoriaApp {
         self.focus.is_moving_window = false;
         self.focus.hover_seconds = None;
         self.focus.lanes_menu_open = false;
+        self.focus.drawn_loop = None;
         self.cue_editor.forget_selection();
+        self.exit_loop(cx);
         cx.notify();
     }
 
