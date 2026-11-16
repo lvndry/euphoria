@@ -159,7 +159,12 @@ enum Command {
                       The model, 84 MB, is downloaded the first time. Separation runs on this \
                       computer, about 20 to 30 seconds per minute of audio on a recent Mac, \
                       and needs about 2.5 GB of free memory. The stems are saved, so separating \
-                      the same track again is instant.",
+                      the same track again is instant.\n\n\
+                      With --mode advanced the track goes through a larger model that separates \
+                      more cleanly, most noticeably in the vocals. It downloads 214 MB the first \
+                      time, takes roughly eight times as long, about two minutes per minute of \
+                      audio on a recent Mac, and needs about 4.5 GB of free memory. Stems it \
+                      made are used whenever the same track is separated in either mode.",
         after_help = help::stems_examples(),
     )]
     Stems(stems::StemsArguments),
