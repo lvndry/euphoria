@@ -20,9 +20,9 @@ use gpui::{Action, Entity, ScrollHandle};
 use crate::actions::{
     AddCueAtPlayhead, AddFolder, AnalyzeAgain, EditTags, ExportLibrary, FocusSearch,
     OpenCommandPalette, OpenFocusView, OpenLive, OpenSetBuilder, OpenSettings, PlanTransition,
-    ResetColumnWidths, RevealTrack, SelectAllTracks, SeparateStems, StopAnalysis, ToggleDecks,
-    ToggleFavorite, ToggleMetronome, TogglePlayback, ToggleSidebar, UndoCueEdit, UndoTagWrite,
-    UseDeckTheme, UseGraphiteTheme, UsePaperTheme, UseSlateTheme, WriteTags,
+    RescanFolders, ResetColumnWidths, RevealTrack, SelectAllTracks, SeparateStems, StopAnalysis,
+    ToggleDecks, ToggleFavorite, ToggleMetronome, TogglePlayback, ToggleSidebar, UndoCueEdit,
+    UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UsePaperTheme, UseSlateTheme, WriteTags,
 };
 use crate::library::Track;
 use crate::metronome::parse_bpm;
@@ -215,10 +215,18 @@ pub(crate) const COMMANDS: &[CommandEntry] = &[
             "refresh",
             "reanalyze",
             "redo",
-            "update",
-            "rescan"
+            "update"
         ],
         AnalyzeAgain
+    ),
+    command!(
+        "rescan-folders",
+        "Rescan folders",
+        [
+            "rescan", "refresh", "reload", "scan", "folders", "new", "files", "removed", "deleted",
+            "sync"
+        ],
+        RescanFolders
     ),
     command!(
         "stop-analysis",
@@ -1218,6 +1226,7 @@ mod tests {
         assert!(names("dark").contains(&"theme-slate"));
         assert!(names("light").contains(&"theme-paper"));
         assert!(names("transition").contains(&"plan-transition"));
+        assert_eq!(names("rescan").first(), Some(&"rescan-folders"));
         assert!(names("zzzzqq").is_empty());
         assert!(names("").is_empty());
     }

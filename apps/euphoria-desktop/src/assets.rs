@@ -23,6 +23,9 @@ pub(crate) const PLAY_ICON_PATH: &str = "icons/play.svg";
 /// Path of the icon that loads a track on deck B.
 pub(crate) const LOAD_ON_DECK_ICON_PATH: &str = "icons/list-plus.svg";
 
+/// Path of the circling arrows on the button that rescans the folders.
+pub(crate) const REFRESH_ICON_PATH: &str = "icons/refresh-cw.svg";
+
 /// Path of the lock on the bar of a locked track of a set.
 pub(crate) const LOCK_ICON_PATH: &str = "icons/lock.svg";
 
@@ -63,6 +66,7 @@ mod tests {
             STAR_FILLED_ICON_PATH,
             EXPAND_ICON_PATH,
             LOCK_ICON_PATH,
+            REFRESH_ICON_PATH,
             "icons/arrow-left.svg",
             "icons/search.svg",
             "icons/folder.svg",

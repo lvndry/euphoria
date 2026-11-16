@@ -17,6 +17,8 @@ Each path is a file or a folder. Folders are searched recursively for [supported
 
 A symbolic link to an audio file is analyzed. A symbolic link to a folder is not entered, so a scan stays inside the folders you named; to include a linked folder, name it on the command line.
 
+Each run searches the folders again, so files added since the last run are analyzed and files deleted since then are simply no longer listed. Nothing records what an earlier run found, so a deleted file is not reported as removed; the desktop app's [rescan](../guides/desktop-app.md#look-for-new-and-removed-files) is the one that counts removed tracks. A file analyzed before, even under another name or in another folder, comes back from the cache without analyzing it again.
+
 How the results are shown depends on where they go:
 
 | Output | Shown as |

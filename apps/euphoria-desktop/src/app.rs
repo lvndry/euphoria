@@ -1907,7 +1907,6 @@ impl EuphoriaApp {
             .selected_track()
             .map(|track| (track.path.clone(), track.duration_seconds()));
         let keeps_playing = !interrupt
-            && selected.is_some()
             && self.player.offers_pause()
             && self.player.track() != selected.as_ref().map(|(path, _)| path.as_path());
         if keeps_playing {
