@@ -197,6 +197,9 @@ One object per file, in path order, including files that failed, then one for ea
       { "seconds": 226.249, "name": "Drop", "hot_cue": "D", "energy": 9 },
       { "seconds": 361.775, "name": "Outro", "hot_cue": "E", "energy": 5 }
     ],
+    "loops": [
+      { "start_seconds": 181.077, "end_seconds": 192.373, "name": "Loop 1" }
+    ],
     "needs_review": false,
     "review_reasons": [],
     "reviewed": false,
@@ -232,6 +235,7 @@ One object per file, in path order, including files that failed, then one for ea
     "key_timeline": [],
     "beat_grid": null,
     "cues": [],
+    "loops": [],
     "needs_review": null,
     "review_reasons": [],
     "reviewed": null,
@@ -267,6 +271,8 @@ A key is written with its Camelot code, its name and its [Open Key](../concepts/
 `beat_grid` places every beat and bar of the track with one constant tempo: `first_downbeat_seconds` is the time of the first beat of the first bar, from 0 up to the length of one bar, and `bpm` the tempo of the grid, in the `--tempo-range` like `bpm`, to a thousandth. It can differ from `bpm` by up to 2%, since it is fitted to the beats themselves and `bpm` is not. Every following beat falls 60 / `bpm` seconds after the one before, and every fourth beat starts a bar. `confidence` rates how far to trust the beats, not the choice of downbeat, which is right less often. `beat_grid` is `null` when the track has no tempo. The grid is not shown in the table. See [beat grid](../concepts/accuracy.md#beat-grid).
 
 `cues` lists the cues of the track in order: `seconds` from the start of the track, to a thousandth, `name`, `hot_cue`, the hot cue pad from `"A"` to `"H"`, or `null` for a memory cue only, and `energy`, the [energy rating of the section](../concepts/accuracy.md#energy-of-each-cue) from the cue to the next one, from 1 to 10, or `null` for a cue you edited, a silent section, or a track analyzed before it was measured. The cues analysis placed mark where the sections of the track start, named `Start`, `Main`, `Breakdown`, `Drop` and `Outro`, each on the first beat of a bar of `beat_grid` at a phrase boundary, on pads from A in order, at most 8. They are empty when the track has no beat grid. See [cue points](../concepts/accuracy.md#cue-points). When you [edited the cues](#edited-cues) of a track in the desktop app, `cues` lists yours instead, with the names and pads you gave them, and `set_by_user` includes `"cues"`; an empty list then means you deleted every cue.
+
+`loops` lists the loops you [saved in the desktop app](../guides/desktop-app.md#loops), in order of their start: `start_seconds` and `end_seconds` from the start of the track, to a thousandth, and `name`. It is empty when you saved none. Saved loops do not change the cues, so they are not in `set_by_user`.
 
 [Accuracy](../concepts/accuracy.md#tuning-and-key-over-time) describes how both are measured and how far to trust them, and [confidence](../concepts/accuracy.md#confidence) how the ratings, the runner up and the alternative tempo were set and how often they are right.
 
@@ -360,7 +366,7 @@ Full guide: https://github.com/lvndry/euphoria/blob/main/docs/guides/export-to-r
 | `--no-playlists` | Write the tracks only, without playlists. |
 | `--beat-grid` | Write each track's [beat grid](../concepts/accuracy.md#beat-grid), except grids rated low confidence. See [beat grids](#beat-grids). |
 | `--playlist <NAME>` | Export a playlist built in the [desktop app](../guides/desktop-app.md#playlists) in place of paths: its tracks, and one playlist in its order. The name is matched ignoring case; [`euphoria playlists`](#euphoria-playlists) lists them. Each file is read and compared with the track that was added; one that is no longer anywhere, or that was replaced at its path by other audio, is left out with a warning. Cannot be combined with paths or `--no-playlists`. |
-| `--cues` | Write each track's [cue points](../concepts/accuracy.md#cue-points) as memory cues and hot cues, on tracks whose beat grid is written, or the cues you [edited](#edited-cues) in the desktop app in their place. Needs `--beat-grid` and `--collection`. See [cue points](#cue-points). |
+| `--cues` | Write each track's [cue points](../concepts/accuracy.md#cue-points) as memory cues and hot cues, on tracks whose beat grid is written, or the cues you [edited](#edited-cues) in the desktop app in their place, and the loops you [saved](../guides/desktop-app.md#loops) in the app as memory loops. Needs `--beat-grid` and `--collection`. See [cue points](#cue-points). |
 | `--collection <FILE>` | Your rekordbox collection exported as XML. Needs `--beat-grid`. Tracks there with a constant beat grid are exported with that grid and their cues on its bars: see [use your rekordbox beat grid](../guides/export-to-rekordbox.md#use-your-rekordbox-beat-grid). With `--cues`, tracks that have cues or loops there are also left out of the file. It is never replaced by the export, even with `--force`. |
 | `--cue-colors <COLOURS>` | `energy` (the default) colours each hot cue analysis placed by the [energy of its section](../concepts/accuracy.md#energy-of-each-cue), from blue for calm to red for intense; `fixed` writes no colour, so rekordbox uses its own. Needs `--cues`. |
 | `--allow-unmatched-cued-tracks` | Export even though some tracks with cues in the collection match no file on this computer. See [cue points](#cue-points). |
@@ -462,7 +468,7 @@ It works as [`euphoria export rekordbox`](#euphoria-export-rekordbox) does: the 
 | --- | --- |
 | `--key-notation <NOTATION>` | `camelot` (the default), `musical` or `open-key`, for the Key Text column. The Key column is filled from the key itself. |
 | `--beat-grid` | A grid marker at each track's first downbeat, with the grid's tempo in six decimals, except grids rated low confidence. |
-| `--cues` | Hot cues 1 to 8 at each track's sections, on tracks whose grid is written. No memory copy of each hot cue is added. Needs `--beat-grid` and `--collection`. They are not coloured by energy, and there is no `--cue-colors`: Traktor colours a cue by its type. |
+| `--cues` | Hot cues 1 to 8 at each track's sections, on tracks whose grid is written, and the loops you [saved](../guides/desktop-app.md#loops) in the app as loops. No memory copy of each hot cue is added. Needs `--beat-grid` and `--collection`. They are not coloured by energy, and there is no `--cue-colors`: Traktor colours a cue by its type. |
 | `--collection <FILE>` | Your Traktor `collection.nml`, only read. Tracks with a cue, hot cue or loop of their own there are left out of the file. Grid markers and Traktor's `AutoGrid` hot cue on a grid marker do not count. It is never replaced, even with `--force`. |
 | `--startup-volume <NAME>` | The name of the Mac disk the system is on, which Traktor writes as the volume of every path outside `/Volumes`. Found from `/Volumes` when not given. |
 
@@ -1151,7 +1157,7 @@ Corrections are kept apart from the analyses, so neither `--reanalyze`, a new ve
 
 ### Edited cues
 
-When you [edit the cues](../guides/desktop-app.md#cue-points) of a track in the desktop app, your set of cues is kept in the cache in the same way, in a table of its own: by the file's content, apart from the analyses, so `--reanalyze`, a new version of Euphoria and `euphoria cache clear` keep it, and it follows a file that is moved, renamed or has its tags written. Your set replaces the cues analysis placed, even when you deleted every cue: `euphoria analyze --json` lists your cues and `"cues"` in `set_by_user`, and [`euphoria export rekordbox --cues`](#cue-points) exports them. As for corrections, the whole file is read before its cues go into an export, and a file whose edits cannot be checked is left out with the reason. **Reset to automatic cues** in the app forgets your set. With `--no-cache` edited cues are not read.
+When you [edit the cues](../guides/desktop-app.md#cue-points) of a track in the desktop app, your set of cues is kept in the cache in the same way, in a table of its own: by the file's content, apart from the analyses, so `--reanalyze`, a new version of Euphoria and `euphoria cache clear` keep it, and it follows a file that is moved, renamed or has its tags written. Your set replaces the cues analysis placed, even when you deleted every cue: `euphoria analyze --json` lists your cues and `"cues"` in `set_by_user`, and [`euphoria export rekordbox --cues`](#cue-points) exports them. The loops you [save in the app](../guides/desktop-app.md#loops) are kept the same way, in a table of their own, listed under `loops` by `euphoria analyze --json`, and written by `--cues` of the rekordbox and Traktor exports and by `euphoria tags write --serato-markers`. As for corrections, the whole file is read before its cues go into an export, and a file whose edits cannot be checked is left out with the reason. **Reset to automatic cues** in the app forgets your set. With `--no-cache` edited cues are not read.
 
 ### Where the cache is stored
 

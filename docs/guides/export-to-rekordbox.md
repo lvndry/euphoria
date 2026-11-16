@@ -76,6 +76,7 @@ For each track:
 | Energy | When Euphoria rated the track | In the comments, as `Energy 7`. See [energy](../concepts/energy.md). |
 | Beat grid | With `--beat-grid`, when the grid is rated medium or high | The first downbeat and the tempo of the grid, which is then the tempo written. See [beat grids](#beat-grids). |
 | Cue points | With `--cues`, on tracks with no cues in your collection, and a beat grid in the file or cues you edited in the app | Memory cues and hot cues A to H named Start, Main, Breakdown, Drop and Outro (or Section 2, Section 3 and so on, see [cue points](../concepts/accuracy.md#cue-points)), or the cues you edited. Hot cues analysis placed are coloured by the energy of their section unless `--cue-colors fixed`. See [cue points](#cue-points). |
+| Saved loops | With `--cues`, the loops you [saved in the desktop app](desktop-app.md#loops), on tracks with no cues in your collection | Memory loops, `POSITION_MARK` with `Type="4"`, a `Start` and an `End`, and the loop's name. rekordbox's own XML export writes a memory loop this way; how rekordbox imports one from this file is **(not verified)**. |
 
 A track with no key or no tempo has no key or tempo in the file. Euphoria never writes an empty key or a tempo of zero.
 
@@ -83,7 +84,7 @@ The file also holds the playlists and folders described above. Playlist folders 
 
 The comment of a track holds only the energy rating. If you keep your own notes in the comments of tracks that are already in your collection, know that **Import To Collection** replaces the comment of a track that is already there with the one in the file (tested in rekordbox 7), along with its key and tempo. Import only the tracks whose comments you do not mind losing, or keep your notes in another column.
 
-Not in the file: loops, album, genre, rating, the comments in your files' tags, track colours, memory cue colours, play counts, loops and waveforms.
+Not in the file: album, genre, rating, the comments in your files' tags, track colours, memory cue colours, hot loops, play counts and waveforms.
 
 The Euphoria library, in `euphoria_core::export::rekordbox`, can write hot cues on pads A to P for programs built on it. The command uses pads A to H only. rekordbox's export mode uses only pads A to H, so hot cues on pads I to P may not show on CDJ and XDJ players that read a drive prepared there. **(not verified)**
 

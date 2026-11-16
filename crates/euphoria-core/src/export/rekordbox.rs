@@ -99,6 +99,8 @@ pub struct Track {
     pub first_beat: Option<Duration>,
     /// Cue points, written in the order given.
     pub cue_points: Vec<CuePoint>,
+    /// Saved loops, written in the order given after the cue points.
+    pub loops: Vec<LoopPoint>,
 }
 
 impl Track {
@@ -114,8 +116,20 @@ impl Track {
             comment: None,
             first_beat: None,
             cue_points: Vec::new(),
+            loops: Vec::new(),
         }
     }
+}
+
+/// A saved loop of a track: a stretch the DJ program can loop at once.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoopPoint {
+    /// Label shown next to the loop. It may be empty.
+    pub name: String,
+    /// Where the loop starts, from the start of the track.
+    pub start: Duration,
+    /// Where it ends and jumps back to its start.
+    pub end: Duration,
 }
 
 /// A marked position in a track.
@@ -469,7 +483,7 @@ fn push_track(
     }
 
     let beat_grid = tempo.zip(track.first_beat);
-    if beat_grid.is_none() && track.cue_points.is_empty() {
+    if beat_grid.is_none() && track.cue_points.is_empty() && track.loops.is_empty() {
         document.push_str("/>\n");
         return Ok(());
     }
@@ -498,6 +512,15 @@ fn push_track(
             push_attribute(document, "Green", &green.to_string())?;
             push_attribute(document, "Blue", &blue.to_string())?;
         }
+        document.push_str("/>\n");
+    }
+    for saved in &track.loops {
+        document.push_str("      <POSITION_MARK");
+        push_attribute(document, "Name", &saved.name)?;
+        push_attribute(document, "Type", "4")?;
+        push_attribute(document, "Start", &seconds(saved.start))?;
+        push_attribute(document, "End", &seconds(saved.end))?;
+        push_attribute(document, "Num", "-1")?;
         document.push_str("/>\n");
     }
     document.push_str("    </TRACK>\n");

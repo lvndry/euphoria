@@ -245,6 +245,7 @@ impl EuphoriaApp {
                 analysis: track.analysis().cloned(),
                 correction: track.correction,
                 edited_cues: track.edited_cues.clone(),
+                saved_loops: track.saved_loops.clone(),
             })
             .collect()
     }
@@ -319,6 +320,7 @@ impl EuphoriaApp {
                 analysis: track.analysis().cloned(),
                 correction: track.correction,
                 edited_cues: track.edited_cues.clone(),
+                saved_loops: track.saved_loops.clone(),
             })
             .collect();
         let settings = self.tag_settings;
@@ -702,6 +704,7 @@ mod tests {
                 analysis: Some(tag_testing::analysis()),
                 correction,
                 edited_cues: None,
+                saved_loops: Vec::new(),
             }]
         };
         let writer = CorrectionWriter::default();
@@ -745,6 +748,7 @@ mod tests {
                 analysis: Some(tag_testing::analysis()),
                 correction: Correction::default(),
                 edited_cues: None,
+                saved_loops: Vec::new(),
             }]
         };
         std::fs::write(&track, b"audio").unwrap();

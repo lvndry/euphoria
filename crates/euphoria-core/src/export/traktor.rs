@@ -457,6 +457,15 @@ fn push_entry(
             hot_cue,
         )?;
     }
+    for saved in &track.loops {
+        push_cue(
+            document,
+            &saved.name,
+            CueType::Loop(saved.end.saturating_sub(saved.start)),
+            saved.start,
+            -1,
+        )?;
+    }
     document.push_str("    </ENTRY>\n");
     Ok(())
 }
@@ -477,6 +486,8 @@ fn cues_to_write(cue_points: &[CuePoint]) -> impl Iterator<Item = &CuePoint> {
 enum CueType<'tempo> {
     Cue,
     Grid(&'tempo str),
+    /// A loop as long as this.
+    Loop(Duration),
 }
 
 fn push_cue(
@@ -495,14 +506,19 @@ fn push_cue(
         match cue_type {
             CueType::Cue => "0",
             CueType::Grid(_) => "4",
+            CueType::Loop(_) => "5",
         },
     )?;
     push_attribute(document, "START", &milliseconds(start))?;
-    push_attribute(document, "LEN", "0.000000")?;
+    let length = match cue_type {
+        CueType::Loop(length) => length,
+        CueType::Cue | CueType::Grid(_) => Duration::ZERO,
+    };
+    push_attribute(document, "LEN", &milliseconds(length))?;
     push_attribute(document, "REPEATS", "-1")?;
     push_attribute(document, "HOTCUE", &hot_cue.to_string())?;
     match cue_type {
-        CueType::Cue => document.push_str("/>\n"),
+        CueType::Cue | CueType::Loop(_) => document.push_str("/>\n"),
         CueType::Grid(tempo) => {
             document.push_str(">\n        <GRID");
             push_attribute(document, "BPM", tempo)?;

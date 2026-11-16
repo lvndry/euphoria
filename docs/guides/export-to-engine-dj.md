@@ -109,6 +109,7 @@ Close Engine DJ and copy `Database2/m.db` from the folder `Engine Library backup
 - A track Engine DJ has not analysed has no sample rate in the library, so it gets key, tempo and label only. Analyse it in Engine DJ and export again.
 - Re-analysing a track replaces its key, tempo and grid. Engine DJ's user guide: "Re-analyzing a track will always use the latest Engine DJ BPM and key detection".
 - Memory cues and cues on pads above 8 are not written: Engine DJ has eight hot cues.
+- The loops you [saved in the desktop app](desktop-app.md#loops) are not written into the library: Euphoria does not write Engine DJ's loops data yet. The [rekordbox XML route](#the-other-route-a-rekordbox-xml-file) carries them as memory loops, which Engine DJ's guide says it imports **(not verified)**.
 - Positions are counted from the start of the decoded audio. How Engine DJ's decoder handles the encoder delay at the start of MP3 and AAC files is not known, so grids and cues of those files may be off by a few milliseconds.
 - Tracks not in the library are reported and left out.
 

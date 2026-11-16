@@ -100,6 +100,7 @@ Close VirtualDJ and put the backup Euphoria made, `database.xml.euphoria-backup-
 ## Limits
 
 - VirtualDJ has no memory cues, so cues on no hot cue pad are left out.
+- The loops you [saved in the desktop app](desktop-app.md#loops) are not written: how VirtualDJ keeps a saved loop in `database.xml` is not known well enough to write it into your database.
 - A song VirtualDJ has not analysed has no `<Scan>`, so it gets key and tempo in `<Tags>` and the grid point only. VirtualDJ may replace them when it analyses the song.
 - VirtualDJ may replace the tempo and grid when it analyses a track again.
 - Songs not in the database are reported and left out.

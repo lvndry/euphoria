@@ -25,7 +25,7 @@ use euphoria_core::tags::{
     WrittenValues, add_serato_markers, add_serato_markers_from, plan_write_with_history,
     plan_write_with_history_from, undo_last_write_with_observer,
 };
-use euphoria_core::{CachedAnalyzer, Correction, Cue, TrackAnalysis};
+use euphoria_core::{CachedAnalyzer, Correction, Cue, SavedLoop, TrackAnalysis};
 
 struct RewriteUpdates<'a> {
     playlists: Option<&'a PlaylistSaver>,
@@ -126,6 +126,8 @@ pub(crate) struct WriteTarget {
     /// The cues the user set, which are written as Serato cue points in
     /// place of those analysis placed, or `None`.
     pub(crate) edited_cues: Option<Vec<Cue>>,
+    /// The loops the user saved, which are written as Serato saved loops.
+    pub(crate) saved_loops: Vec<SavedLoop>,
 }
 
 /// A file left out of a write, and why.
@@ -211,7 +213,8 @@ pub(crate) fn plan_writes_reading(
                     &written,
                     target.edited_cues.clone(),
                     settings.cue_colours(),
-                );
+                )
+                .with_loops(&target.saved_loops, f64::from(written.duration_seconds));
                 let report = match &loaded {
                     Some(Ok(tags)) => add_serato_markers_from(&mut plan, &markers, tags)?,
                     _ => add_serato_markers(&mut plan, &markers)?,
@@ -646,6 +649,7 @@ mod tests {
             analysis: Some(projected),
             correction: Correction::default(),
             edited_cues: None,
+            saved_loops: Vec::new(),
         };
         let planned = plan_writes(&[target], &TagSettings::default());
         let report = write_plans(
@@ -675,6 +679,7 @@ mod tests {
                 analysis: Some(analysis()),
                 correction: Correction::default(),
                 edited_cues: None,
+                saved_loops: Vec::new(),
             })
             .collect()
     }
@@ -695,6 +700,7 @@ mod tests {
             analysis: Some(analysis),
             correction,
             edited_cues: None,
+            saved_loops: Vec::new(),
         }]
     }
 
@@ -829,6 +835,7 @@ mod tests {
                 analysis: Some(analysis_with_grid()),
                 correction: Correction::default(),
                 edited_cues: edited_cues.clone(),
+                saved_loops: Vec::new(),
             })
             .collect()
     }
@@ -1112,6 +1119,7 @@ mod tests {
                 analysis: Some(first_launch.analyze_file(path).unwrap().analysis),
                 correction: Correction::default(),
                 edited_cues: None,
+                saved_loops: Vec::new(),
             })
             .collect();
         let planned = plan_writes(&targets, &TagSettings::default());
