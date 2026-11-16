@@ -66,7 +66,7 @@ pub const ADVANCED_STEMS_MODEL: &str = "scnet-xl-ihf-ac25975f";
 /// Which network separates a track. Stems of the two modes are kept apart
 /// in the cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
-pub enum StemMode {
+pub enum SeparationMode {
     /// The faster network, htdemucs.
     #[default]
     Default,
@@ -75,23 +75,23 @@ pub enum StemMode {
     Advanced,
 }
 
-impl StemMode {
+impl SeparationMode {
     /// The modes, the one that makes the best stems first.
-    pub const BEST_FIRST: [StemMode; 2] = [StemMode::Advanced, StemMode::Default];
+    pub const BEST_FIRST: [SeparationMode; 2] = [SeparationMode::Advanced, SeparationMode::Default];
 
     /// Names the model of this mode in the stem cache.
     pub const fn model_id(self) -> &'static str {
         match self {
-            StemMode::Default => STEMS_MODEL,
-            StemMode::Advanced => ADVANCED_STEMS_MODEL,
+            SeparationMode::Default => STEMS_MODEL,
+            SeparationMode::Advanced => ADVANCED_STEMS_MODEL,
         }
     }
 
     /// Where the weights of this mode are kept in Euphoria's data folder.
     pub fn weights_path(self) -> Result<PathBuf, EuphoriaError> {
         match self {
-            StemMode::Default => default_weights_path(),
-            StemMode::Advanced => advanced_weights_path(),
+            SeparationMode::Default => default_weights_path(),
+            SeparationMode::Advanced => advanced_weights_path(),
         }
     }
 }
@@ -423,13 +423,15 @@ enum Engine {
 
 impl Engine {
     fn load(
-        mode: StemMode,
+        mode: SeparationMode,
         weights_path: &Path,
         observer: &dyn SeparationObserver,
     ) -> Result<Self, EuphoriaError> {
         Ok(match mode {
-            StemMode::Default => Self::Default(StemSeparator::load_from(weights_path, observer)?),
-            StemMode::Advanced => {
+            SeparationMode::Default => {
+                Self::Default(StemSeparator::load_from(weights_path, observer)?)
+            }
+            SeparationMode::Advanced => {
                 Self::Advanced(AdvancedSeparator::load_from(weights_path, observer)?)
             }
         })
@@ -454,7 +456,7 @@ impl Engine {
 #[derive(Debug)]
 pub struct CachedSeparator {
     cache: StemCache,
-    mode: StemMode,
+    mode: SeparationMode,
     weights_path: PathBuf,
     separator: Option<Engine>,
 }
@@ -462,11 +464,11 @@ pub struct CachedSeparator {
 impl CachedSeparator {
     /// Uses the cache and the Default mode model in Euphoria's data folder.
     pub fn open_default() -> Result<Self, EuphoriaError> {
-        Self::open(StemMode::Default)
+        Self::open(SeparationMode::Default)
     }
 
     /// Uses the cache and the model of `mode` in Euphoria's data folder.
-    pub fn open(mode: StemMode) -> Result<Self, EuphoriaError> {
+    pub fn open(mode: SeparationMode) -> Result<Self, EuphoriaError> {
         Ok(Self::new_for(
             mode,
             StemCache::open_default()?,
@@ -476,11 +478,11 @@ impl CachedSeparator {
 
     /// Uses `cache`, and the Default mode model weights at `weights_path`.
     pub fn new(cache: StemCache, weights_path: PathBuf) -> Self {
-        Self::new_for(StemMode::Default, cache, weights_path)
+        Self::new_for(SeparationMode::Default, cache, weights_path)
     }
 
     /// Uses `cache`, and the model weights of `mode` at `weights_path`.
-    pub fn new_for(mode: StemMode, cache: StemCache, weights_path: PathBuf) -> Self {
+    pub fn new_for(mode: SeparationMode, cache: StemCache, weights_path: PathBuf) -> Self {
         Self {
             cache,
             mode,
@@ -495,7 +497,7 @@ impl CachedSeparator {
     }
 
     /// The mode that separates tracks that are not cached yet.
-    pub fn mode(&self) -> StemMode {
+    pub fn mode(&self) -> SeparationMode {
         self.mode
     }
 
@@ -504,8 +506,8 @@ impl CachedSeparator {
     /// better ones, and only its own for the Advanced mode.
     fn cached_stems(&self, hash: &ContentHash) -> Option<StemFiles> {
         match self.mode {
-            StemMode::Default => self.cache.lookup(hash),
-            StemMode::Advanced => self.cache.lookup_for(StemMode::Advanced, hash),
+            SeparationMode::Default => self.cache.lookup(hash),
+            SeparationMode::Advanced => self.cache.lookup_for(SeparationMode::Advanced, hash),
         }
     }
 
@@ -717,7 +719,7 @@ mod tests {
         let mut written = 0;
         let files = cache
             .store_streamed(
-                StemMode::Advanced,
+                SeparationMode::Advanced,
                 &ContentHash::from_bytes([9; 32]),
                 left.len(),
                 |sink| {
@@ -737,7 +739,7 @@ mod tests {
             files
                 .directory()
                 .to_string_lossy()
-                .contains(StemMode::Advanced.model_id())
+                .contains(SeparationMode::Advanced.model_id())
         );
     }
 
@@ -766,7 +768,7 @@ mod tests {
         let hash = ContentHash::of_file(&path).unwrap();
         let cache = StemCache::new(directory.join("cache"), DEFAULT_STEM_CACHE_LIMIT_BYTES);
         let advanced_files = cache
-            .store_streamed(StemMode::Advanced, &hash, 2048, |sink| {
+            .store_streamed(SeparationMode::Advanced, &hash, 2048, |sink| {
                 sink.write(&[
                     vec![0.0; 4096],
                     vec![0.0; 4096],
@@ -777,7 +779,7 @@ mod tests {
             .unwrap();
 
         let mut default_mode = CachedSeparator::new_for(
-            StemMode::Default,
+            SeparationMode::Default,
             cache.clone(),
             directory.join("unused-weights"),
         );
@@ -790,7 +792,7 @@ mod tests {
         wav::write_wav(&other, &[0.1; 4096], 2, STEMS_SAMPLE_RATE).unwrap();
         let other_hash = ContentHash::of_file(&other).unwrap();
         cache
-            .store_streamed(StemMode::Default, &other_hash, 2048, |sink| {
+            .store_streamed(SeparationMode::Default, &other_hash, 2048, |sink| {
                 sink.write(&[
                     vec![0.0; 4096],
                     vec![0.0; 4096],
@@ -800,7 +802,7 @@ mod tests {
             })
             .unwrap();
         let mut advanced_mode = CachedSeparator::new_for(
-            StemMode::Advanced,
+            SeparationMode::Advanced,
             cache.clone(),
             directory.join("unused-weights"),
         );
@@ -810,9 +812,13 @@ mod tests {
             upgraded
                 .directory()
                 .to_string_lossy()
-                .contains(StemMode::Advanced.model_id())
+                .contains(SeparationMode::Advanced.model_id())
         );
-        assert!(cache.cached_for(StemMode::Default, &other_hash).is_some());
+        assert!(
+            cache
+                .cached_for(SeparationMode::Default, &other_hash)
+                .is_some()
+        );
     }
 
     #[test]
@@ -844,7 +850,7 @@ mod tests {
         let cache = StemCache::new(folder.path().to_path_buf(), DEFAULT_STEM_CACHE_LIMIT_BYTES);
         let files = cache
             .store_streamed(
-                StemMode::Default,
+                SeparationMode::Default,
                 &ContentHash::from_bytes([7; 32]),
                 left.len(),
                 |sink| {

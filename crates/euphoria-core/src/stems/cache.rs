@@ -12,7 +12,7 @@ use std::time::SystemTime;
 
 use super::wav::WavWriter;
 use super::{
-    STEMS_CHANNELS, STEMS_SAMPLE_RATE, SeparationObserver, SeparationStage, Stem, StemMode,
+    STEMS_CHANNELS, STEMS_SAMPLE_RATE, SeparationMode, SeparationObserver, SeparationStage, Stem,
     StemSink, Stems,
 };
 use crate::cache::ContentHash;
@@ -111,7 +111,7 @@ impl StemCache {
         self.limit_bytes
     }
 
-    fn entry_directory(&self, mode: StemMode, hash: &ContentHash) -> PathBuf {
+    fn entry_directory(&self, mode: SeparationMode, hash: &ContentHash) -> PathBuf {
         let hex: String = hash
             .as_bytes()
             .iter()
@@ -124,14 +124,14 @@ impl StemCache {
     /// of the Advanced mode when it separated the track and those of the
     /// Default mode otherwise. Marks them as just used.
     pub fn lookup(&self, hash: &ContentHash) -> Option<StemFiles> {
-        StemMode::BEST_FIRST
+        SeparationMode::BEST_FIRST
             .into_iter()
             .find_map(|mode| self.lookup_for(mode, hash))
     }
 
     /// The stems of the track with content `hash` that `mode` separated, when
     /// they are cached. Marks them as just used.
-    pub fn lookup_for(&self, mode: StemMode, hash: &ContentHash) -> Option<StemFiles> {
+    pub fn lookup_for(&self, mode: SeparationMode, hash: &ContentHash) -> Option<StemFiles> {
         let files = self.cached_for(mode, hash)?;
         let _ = mark_used(&files.directory);
         Some(files)
@@ -140,14 +140,14 @@ impl StemCache {
     /// The best stems of the track with content `hash` that are cached,
     /// without marking them as used: for checking which tracks have stems.
     pub fn cached(&self, hash: &ContentHash) -> Option<StemFiles> {
-        StemMode::BEST_FIRST
+        SeparationMode::BEST_FIRST
             .into_iter()
             .find_map(|mode| self.cached_for(mode, hash))
     }
 
     /// The stems of the track with content `hash` that `mode` separated, when
     /// they are cached, without marking them as used.
-    pub fn cached_for(&self, mode: StemMode, hash: &ContentHash) -> Option<StemFiles> {
+    pub fn cached_for(&self, mode: SeparationMode, hash: &ContentHash) -> Option<StemFiles> {
         let files = StemFiles {
             directory: self.entry_directory(mode, hash),
         };
@@ -162,7 +162,7 @@ impl StemCache {
     /// the cache fits its limit. The new stems are always kept, even when
     /// they alone exceed it.
     pub fn store(&self, hash: &ContentHash, stems: &Stems) -> Result<StemFiles, EuphoriaError> {
-        self.store_streamed(StemMode::Default, hash, stems.frames, |sink| {
+        self.store_streamed(SeparationMode::Default, hash, stems.frames, |sink| {
             sink.write(&stems.interleaved)
         })
     }
@@ -173,7 +173,7 @@ impl StemCache {
     /// or hands over another length.
     pub(crate) fn store_streamed(
         &self,
-        mode: StemMode,
+        mode: SeparationMode,
         hash: &ContentHash,
         frames: usize,
         separate: impl FnOnce(&mut dyn StemSink) -> Result<(), EuphoriaError>,
@@ -237,7 +237,7 @@ impl StemCache {
     fn evict(&self, keep: &Path) -> io::Result<()> {
         let mut entries = Vec::new();
         let mut total_bytes: u64 = 0;
-        let prefixes = StemMode::BEST_FIRST.map(|mode| format!("{}-", mode.model_id()));
+        let prefixes = SeparationMode::BEST_FIRST.map(|mode| format!("{}-", mode.model_id()));
         for entry in fs::read_dir(&self.directory)? {
             let entry = entry?;
             let path = entry.path();
@@ -512,12 +512,12 @@ mod tests {
         }
         assert!(stored.directory().ends_with(format!(
             "{}-{}",
-            StemMode::Default.model_id(),
+            SeparationMode::Default.model_id(),
             "01".repeat(32)
         )));
     }
 
-    fn store_for(cache: &StemCache, mode: StemMode, byte: u8, frames: usize) -> StemFiles {
+    fn store_for(cache: &StemCache, mode: SeparationMode, byte: u8, frames: usize) -> StemFiles {
         let stems = stems(frames);
         cache
             .store_streamed(mode, &hash(byte), frames, |sink| {
@@ -530,13 +530,16 @@ mod tests {
     fn the_two_modes_keep_their_own_stems_of_the_same_track() {
         let folder = TemporaryFolder::new("two-modes");
         let cache = StemCache::new(folder.0.clone(), DEFAULT_STEM_CACHE_LIMIT_BYTES);
-        let default = store_for(&cache, StemMode::Default, 1, 100);
-        assert_eq!(cache.cached_for(StemMode::Advanced, &hash(1)), None);
-        let advanced = store_for(&cache, StemMode::Advanced, 1, 200);
+        let default = store_for(&cache, SeparationMode::Default, 1, 100);
+        assert_eq!(cache.cached_for(SeparationMode::Advanced, &hash(1)), None);
+        let advanced = store_for(&cache, SeparationMode::Advanced, 1, 200);
         assert_ne!(default.directory(), advanced.directory());
-        assert_eq!(cache.cached_for(StemMode::Default, &hash(1)), Some(default));
         assert_eq!(
-            cache.cached_for(StemMode::Advanced, &hash(1)),
+            cache.cached_for(SeparationMode::Default, &hash(1)),
+            Some(default)
+        );
+        assert_eq!(
+            cache.cached_for(SeparationMode::Advanced, &hash(1)),
             Some(advanced)
         );
     }
@@ -545,10 +548,10 @@ mod tests {
     fn a_lookup_without_a_mode_gives_the_advanced_stems_when_there_are_any() {
         let folder = TemporaryFolder::new("best-first");
         let cache = StemCache::new(folder.0.clone(), DEFAULT_STEM_CACHE_LIMIT_BYTES);
-        let default = store_for(&cache, StemMode::Default, 1, 100);
+        let default = store_for(&cache, SeparationMode::Default, 1, 100);
         assert_eq!(cache.lookup(&hash(1)), Some(default.clone()));
         assert_eq!(cache.cached(&hash(1)), Some(default));
-        let advanced = store_for(&cache, StemMode::Advanced, 1, 100);
+        let advanced = store_for(&cache, SeparationMode::Advanced, 1, 100);
         assert_eq!(cache.lookup(&hash(1)), Some(advanced.clone()));
         assert_eq!(cache.cached(&hash(1)), Some(advanced));
         assert_eq!(cache.lookup(&hash(2)), None);
@@ -559,17 +562,20 @@ mod tests {
         let folder = TemporaryFolder::new("evict-both");
         let entry_bytes = 4 * (44 + 400);
         let cache = StemCache::new(folder.0.clone(), 2 * entry_bytes);
-        let old_advanced = store_for(&cache, StemMode::Advanced, 1, 100);
+        let old_advanced = store_for(&cache, SeparationMode::Advanced, 1, 100);
         set_last_used(&old_advanced, 300);
-        let old_default = store_for(&cache, StemMode::Default, 2, 100);
+        let old_default = store_for(&cache, SeparationMode::Default, 2, 100);
         set_last_used(&old_default, 200);
-        let newest = store_for(&cache, StemMode::Advanced, 3, 100);
-        assert_eq!(cache.cached_for(StemMode::Advanced, &hash(1)), None);
+        let newest = store_for(&cache, SeparationMode::Advanced, 3, 100);
+        assert_eq!(cache.cached_for(SeparationMode::Advanced, &hash(1)), None);
         assert_eq!(
-            cache.cached_for(StemMode::Default, &hash(2)),
+            cache.cached_for(SeparationMode::Default, &hash(2)),
             Some(old_default)
         );
-        assert_eq!(cache.cached_for(StemMode::Advanced, &hash(3)), Some(newest));
+        assert_eq!(
+            cache.cached_for(SeparationMode::Advanced, &hash(3)),
+            Some(newest)
+        );
     }
 
     #[test]

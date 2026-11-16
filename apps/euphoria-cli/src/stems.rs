@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use clap::{Args, ValueEnum};
 use euphoria_core::stems::{
-    CachedSeparator, MixExport, Mixdown, SeparationObserver, SeparationStage, Stem, StemMode,
+    CachedSeparator, MixExport, Mixdown, SeparationMode, SeparationObserver, SeparationStage, Stem,
     export_mix, publish_stems,
 };
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
@@ -53,11 +53,11 @@ enum ModeArgument {
     Advanced,
 }
 
-impl From<ModeArgument> for StemMode {
+impl From<ModeArgument> for SeparationMode {
     fn from(argument: ModeArgument) -> Self {
         match argument {
-            ModeArgument::Default => StemMode::Default,
-            ModeArgument::Advanced => StemMode::Advanced,
+            ModeArgument::Default => SeparationMode::Default,
+            ModeArgument::Advanced => SeparationMode::Advanced,
         }
     }
 }
