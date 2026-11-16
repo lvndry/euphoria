@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use euphoria_core::EuphoriaError;
 use euphoria_core::stems::{
@@ -40,7 +41,7 @@ impl StemSeparation for CachedSeparator {
 /// Makes the separation of a mode the first time a track is separated in
 /// it.
 pub(crate) type SeparationFactory =
-    fn(SeparationMode) -> Result<Box<dyn StemSeparation>, EuphoriaError>;
+    Arc<dyn Fn(SeparationMode) -> Result<Box<dyn StemSeparation>, EuphoriaError> + Send + Sync>;
 
 /// The separation of the app in `mode`, with its stems cached in Euphoria's
 /// data folder.
@@ -56,32 +57,98 @@ type LoadedSeparation = Option<(SeparationMode, Box<dyn StemSeparation>)>;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum SeparationPhase {
     Starting,
+    /// In line in this window, behind `ahead` other tracks.
+    Queued {
+        ahead: usize,
+    },
+    /// Waiting for a separation in another window or command.
     Waiting,
-    Downloading { fraction: f32 },
+    Downloading {
+        received: u64,
+        total: u64,
+    },
     LoadingModel,
     Decoding,
-    Separating { done: usize, total: usize },
+    Separating {
+        done: usize,
+        total: usize,
+        remaining: Option<Duration>,
+    },
     Saving,
 }
 
+/// The words every place that shows a separation starts with.
+const SEPARATING_HEADLINE: &str = "Separating the stems";
+
+const BYTES_PER_MEGABYTE: u64 = 1_000_000;
+
 impl SeparationPhase {
-    /// What the track detail says while the separation runs.
-    pub(crate) fn description(self) -> String {
-        match self {
-            SeparationPhase::Starting => "Starting".to_string(),
-            SeparationPhase::Downloading { fraction } => format!(
-                "Downloading the model, {}%",
-                (fraction * 100.0).round() as u32
-            ),
+    /// What every place that shows the separation says, such as
+    /// "Separating the stems · 42%".
+    pub(crate) fn caption(self) -> String {
+        let detail = match self {
+            SeparationPhase::Queued { ahead } => {
+                let noun = if ahead == 1 { "track" } else { "tracks" };
+                return format!("Waiting: {ahead} {noun} ahead");
+            }
+            SeparationPhase::Starting => return SEPARATING_HEADLINE.to_string(),
             SeparationPhase::Waiting => "Waiting for another separation to finish".to_string(),
+            SeparationPhase::Downloading { received, total } => format!(
+                "Downloading the model {} of {} MB",
+                received / BYTES_PER_MEGABYTE,
+                total.div_ceil(BYTES_PER_MEGABYTE)
+            ),
             SeparationPhase::LoadingModel => "Loading the model".to_string(),
             SeparationPhase::Decoding => "Decoding the track".to_string(),
-            SeparationPhase::Separating { done, total } => {
-                format!("Separating, {done} of {total} segments")
+            SeparationPhase::Separating { remaining, .. } => {
+                let percent = format!("{}%", (self.fill().unwrap_or(0.0) * 100.0).floor() as u32);
+                match remaining {
+                    Some(remaining) => format!("{percent} \u{b7} {}", time_left(remaining)),
+                    None => percent,
+                }
             }
             SeparationPhase::Saving => "Saving the stems".to_string(),
+        };
+        format!("{SEPARATING_HEADLINE} \u{b7} {detail}")
+    }
+
+    /// How much of the bar is filled, from 0.0 to 1.0, or `None` for a
+    /// track still in line, whose bar stays empty.
+    pub(crate) fn fill(self) -> Option<f32> {
+        match self {
+            SeparationPhase::Queued { .. } => None,
+            SeparationPhase::Downloading { received, total } => {
+                Some((received as f32 / total.max(1) as f32).clamp(0.0, 1.0))
+            }
+            SeparationPhase::Separating { done, total, .. } => {
+                Some((done as f32 / total.max(1) as f32).clamp(0.0, 1.0))
+            }
+            SeparationPhase::Saving => Some(1.0),
+            SeparationPhase::Starting
+            | SeparationPhase::Waiting
+            | SeparationPhase::LoadingModel
+            | SeparationPhase::Decoding => Some(0.0),
         }
     }
+}
+
+/// The time left, said roughly enough that it does not flicker.
+fn time_left(remaining: Duration) -> String {
+    let seconds = remaining.as_secs();
+    if seconds < 60 {
+        "under a minute left".to_string()
+    } else {
+        format!("about {} min left", seconds.div_ceil(60))
+    }
+}
+
+/// The time left once enough segments are done for their pace to be
+/// steady, which the rest of the track keeps since every segment is as
+/// long as the others.
+fn estimated_remaining(elapsed: Duration, done: usize, total: usize) -> Option<Duration> {
+    const FEWEST_SEGMENTS: usize = 3;
+    let is_steady = done >= FEWEST_SEGMENTS && done * 10 >= total && done < total;
+    is_steady.then(|| elapsed.mul_f64((total - done) as f64 / done as f64))
 }
 
 /// What the user hears of a separated track. The mix of the model's four
@@ -206,6 +273,7 @@ struct SharedProgress {
     received: Arc<AtomicU64>,
     download_total: Arc<AtomicU64>,
     done: Arc<AtomicUsize>,
+    separating_since: Arc<Mutex<Option<Instant>>>,
 }
 
 impl SharedProgress {
@@ -217,27 +285,44 @@ impl SharedProgress {
     fn phase(&self) -> SeparationPhase {
         let phase = *self.phase.lock().unwrap_or_else(PoisonError::into_inner);
         match phase {
-            Some(SeparationPhase::Downloading { .. }) => {
-                let total = self.download_total.load(Ordering::Relaxed).max(1);
-                SeparationPhase::Downloading {
-                    fraction: self.received.load(Ordering::Relaxed) as f32 / total as f32,
+            Some(SeparationPhase::Downloading { .. }) => SeparationPhase::Downloading {
+                received: self.received.load(Ordering::Relaxed),
+                total: self.download_total.load(Ordering::Relaxed),
+            },
+            Some(SeparationPhase::Separating { total, .. }) => {
+                let done = self.done.load(Ordering::Relaxed);
+                let since = *self
+                    .separating_since
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner);
+                SeparationPhase::Separating {
+                    done,
+                    total,
+                    remaining: since
+                        .and_then(|since| estimated_remaining(since.elapsed(), done, total)),
                 }
             }
-            Some(SeparationPhase::Separating { total, .. }) => SeparationPhase::Separating {
-                done: self.done.load(Ordering::Relaxed),
-                total,
-            },
             Some(other) => other,
             None => SeparationPhase::Starting,
         }
     }
 
     fn stage(&self, stage: SeparationStage) {
+        if stage == SeparationStage::Separating {
+            *self
+                .separating_since
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = Some(Instant::now());
+        }
         self.set(match stage {
             SeparationStage::Waiting => SeparationPhase::Waiting,
             SeparationStage::LoadingModel => SeparationPhase::LoadingModel,
             SeparationStage::Decoding => SeparationPhase::Decoding,
-            SeparationStage::Separating => SeparationPhase::Separating { done: 0, total: 0 },
+            SeparationStage::Separating => SeparationPhase::Separating {
+                done: 0,
+                total: 0,
+                remaining: None,
+            },
             SeparationStage::Saving => SeparationPhase::Saving,
         });
     }
@@ -245,12 +330,16 @@ impl SharedProgress {
     fn downloading(&self, received: u64, total: u64) {
         self.download_total.store(total, Ordering::Relaxed);
         self.received.store(received, Ordering::Relaxed);
-        self.set(SeparationPhase::Downloading { fraction: 0.0 });
+        self.set(SeparationPhase::Downloading { received, total });
     }
 
     fn separated(&self, done: usize, total: usize) {
         self.done.store(done, Ordering::Relaxed);
-        self.set(SeparationPhase::Separating { done, total });
+        self.set(SeparationPhase::Separating {
+            done,
+            total,
+            remaining: None,
+        });
     }
 }
 
@@ -295,13 +384,18 @@ pub(crate) struct StemSession {
 }
 
 impl StemSession {
-    pub(crate) fn new(factory: SeparationFactory) -> Self {
+    pub(crate) fn new(
+        factory: impl Fn(SeparationMode) -> Result<Box<dyn StemSeparation>, EuphoriaError>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
         Self {
             statuses: HashMap::new(),
             running: None,
             queued: VecDeque::new(),
             separation: Arc::new(Mutex::new(None)),
-            factory,
+            factory: Arc::new(factory),
             separation_mode: SeparationMode::default(),
             mode: StemMode::default(),
             picked: None,
@@ -352,6 +446,13 @@ impl StemSession {
         self.running.as_ref().map(Running::phase)
     }
 
+    /// The track being separated and where its separation has got to.
+    pub(crate) fn running(&self) -> Option<(&Path, SeparationPhase)> {
+        self.running
+            .as_ref()
+            .map(|running| (running.path.as_path(), running.phase()))
+    }
+
     /// A finished separation, when one has finished and is not heard of yet.
     pub(crate) fn poll(&mut self) -> Option<PathBuf> {
         let path = self.running.as_ref()?.path.clone();
@@ -384,8 +485,13 @@ impl StemSession {
     pub(crate) fn phase_of(&self, path: &Path) -> Option<SeparationPhase> {
         match &self.running {
             Some(running) if running.path == path => Some(running.phase()),
-            _ if self.queued.iter().any(|queued| queued == path) => Some(SeparationPhase::Waiting),
-            _ => None,
+            _ => self
+                .queued
+                .iter()
+                .position(|queued| queued == path)
+                .map(|position| SeparationPhase::Queued {
+                    ahead: position + usize::from(self.running.is_some()),
+                }),
         }
     }
 
@@ -442,7 +548,7 @@ impl StemSession {
         let progress = SharedProgress::default();
         let (sender, finished) = channel();
         let separation = Arc::clone(&self.separation);
-        let factory = self.factory;
+        let factory = Arc::clone(&self.factory);
         let separation_mode = self.separation_mode;
         let thread_progress = progress.clone();
         let thread_path = path.to_path_buf();
@@ -868,7 +974,14 @@ mod tests {
         assert!(session.enqueue(second));
         assert!(session.enqueue(third));
         assert!(!session.enqueue(second));
-        assert_eq!(session.phase_of(second), Some(SeparationPhase::Waiting));
+        assert_eq!(
+            session.phase_of(second),
+            Some(SeparationPhase::Queued { ahead: 1 })
+        );
+        assert_eq!(
+            session.phase_of(third),
+            Some(SeparationPhase::Queued { ahead: 2 })
+        );
         assert!(session.is_busy());
 
         assert!(session.cancel(third));

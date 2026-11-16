@@ -227,7 +227,7 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
                 _ => None,
             },
             vocals: app.vocal_lane_of(path),
-            stems: app.stems.status(path),
+            separation: app.separation_shown(path),
             frame: LaneFrame::whole(
                 view.duration_seconds.unwrap_or(0.0) as f32,
                 progress,

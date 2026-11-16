@@ -12,8 +12,9 @@ use crate::app::EuphoriaApp;
 use crate::library::Track;
 use crate::stem_export::StemExportKind;
 use crate::stems::{StemMode, StemStatus};
-use crate::views::GAP_SMALL;
 use crate::views::controls::{choice_button, segment, segmented};
+use crate::views::separation_progress::{BarIds, separation_bar};
+use crate::views::{CONTROL_HEIGHT, GAP_SMALL, RADIUS_SMALL};
 use euphoria_core::stems::{Mixdown, SeparationMode};
 
 /// The stems section of the track detail: separate the track, wait for it,
@@ -32,16 +33,22 @@ pub(crate) fn section(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, Eup
                     .test_support(),
             ),
         Some(StemStatus::Separating) => {
-            let caption = app
-                .stems
-                .progress()
-                .map(|phase| phase.description())
-                .unwrap_or_else(|| "Separating".to_string());
-            div()
-                .flex_col()
-                .gap(GAP_SMALL)
-                .child(div().text_size(crate::views::SMALL_TEXT_SIZE).child(caption).text_color(palette.text_secondary))
-
+            let bar = app.separation_shown(&track.path).map(|shown| {
+                div()
+                    .h(CONTROL_HEIGHT)
+                    .rounded(RADIUS_SMALL)
+                    .bg(palette.raised.opacity(0.5))
+                    .child(separation_bar(
+                        BarIds {
+                            bar: "stems-separating",
+                            fill: "stems-separating-fill",
+                        },
+                        &shown,
+                        GAP_SMALL,
+                        &palette,
+                    ))
+            });
+            div().flex_col().gap(GAP_SMALL).children(bar)
         }
         Some(StemStatus::Ready(files)) => div()
             .flex_col()

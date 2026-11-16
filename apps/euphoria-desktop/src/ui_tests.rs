@@ -2911,7 +2911,7 @@ fn track_changing_key() -> DemoTrack {
 }
 
 /// A waveform with an energy curve that dips in the middle.
-fn waveform_with_energy() -> Waveform {
+pub(crate) fn waveform_with_energy() -> Waveform {
     let columns: Vec<crate::peaks::BandPeaks> = (0..200)
         .map(|_| crate::peaks::BandPeaks {
             low: 0.5,

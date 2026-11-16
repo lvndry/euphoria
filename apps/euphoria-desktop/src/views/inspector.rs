@@ -1036,7 +1036,7 @@ fn waveform_section(
             _ => None,
         },
         vocals: app.vocal_lane_of(&track.path),
-        stems: app.stems.status(&track.path),
+        separation: app.separation_shown(&track.path),
         frame: LaneFrame::whole(duration_seconds, progress, app.waveform_bounds.clone()),
         palette,
         on_separate: Rc::new(cx.listener(move |this, _: &ClickEvent, _, cx| {
