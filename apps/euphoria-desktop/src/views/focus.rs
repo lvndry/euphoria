@@ -27,7 +27,7 @@ use crate::focus::{
 use crate::format;
 use crate::library::Track;
 use crate::peaks::BandPeaks;
-use crate::stems::{StemFocus, StemStatus};
+use crate::stems::StemFocus;
 use crate::theme::Palette;
 use crate::track_overview::{TimeRange, VocalLane};
 use crate::transition_plan::OPEN_PLANNER_LINK;
@@ -36,6 +36,7 @@ use crate::views::controls::choice_button;
 use crate::views::cues;
 use crate::views::favorites::star_button;
 use crate::views::key_chip::key_chip;
+use crate::views::separation_progress::{BarIds, separation_bar};
 use crate::views::track_overview::{LaneFrame, LaneInputs, VOCALS_HEIGHT, overview_lanes};
 use crate::views::waveform::{WaveformColours, waveform};
 use crate::views::{
@@ -694,7 +695,7 @@ fn timeline(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>)
             _ => None,
         },
         vocals: app.vocal_lane_of(&track.path),
-        stems: app.stems.status(&track.path),
+        separation: app.separation_shown(&track.path),
         frame,
         palette,
         on_separate: Rc::new(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -906,22 +907,30 @@ fn stems_empty_card(
     cx: &mut Context<'_, EuphoriaApp>,
 ) -> AnyElement {
     let palette = app.theme.palette;
-    let status = app.stems.status(&track.path);
-    let is_separating = matches!(status, Some(StemStatus::Separating));
-    let (headline, body) = if is_separating {
-        (
-            "Separating the stems".to_string(),
-            app.stems
-                .progress()
-                .map_or_else(|| "Working on it.".to_string(), |phase| phase.description()),
-        )
-    } else {
-        (
-            "Stems not separated yet".to_string(),
-            "Splits the track into vocals, drums, bass and the rest. Takes about a minute."
-                .to_string(),
-        )
-    };
+    if let Some(shown) = app.separation_shown(&track.path) {
+        return div()
+            .id("focus-stems-empty")
+            .h(px(SLOT_HEIGHT))
+            .border_1()
+            .border_color(palette.line)
+            .rounded(RADIUS_SMALL)
+            .bg(palette.raised.opacity(0.5))
+            .child(separation_bar(
+                BarIds {
+                    bar: "focus-card-separating",
+                    fill: "focus-card-separating-fill",
+                },
+                &shown,
+                GAP_SMALL,
+                &palette,
+            ))
+            .test_support()
+            .into_any_element();
+    }
+    let (headline, body) = (
+        "Stems not separated yet",
+        "Splits the track into vocals, drums, bass and the rest. Takes about a minute.",
+    );
     div()
         .id("focus-stems-empty")
         .flex()
@@ -953,18 +962,16 @@ fn stems_empty_card(
                         .child(body),
                 ),
         )
-        .when(!is_separating, |card| {
-            card.child(
-                secondary_button("Separate", &palette)
-                    .id(if app.focus.lanes.stems {
-                        "focus-stems-separate"
-                    } else {
-                        "focus-vocals-separate"
-                    })
-                    .on_click(cx.listener(|this, _, _, cx| this.request_stems(cx)))
-                    .test_support(),
-            )
-        })
+        .child(
+            secondary_button("Separate", &palette)
+                .id(if app.focus.lanes.stems {
+                    "focus-stems-separate"
+                } else {
+                    "focus-vocals-separate"
+                })
+                .on_click(cx.listener(|this, _, _, cx| this.request_stems(cx)))
+                .test_support(),
+        )
         .test_support()
         .into_any_element()
 }
@@ -1069,16 +1076,16 @@ fn stems_lane(
                 .test_support()
         }
         _ => {
-            let status = app.stems.status(&track.path);
-            let content: AnyElement = match status {
-                Some(StemStatus::Separating) => div()
-                    .text_color(palette.text_tertiary)
-                    .child(
-                        app.stems
-                            .progress()
-                            .map_or_else(|| "Separating".to_string(), |phase| phase.description()),
-                    )
-                    .into_any_element(),
+            let content: AnyElement = match app.separation_shown(&track.path) {
+                Some(shown) => separation_bar(
+                    BarIds {
+                        bar: "focus-stems-separating",
+                        fill: "focus-stems-separating-fill",
+                    },
+                    &shown,
+                    GAP_SMALL,
+                    &palette,
+                ),
                 _ => {
                     let hover_colour = palette.text;
                     div()
