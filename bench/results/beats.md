@@ -57,6 +57,32 @@ All on the development half:
 - **Downbeat.** Four cues are scored on each beat of the bar: the accent of the kick, snares and claps one and three beats later, the change of the overall sound, and the change of bass and chords. Weights of 0.5, 1, 1 and 1 picked the annotated downbeat for 59.6% of the development excerpts that have one and 60.6% of the held out ones; the first three cues with equal weights did so for 48%. The snare cue alone finds the right pair of beats, 1 and 3 against 2 and 4, for 76%; telling 1 from 3 is where most misses are.
 - **Confidence.** How far the onsets on the beats stand out from every other phase of the same tempo separates right grids from wrong ones with an area under the curve of 0.889, and how far the beats of 8 second stretches drift from the grid with 0.893. Low is below 6.5 or a drift above 35 ms, half the window in which a beat counts; high is from 9.5.
 
+## Drift at the beat nearest the grid
+
+Measured on 16 November 2026 on an Apple M5, macOS 27.2, with three worker threads, by `euphoria-bench beats` built from main and from the change, analyzer version 19 against 20. Drift is now measured at the beat nearest the grid in each 8 second stretch instead of at the strongest offset, and the line fit uses the same offsets.
+
+| Development half | Beat F-measure | Grid right | Downbeat right |
+| --- | --- | --- | --- |
+| As reported, before | 0.916 | 81.0% | 49.0% |
+| As reported, after | 0.916 | 81.0% | 48.0% |
+| Octave from the annotation, before | 0.951 | 89.0% | 52.0% |
+| Octave from the annotation, after | 0.952 | 89.0% | 51.0% |
+
+| Held out half | Beat F-measure | Grid right | Downbeat right |
+| --- | --- | --- | --- |
+| As reported, before | 0.921 | 83.0% | 48.0% |
+| As reported, after | 0.922 | 84.0% | 46.0% |
+| Octave from the annotation, before | 0.933 | 87.0% | 52.0% |
+| Octave from the annotation, after | 0.934 | 88.0% | 50.0% |
+
+| Grid confidence, octave from the annotation | Development before | After | Held out before | After |
+| --- | --- | --- | --- | --- |
+| High | 36, 97.2% right | 37, 97.3% | 37, 97.3% | 37, 97.3% |
+| Medium | 34, 100.0% | 40, 100.0% | 22, 100.0% | 28, 96.4% |
+| Low | 30, 66.7% | 23, 56.5% | 41, 70.7% | 35, 71.4% |
+
+The downbeat is right for one excerpt fewer in the development half and two fewer in the held out half, since the line fit now lines up stretches it left out before and the phase it fits moves a little.
+
 ## The line fit
 
 After the search, the period and phase are fitted to where the beats of each 8 second stretch fall, a line through their offsets from the grid. Before and after, on the same tracks:

@@ -20,8 +20,8 @@ OUTPUT_DIRECTORY = Path(__file__).resolve().parent
 # "Beat grid", the confidence table: for each level, the excerpts of the held
 # out half rated at it and the share of them whose grid is right, with the
 # octave of the tempo taken from the annotation.
-HELD_OUT_BY_CONFIDENCE = [("High", 36, 97.2), ("Medium", 22, 100.0), ("Low", 42, 64.3)]
-HELD_OUT_GRID_RIGHT = 84.0
+HELD_OUT_BY_CONFIDENCE = [("High", 37, 97.3), ("Medium", 28, 96.4), ("Low", 35, 71.4)]
+HELD_OUT_GRID_RIGHT = 88.0
 
 # "Cue points", the chart: the energy curve of GiantSteps Key preview
 # 3533956 at its detected tempo of 123.9 BPM, as (window centre in seconds,
@@ -163,11 +163,14 @@ def confidence_chart():
         body.append(bar_path(to_x(0), row_middle - 10, to_x(right) - to_x(0), 20, "right"))
         body.append(text(to_x(right) + 10, row_middle + 4.5, f"{right:.1f}%", "value"))
 
+    levels = ", ".join(
+        f"{number(right)}% of the {excerpts} rated {level.lower()}"
+        for level, excerpts, right in HELD_OUT_BY_CONFIDENCE
+    )
     description = (
         "Horizontal bars of how often the beat grid is right on the 100 held out "
-        "GTZAN disco and hip hop excerpts, by confidence: 97.2% of the 36 rated high, "
-        "100% of the 22 rated medium and 64.3% of the 42 rated low, against 84% of all "
-        "excerpts."
+        f"GTZAN disco and hip hop excerpts, by confidence: {levels}, against "
+        f"{number(HELD_OUT_GRID_RIGHT)}% of all excerpts."
     )
     return document(width, height, "How often the beat grid is right at each confidence", description, body)
 
