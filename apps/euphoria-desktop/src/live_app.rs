@@ -16,7 +16,7 @@ use gpui::{
 
 use crate::app::EuphoriaApp;
 use crate::live_model::{CaptureFactory, LiveModel};
-use crate::menu_bar::PanelAnchor;
+use crate::menu_bar::{PanelAnchor, ScreenFrame};
 use crate::settings::Settings;
 use crate::views::live::{LiveView, PANEL_HEIGHT, PANEL_WIDTH};
 
@@ -97,46 +97,40 @@ fn install_menu_bar(model: &Entity<LiveModel>, cx: &mut App) {
     let _ = (model, cx);
 }
 
-fn display_containing_anchor(
-    anchor: PanelAnchor,
-    displays: &[Bounds<Pixels>],
-) -> Option<Bounds<Pixels>> {
-    let x = px(anchor.center_x as f32);
-    let y = px(anchor.top as f32);
-    displays.iter().copied().find(|bounds| {
-        x >= bounds.origin.x
-            && x < bounds.origin.x + bounds.size.width
-            && y >= bounds.origin.y
-            && y < bounds.origin.y + bounds.size.height
+fn screen_bounds(screen: ScreenFrame) -> Bounds<Pixels> {
+    Bounds {
+        origin: point(px(screen.left as f32), px(screen.top as f32)),
+        size: size(px(screen.width as f32), px(screen.height as f32)),
+    }
+}
+
+/// Where the panel's top left goes: under the item, kept on the item's own
+/// screen, or near the top right of `display` when there is no item.
+fn panel_origin(
+    anchor: Option<PanelAnchor>,
+    display: Option<Bounds<Pixels>>,
+    width: Pixels,
+) -> gpui::Point<Pixels> {
+    if let Some(anchor) = anchor {
+        let bounds = screen_bounds(anchor.screen);
+        let left = (px(anchor.center_x as f32) - width / 2.0)
+            .max(bounds.origin.x + px(PANEL_MARGIN))
+            .min(bounds.origin.x + bounds.size.width - width - px(PANEL_MARGIN));
+        return point(left, px(anchor.top as f32 + 4.0));
+    }
+    display.map_or(point(px(80.0), px(80.0)), |bounds| {
+        point(
+            bounds.origin.x + bounds.size.width - width - px(PANEL_MARGIN),
+            bounds.origin.y + px(PANEL_TOP),
+        )
     })
 }
 
 fn panel_options(anchor: Option<PanelAnchor>, cx: &App) -> (WindowOptions, (f32, f32)) {
     let width = px(PANEL_WIDTH);
     let height = px(PANEL_HEIGHT);
-    let displays: Vec<_> = cx
-        .displays()
-        .iter()
-        .map(|display| display.bounds())
-        .collect();
-    let display = anchor
-        .and_then(|anchor| display_containing_anchor(anchor, &displays))
-        .or_else(|| cx.primary_display().map(|display| display.bounds()));
-    let fallback = display.map_or(point(px(80.0), px(80.0)), |bounds| {
-        point(
-            bounds.origin.x + bounds.size.width - width - px(PANEL_MARGIN),
-            bounds.origin.y + px(PANEL_TOP),
-        )
-    });
-    let origin = match (anchor, display) {
-        (Some(anchor), Some(bounds)) => {
-            let left = (px(anchor.center_x as f32) - width / 2.0)
-                .max(bounds.origin.x + px(PANEL_MARGIN))
-                .min(bounds.origin.x + bounds.size.width - width - px(PANEL_MARGIN));
-            point(left, px(anchor.top as f32 + 4.0))
-        }
-        _ => fallback,
-    };
+    let display = cx.primary_display().map(|display| display.bounds());
+    let origin = panel_origin(anchor, display, width);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds {
             origin,
@@ -306,24 +300,55 @@ pub(crate) fn toggle_open_at_login(cx: &mut App) {
 mod tests {
     use super::*;
 
+    fn anchor_on(screen: ScreenFrame, center_x: i32) -> PanelAnchor {
+        PanelAnchor {
+            center_x,
+            top: screen.top + 24,
+            screen,
+        }
+    }
+
     #[test]
-    fn a_menu_item_on_another_display_anchors_the_panel_there() {
+    fn a_menu_item_on_another_display_opens_the_panel_on_that_display() {
+        let secondary = ScreenFrame {
+            left: 1440,
+            top: -100,
+            width: 1920,
+            height: 1080,
+        };
+        let origin = panel_origin(Some(anchor_on(secondary, 2200)), None, px(PANEL_WIDTH));
+
+        assert_eq!(origin.x, px(2200.0 - PANEL_WIDTH / 2.0));
+        assert_eq!(origin.y, px(-100.0 + 24.0 + 4.0));
+    }
+
+    #[test]
+    fn an_item_near_the_edge_keeps_the_panel_on_its_own_display() {
+        let secondary = ScreenFrame {
+            left: 1440,
+            top: 0,
+            width: 1920,
+            height: 1080,
+        };
+        let near_right = panel_origin(Some(anchor_on(secondary, 3350)), None, px(PANEL_WIDTH));
+        let near_left = panel_origin(Some(anchor_on(secondary, 1450)), None, px(PANEL_WIDTH));
+
+        assert_eq!(
+            near_right.x,
+            px(1440.0 + 1920.0 - PANEL_WIDTH - PANEL_MARGIN)
+        );
+        assert_eq!(near_left.x, px(1440.0 + PANEL_MARGIN));
+    }
+
+    #[test]
+    fn without_an_item_the_panel_opens_near_the_top_right_of_the_display() {
         let primary = Bounds {
             origin: point(px(0.0), px(0.0)),
             size: size(px(1440.0), px(900.0)),
         };
-        let secondary = Bounds {
-            origin: point(px(1440.0), px(-100.0)),
-            size: size(px(1920.0), px(1080.0)),
-        };
-        let anchor = PanelAnchor {
-            center_x: 2200,
-            top: -50,
-        };
+        let origin = panel_origin(None, Some(primary), px(PANEL_WIDTH));
 
-        assert_eq!(
-            display_containing_anchor(anchor, &[primary, secondary]),
-            Some(secondary)
-        );
+        assert_eq!(origin.x, px(1440.0 - PANEL_WIDTH - PANEL_MARGIN));
+        assert_eq!(origin.y, px(PANEL_TOP));
     }
 }

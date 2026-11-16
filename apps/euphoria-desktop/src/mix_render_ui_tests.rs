@@ -135,6 +135,34 @@ fn the_set_renders_to_one_mix_with_its_cue_sheet_tracklist_and_chapters(cx: &mut
 }
 
 #[gpui::test]
+fn rendering_the_same_mix_again_replaces_its_side_files(cx: &mut TestAppContext) {
+    let (_window, view, scratch) = open_built_set("mix-render-again", cx);
+    let output = scratch.0.join("friday.wav");
+    cx.update(|cx| view.update(cx, |app, cx| app.begin_mix_render(output.clone(), cx)));
+    wait_for_render(&view, cx);
+    let tracklist = scratch.0.join("friday.tracklist.txt");
+    std::fs::write(&tracklist, "stale tracklist").unwrap();
+
+    cx.update(|cx| view.update(cx, |app, cx| app.begin_mix_render(output.clone(), cx)));
+    cx.update(|cx| assert!(view.read(cx).set_builder.render.is_some()));
+    wait_for_render(&view, cx);
+
+    assert_ne!(
+        std::fs::read_to_string(&tracklist).unwrap(),
+        "stale tracklist"
+    );
+    assert!(scratch.0.join("friday.cue").exists());
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert!(
+            app.notice
+                .as_ref()
+                .is_none_or(|notice| !notice.contains("already exists"))
+        );
+    });
+}
+
+#[gpui::test]
 fn a_new_mix_format_does_not_overwrite_an_existing_side_file(cx: &mut TestAppContext) {
     let (_window, view, scratch) = open_built_set("mix-render-existing-side", cx);
     let output = scratch.0.join("friday.mp3");

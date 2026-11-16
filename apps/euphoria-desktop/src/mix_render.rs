@@ -95,6 +95,9 @@ pub(crate) struct MixPlanJob {
 struct MixRenderJob {
     plan: MixPlanJob,
     output: PathBuf,
+    /// True when the save dialog approved replacing an existing mix, whose
+    /// cue sheet, tracklist and chapters are then replaced with it.
+    replaces_mix: bool,
 }
 
 /// What a finished render wrote.
@@ -216,12 +219,11 @@ impl MixRenderJob {
             (chapters_path, chapters(&plan.tracks, &rendered.timeline)),
         ];
         for (path, text) in texts {
-            // The save dialog only approves replacing the mix itself. A side
-            // file can also appear while a long mix renders, so create it
-            // exclusively even after the check before rendering.
             let mut file = std::fs::OpenOptions::new()
                 .write(true)
-                .create_new(true)
+                .create_new(!self.replaces_mix)
+                .create(self.replaces_mix)
+                .truncate(self.replaces_mix)
                 .open(&path)
                 .map_err(|source| EuphoriaError::ExportFile {
                     path: path.clone(),
@@ -322,9 +324,10 @@ impl EuphoriaApp {
             return;
         }
         let (mix_path, _) = mix_output(output.clone());
+        let replaces_mix = mix_path.symlink_metadata().is_ok();
         if let Some(existing) = side_files(&mix_path)
             .into_iter()
-            .find(|path| path.symlink_metadata().is_ok())
+            .find(|path| !replaces_mix && path.symlink_metadata().is_ok())
         {
             self.notice = Some(format!(
                 "Could not render the mix: {} already exists. Choose another mix name or move its side files first.",
@@ -339,6 +342,7 @@ impl EuphoriaApp {
         let job = MixRenderJob {
             plan,
             output: output.clone(),
+            replaces_mix,
         };
         let shared = Arc::new(RenderShared::default());
         self.set_builder.render = Some(MixRenderRun {
