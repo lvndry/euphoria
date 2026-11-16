@@ -473,6 +473,17 @@ jobs:
             done
             (cd dist && sha256sum --check SHA256SUMS)
           fi
+      - name: Add the install script
+        run: |
+          # The script from the release's own commit, so that
+          # releases/latest/download/install.sh is the one that passed CI
+          # with this release. Releases tagged before it existed go without.
+          if git cat-file -e "v$VERSION:scripts/install.sh" 2> /dev/null; then
+            git show "v$VERSION:scripts/install.sh" > dist/install.sh
+            (cd dist && sha256sum install.sh >> SHA256SUMS && sha256sum --check SHA256SUMS)
+          else
+            echo "v$VERSION has no scripts/install.sh; publishing without it."
+          fi
       - name: Push the tag
         if: env.MODE == 'new'
         run: git push origin "refs/tags/v$VERSION"
