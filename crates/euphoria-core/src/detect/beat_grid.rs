@@ -300,28 +300,96 @@ pub(crate) fn fit_beats(envelope: &OnsetEnvelope, estimate_bpm: f64) -> Option<B
         strongest_score = strongest_score.max(score);
         (best_score, best_period, best_phase) = (score, period, phase);
     }
-    let phase_count = best_period.ceil() as usize;
+    rated_fit(&values, best_period, best_phase, best_score)
+}
+
+/// The fit of the beats `phase + k * period`, whose comb score over the
+/// whole track is `score`, with its salience, or `None` when it shows no
+/// beat.
+fn rated_fit(values: &[f32], period: f64, phase: f64, score: f32) -> Option<BeatFit> {
+    let last = values.len() as f64;
+    let phase_count = period.ceil() as usize;
     let mean_over_phases = (0..phase_count)
-        .map(|phase| comb(&values, best_period, phase as f64, 0.0, last))
+        .map(|phase| comb(values, period, phase as f64, 0.0, last))
         .sum::<f32>()
         / phase_count as f32;
-    if mean_over_phases <= 0.0 || best_score <= 0.0 {
+    if mean_over_phases <= 0.0 || score <= 0.0 {
         return None;
     }
-    let (hits, beats) = beat_hits(&values, best_period, best_phase);
+    let (hits, beats) = beat_hits(values, period, phase);
     if hits < MINIMUM_BEAT_HITS {
         return None;
     }
     let recurs = hits >= RECURRING_BEAT_HITS && hits as f64 >= RECURRING_BEAT_SHARE * beats as f64;
     Some(BeatFit {
-        period_frames: best_period,
-        phase_frames: best_phase.rem_euclid(best_period),
+        period_frames: period,
+        phase_frames: phase.rem_euclid(period),
         salience: if recurs {
-            best_score / mean_over_phases
+            score / mean_over_phases
         } else {
             0.0
         },
     })
+}
+
+/// The phase, in frames, whose beats at `period` have the strongest onsets
+/// over the whole track, and their comb score.
+fn best_phase_at(values: &[f32], period: f64) -> (f64, f32) {
+    let last = values.len() as f64;
+    let mut best = (0.0, 0.0_f32);
+    let mut phase = 0.0;
+    while phase < period {
+        let score = comb(values, period, phase, 0.0, last);
+        if score > best.1 {
+            best = (phase, score);
+        }
+        phase += 1.0;
+    }
+    for step in [0.1, 0.01] {
+        let centre = best.0;
+        for phase_step in -10..=10 {
+            let phase = centre + f64::from(phase_step) * step;
+            let score = comb(values, period, phase, 0.0, last);
+            if score > best.1 {
+                best = (phase, score);
+            }
+        }
+    }
+    best
+}
+
+/// The tempo the whole number snap is made in: the octave a DJ counts by
+/// default, so that a grid fitted at half or double the tempo still snaps
+/// to the whole number shown.
+fn counted_octave_factor(bpm: f64) -> f64 {
+    let folded = f64::from(TempoRange::DEFAULT.fold(bpm as f32));
+    2.0_f64.powi((folded / bpm).log2().round() as i32)
+}
+
+/// The grid at the whole number of beats per minute nearest to `fit`,
+/// counted in the default tempo range, with its phase fitted again, and
+/// how its comb score compares with that of `fit`, as a share. `None` when
+/// `fit` is already at a whole number, when the whole number would be shown
+/// in another octave, as 180 is shown at 90, or when the grid at the whole
+/// number shows no beat.
+fn whole_tempo_fit(envelope: &OnsetEnvelope, fit: BeatFit) -> Option<(BeatFit, f32)> {
+    let values = peaks_only(&envelope.full, envelope.frame_rate);
+    let last = values.len() as f64;
+    let bpm = 60.0 * envelope.frame_rate / fit.period_frames;
+    let factor = counted_octave_factor(bpm);
+    let whole_bpm = (bpm * factor).round() / factor;
+    let crosses_range_edge = counted_octave_factor(whole_bpm) != factor;
+    if whole_bpm == bpm || whole_bpm <= 0.0 || crosses_range_edge {
+        return None;
+    }
+    let fit_score = comb(&values, fit.period_frames, fit.phase_frames, 0.0, last);
+    if fit_score <= 0.0 {
+        return None;
+    }
+    let period = 60.0 * envelope.frame_rate / whole_bpm;
+    let (phase, score) = best_phase_at(&values, period);
+    let whole = rated_fit(&values, period, phase, score)?;
+    Some((whole, score / fit_score))
 }
 
 /// How many beats of the grid have an onset near them, and how many beats
@@ -631,6 +699,10 @@ const HIGH_SALIENCE: f32 = 9.5;
 /// stretch of the track, half the window in which a beat counts as found,
 /// is rated low whatever else it shows.
 const DRIFT_LIMIT_SECONDS: f32 = 0.035;
+/// A grid that sets the tempo moves to the nearest whole number of beats
+/// per minute when the beats at that tempo score at least this share of
+/// the comb score of the fitted tempo.
+const WHOLE_TEMPO_SCORE_SHARE: f32 = 0.99;
 
 /// Where the beats and bars of a track fall, with one constant tempo.
 ///
@@ -702,6 +774,13 @@ impl BeatGrid {
         }
     }
 
+    /// Whether the grid fits the beats well enough for its tempo to be the
+    /// tempo of the track: rated medium or high, so its beats stand out and
+    /// do not drift.
+    pub fn sets_tempo(&self) -> bool {
+        self.confidence() != Confidence::Low
+    }
+
     /// The same grid with its tempo in `range`. Halving the tempo keeps
     /// every other beat and doubling it adds one between each two, and the
     /// first downbeat stays a downbeat either way. Doubling shortens the
@@ -738,6 +817,19 @@ pub fn detect_beat_grid(audio: &AudioBuffer, tempo_bpm: f64) -> Option<BeatGrid>
 /// [`detect_beat_grid`] on an envelope that is already computed.
 pub(crate) fn grid_of_envelope(envelope: &OnsetEnvelope, tempo_bpm: f64) -> Option<BeatGrid> {
     let fit = fit_beats(envelope, tempo_bpm)?;
+    let fitted = grid_of_fit(envelope, fit);
+    if !fitted.sets_tempo() {
+        return Some(fitted);
+    }
+    let snapped = whole_tempo_fit(envelope, fit)
+        .filter(|(_, share)| *share >= WHOLE_TEMPO_SCORE_SHARE)
+        .map(|(whole, _)| grid_of_fit(envelope, whole))
+        .filter(BeatGrid::sets_tempo);
+    Some(snapped.unwrap_or(fitted))
+}
+
+/// The grid of `fit`, with its downbeat chosen and its drift measured.
+fn grid_of_fit(envelope: &OnsetEnvelope, fit: BeatFit) -> BeatGrid {
     let evidence = downbeat_evidence(envelope, fit);
     let downbeat = choose_downbeat(&evidence);
     let beat_seconds = fit.period_frames / envelope.frame_rate;
@@ -746,12 +838,12 @@ pub(crate) fn grid_of_envelope(envelope: &OnsetEnvelope, tempo_bpm: f64) -> Opti
         + BEAT_TIMING_OFFSET_SECONDS;
     let bar_seconds = beat_seconds * BEATS_PER_BAR as f64;
     let downbeat_seconds = first_beat_seconds + downbeat as f64 * beat_seconds;
-    Some(BeatGrid {
+    BeatGrid {
         first_downbeat_seconds: downbeat_seconds.rem_euclid(bar_seconds),
         bpm: 60.0 / beat_seconds,
         salience: fit.salience,
         drift_seconds: drift_seconds(envelope, fit).map(|drift| drift as f32),
-    })
+    }
 }
 
 /// The beat of the bar, counted from the first beat of the fit, with the
@@ -902,6 +994,87 @@ mod tests {
                 > 0.035
         );
         assert_eq!(grid.confidence(), Confidence::Low, "{grid:?}");
+    }
+
+    /// A click of a kick drum every beat at `tempo`, from `first_beat`
+    /// seconds, and the times of the clicks.
+    fn clicks(tempo: f64, seconds: f64, first_beat: f64) -> (AudioBuffer, Vec<f64>) {
+        let mut samples = vec![0.0_f32; (seconds * f64::from(SAMPLE_RATE)) as usize];
+        let mut times = Vec::new();
+        let mut time = first_beat;
+        while time < seconds - 1.0 {
+            add_hit(&mut samples, time, 60.0, 0.05, 0.8);
+            times.push(time);
+            time += 60.0 / tempo;
+        }
+        let audio = AudioBuffer::new(samples, NonZeroU32::new(SAMPLE_RATE).unwrap());
+        (audio, times)
+    }
+
+    #[test]
+    fn a_click_track_at_100_bpm_measured_at_99_9_snaps_to_100() {
+        let (audio, _) = clicks(100.0, 180.0, 0.3);
+
+        let grid = detect_beat_grid(&audio, 99.9).expect("clicks have a grid");
+
+        assert_eq!(grid.bpm, 100.0, "{grid:?}");
+        assert!(grid.sets_tempo(), "{grid:?}");
+    }
+
+    #[test]
+    fn a_track_at_98_6_bpm_stays_at_98_6() {
+        for estimate in [98.6, 98.9] {
+            let audio = dance_loop(98.6, 120.0, 0.5);
+
+            let grid = detect_beat_grid(&audio, estimate).expect("a loop has a grid");
+
+            assert_close(grid.bpm, 98.6, 0.01, "tempo");
+            assert!(grid.sets_tempo(), "{grid:?}");
+        }
+    }
+
+    #[test]
+    fn a_snapped_grid_keeps_its_beats_on_the_clicks() {
+        let (audio, times) = clicks(100.0, 240.0, 0.37);
+
+        let grid = detect_beat_grid(&audio, 99.9).expect("clicks have a grid");
+
+        assert_eq!(grid.bpm, 100.0, "{grid:?}");
+        let offsets: Vec<f64> = times
+            .iter()
+            .map(|time| {
+                let beats = (time - grid.first_downbeat_seconds) / grid.beat_seconds();
+                (beats - beats.round()) * grid.beat_seconds()
+            })
+            .collect();
+        let earliest = offsets.iter().copied().fold(f64::INFINITY, f64::min);
+        let latest = offsets.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        assert!(
+            earliest.abs() < 0.035 && latest.abs() < 0.035,
+            "beats {earliest} to {latest} s from the clicks"
+        );
+        assert!(
+            latest - earliest < 0.005,
+            "the beats drift {} s over the track",
+            latest - earliest
+        );
+    }
+
+    #[test]
+    fn a_drifting_tempo_is_not_snapped_and_does_not_set_the_tempo() {
+        let mut samples = vec![0.0_f32; 60 * SAMPLE_RATE as usize];
+        let mut time = 0.3;
+        while time < 59.0 {
+            add_hit(&mut samples, time, 60.0, 0.08, 0.6);
+            let tempo = 97.0 + 6.0 * time / 60.0;
+            time += 60.0 / tempo;
+        }
+        let audio = AudioBuffer::new(samples, NonZeroU32::new(SAMPLE_RATE).unwrap());
+
+        let grid = detect_beat_grid(&audio, 99.9).expect("clicks have a grid");
+
+        assert!(!grid.sets_tempo(), "{grid:?}");
+        assert_ne!(grid.bpm, grid.bpm.round(), "{grid:?}");
     }
 
     #[test]
