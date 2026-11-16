@@ -1,8 +1,8 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The settings panel: how keys and tempos are shown, the key moves, and how
-//! tags are written.
+//! The settings panel: how keys and tempos are shown, the key moves, how
+//! tags are written, and how tracks are separated into stems.
 
 use euphoria_core::harmony::Relation;
 use euphoria_core::harmony::words::relation_name;
@@ -13,6 +13,7 @@ use gpui::{AnyElement, Context, FontWeight, ScrollHandle, SharedString, TestSupp
 
 use crate::app::EuphoriaApp;
 use crate::display_settings::TempoPreset;
+use crate::stem_settings::{MODES, mode_label};
 use crate::surface_motion::Modal;
 use crate::tag_settings::{LabelChoice, NotationChoice, ProgramChoice};
 use crate::theme::Palette;
@@ -509,6 +510,39 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> An
         )
         .on_click(cx.listener(|this, _, _, cx| this.toggle_metronome_accent(cx)))
         .test_support()
+        .into_any_element(),
+    );
+
+    let current_mode = app.stem_settings.mode();
+    let stem_modes = MODES
+        .into_iter()
+        .enumerate()
+        .map(|(index, mode)| {
+            segment(
+                ("separation-mode", index),
+                mode_label(mode),
+                current_mode == mode,
+                index == 0,
+                &palette,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.set_stems_mode(mode, cx)))
+            .test_support()
+            .into_any_element()
+        })
+        .collect::<Vec<_>>();
+    parts.push(part_heading("Stems", &palette).into_any_element());
+    parts.push(
+        setting(
+            "Separation",
+            "separation-mode",
+            "Advanced mode separates more cleanly, most of all in the vocals.",
+            Some(
+                "It takes about seven times as long, needs about 4.5 GB of free memory, \
+                 and downloads 214 MB the first time. Stems it made are used in either mode.",
+            ),
+            segmented(stem_modes, &palette),
+            &palette,
+        )
         .into_any_element(),
     );
 

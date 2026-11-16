@@ -152,6 +152,9 @@ mod state;
 mod stem_export;
 #[cfg(test)]
 mod stem_export_ui_tests;
+mod stem_settings;
+#[cfg(test)]
+mod stem_settings_ui_tests;
 mod stems;
 #[cfg(test)]
 mod suggestion_filter_ui_tests;

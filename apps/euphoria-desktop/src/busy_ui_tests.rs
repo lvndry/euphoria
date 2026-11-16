@@ -17,8 +17,9 @@ use crate::library_export::{
 use crate::tag_flow::TagPanel;
 use crate::ui_tests::{is_shown, open_library};
 
-fn fails_to_separate() -> Result<Box<dyn crate::stems::StemSeparation>, euphoria_core::EuphoriaError>
-{
+fn fails_to_separate(
+    _mode: euphoria_core::stems::SeparationMode,
+) -> Result<Box<dyn crate::stems::StemSeparation>, euphoria_core::EuphoriaError> {
     Err(euphoria_core::EuphoriaError::NoDataDirectory)
 }
 

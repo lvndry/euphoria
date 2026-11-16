@@ -497,7 +497,7 @@ fn missing_stems_say_stems_are_needed_and_links_that_start_separation(cx: &mut T
     let setup = open_plans("plan-missing-stems", &[], cx);
     cx.update(|cx| {
         setup.view.update(cx, |app, _| {
-            app.stems = StemSession::new(|| Err(EuphoriaError::NoDataDirectory));
+            app.stems = StemSession::new(|_| Err(EuphoriaError::NoDataDirectory));
         })
     });
     open_focus_with_plans(&setup, cx);
@@ -631,7 +631,7 @@ fn the_overlap_link_on_the_plan_card_starts_separating_the_first_track_without_s
     let setup = open_plans("plan-overlap-link", &[], cx);
     cx.update(|cx| {
         setup.view.update(cx, |app, _| {
-            app.stems = StemSession::new(|| Err(EuphoriaError::NoDataDirectory));
+            app.stems = StemSession::new(|_| Err(EuphoriaError::NoDataDirectory));
         })
     });
     open_focus_with_plans(&setup, cx);
@@ -1082,7 +1082,7 @@ fn the_separate_button_separates_b_in_place_and_the_lanes_fill_when_it_finishes(
     let files_a = write_stems_with_vocals_for(&folder_a, 64, 6);
     cx.update(|cx| {
         setup.view.update(cx, |app, _| {
-            app.stems = StemSession::new(|| Ok(Box::new(StubStems)));
+            app.stems = StemSession::new(|_| Ok(Box::new(StubStems)));
             app.stems.mark_ready(&setup.a, files_a.clone());
         })
     });

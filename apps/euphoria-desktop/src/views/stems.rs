@@ -14,7 +14,7 @@ use crate::stem_export::StemExportKind;
 use crate::stems::{StemMode, StemStatus};
 use crate::views::GAP_SMALL;
 use crate::views::controls::{choice_button, segment, segmented};
-use euphoria_core::stems::Mixdown;
+use euphoria_core::stems::{Mixdown, SeparationMode};
 
 /// The stems section of the track detail: separate the track, wait for it,
 /// and choose what to hear of the separated ones.
@@ -43,7 +43,7 @@ pub(crate) fn section(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, Eup
                 .child(div().text_size(crate::views::SMALL_TEXT_SIZE).child(caption).text_color(palette.text_secondary))
 
         }
-        Some(StemStatus::Ready(_)) => div()
+        Some(StemStatus::Ready(files)) => div()
             .flex_col()
             .gap(GAP_SMALL)
             .child(div().flex().child(segmented(
@@ -71,6 +71,28 @@ pub(crate) fn section(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, Eup
             .children(
                 (app.key_shift != 0 && track.key().is_some())
                     .then(|| export_row(track, app, true, cx)),
+            )
+            .children(
+                (app.stem_settings.mode() == SeparationMode::Advanced
+                    && files.mode() == Some(SeparationMode::Default))
+                .then(|| {
+                    div().flex().child(
+                        choice_button(
+                            "stems-advanced",
+                            "Separate again in Advanced mode",
+                            false,
+                            &palette,
+                        )
+                        .tooltip(move |window, cx| {
+                            Tooltip::new(
+                                "Makes cleaner stems, most of all in the vocals. The stems you have stay until the new ones are ready.",
+                            )
+                            .build(window, cx)
+                        })
+                        .on_click(cx.listener(move |this, _, _, cx| this.request_stems(cx)))
+                        .test_support(),
+                    )
+                }),
             )
             .child(
                 div().flex().child(
