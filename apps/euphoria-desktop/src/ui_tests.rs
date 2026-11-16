@@ -3030,8 +3030,9 @@ fn show_vocal_lane_of_selected(
     });
 }
 
-fn fails_to_separate() -> Result<Box<dyn crate::stems::StemSeparation>, euphoria_core::EuphoriaError>
-{
+fn fails_to_separate(
+    _mode: euphoria_core::stems::SeparationMode,
+) -> Result<Box<dyn crate::stems::StemSeparation>, euphoria_core::EuphoriaError> {
     Err(euphoria_core::EuphoriaError::NoDataDirectory)
 }
 

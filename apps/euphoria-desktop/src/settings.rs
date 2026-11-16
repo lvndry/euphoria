@@ -16,6 +16,7 @@ use crate::first_run::FirstRun;
 use crate::focus::FocusLanes;
 use crate::metronome::MetronomeSettings;
 use crate::panels::Panels;
+use crate::stem_settings::StemSettings;
 use crate::tag_settings::TagSettings;
 use crate::theme::ThemeName;
 use crate::track_filters::TrackFilters;
@@ -74,6 +75,10 @@ pub(crate) struct Settings {
     pub(crate) track_filters: TrackFilters,
     /// Where the energy goes with the track to play after the one playing.
     pub(crate) next_energy: crate::next_rail::EnergyChoice,
+    /// How tracks are separated into stems. Left out of the file for the
+    /// default mode.
+    #[serde(skip_serializing_if = "StemSettings::is_default")]
+    pub(crate) stems: StemSettings,
     /// How far the first run got. `None` in a file written before the first
     /// run card existed.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -272,6 +277,7 @@ mod tests {
                 ],
             },
             next_energy: crate::next_rail::EnergyChoice::Lift,
+            stems: StemSettings::for_mode(euphoria_core::stems::SeparationMode::Advanced),
             first_run: Some(FirstRun {
                 analysis_done: true,
                 write_done: false,
@@ -358,6 +364,7 @@ mod tests {
             inspector_sections: Default::default(),
             track_filters: TrackFilters::default(),
             next_energy: Default::default(),
+            stems: StemSettings::default(),
             first_run: None,
         })
         .unwrap();
@@ -395,6 +402,31 @@ mod tests {
         let loaded = loaded.unwrap();
         assert_eq!(loaded.track_filters, TrackFilters::default());
         assert!(!loaded.track_filters.is_active());
+    }
+
+    #[test]
+    fn a_settings_file_from_before_the_stems_mode_loads_as_the_default_mode() {
+        let old = load_text(
+            "before-stems-mode",
+            r#"{"folders":["/music"],"theme":"deck"}"#,
+        );
+        assert_eq!(
+            old.stems.mode(),
+            euphoria_core::stems::SeparationMode::Default
+        );
+        let saved = serde_json::to_string(&old).unwrap();
+        assert!(!saved.contains(r#""stems":{"#), "{saved}");
+
+        let advanced = load_text("advanced-stems-mode", r#"{"stems":{"advanced":true}}"#);
+        assert_eq!(
+            advanced.stems.mode(),
+            euphoria_core::stems::SeparationMode::Advanced
+        );
+        assert!(
+            serde_json::to_string(&advanced)
+                .unwrap()
+                .contains(r#""stems":{"advanced":true}"#)
+        );
     }
 
     #[test]

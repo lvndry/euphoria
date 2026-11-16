@@ -11,7 +11,9 @@ use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use euphoria_core::EuphoriaError;
-use euphoria_core::stems::{CachedSeparator, SeparationObserver, SeparationStage, Stem, StemFiles};
+use euphoria_core::stems::{
+    CachedSeparator, SeparationMode, SeparationObserver, SeparationStage, Stem, StemFiles,
+};
 
 use crate::playback::StemMix;
 
@@ -35,14 +37,20 @@ impl StemSeparation for CachedSeparator {
     }
 }
 
-/// Makes the separation the first time a track is separated.
-pub(crate) type SeparationFactory = fn() -> Result<Box<dyn StemSeparation>, EuphoriaError>;
+/// Makes the separation of a mode the first time a track is separated in
+/// it.
+pub(crate) type SeparationFactory =
+    fn(SeparationMode) -> Result<Box<dyn StemSeparation>, EuphoriaError>;
 
-/// The separation of the app: the htdemucs model, with its stems cached in
-/// Euphoria's data folder.
-pub(crate) fn model_separation() -> Result<Box<dyn StemSeparation>, EuphoriaError> {
-    Ok(Box::new(CachedSeparator::open_default()?))
+/// The separation of the app in `mode`, with its stems cached in Euphoria's
+/// data folder.
+pub(crate) fn model_separation(
+    mode: SeparationMode,
+) -> Result<Box<dyn StemSeparation>, EuphoriaError> {
+    Ok(Box::new(CachedSeparator::open(mode)?))
 }
+
+type LoadedSeparation = Option<(SeparationMode, Box<dyn StemSeparation>)>;
 
 /// Where a separation has got to.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -254,8 +262,9 @@ pub(crate) struct StemSession {
     statuses: HashMap<PathBuf, StemStatus>,
     running: Option<Running>,
     queued: VecDeque<PathBuf>,
-    separation: Arc<Mutex<Option<Box<dyn StemSeparation>>>>,
+    separation: Arc<Mutex<LoadedSeparation>>,
     factory: SeparationFactory,
+    separation_mode: SeparationMode,
     mode: StemMode,
     focus: Option<StemFocus>,
     mix: Arc<StemMix>,
@@ -269,6 +278,7 @@ impl StemSession {
             queued: VecDeque::new(),
             separation: Arc::new(Mutex::new(None)),
             factory,
+            separation_mode: SeparationMode::default(),
             mode: StemMode::default(),
             focus: None,
             mix: Arc::new(StemMix::default()),
@@ -410,16 +420,27 @@ impl StemSession {
         let (sender, finished) = channel();
         let separation = Arc::clone(&self.separation);
         let factory = self.factory;
+        let separation_mode = self.separation_mode;
         let thread_progress = progress.clone();
         let thread_path = path.to_path_buf();
         let spawned = std::thread::Builder::new()
             .name("euphoria-stems".to_string())
             .spawn(move || {
-                let mut separation = separation.lock().unwrap_or_else(PoisonError::into_inner);
-                let result = match &mut *separation {
-                    Some(separation) => separation.stems(&thread_path, &thread_progress),
-                    empty => factory()
-                        .and_then(|made| empty.insert(made).stems(&thread_path, &thread_progress)),
+                let mut loaded = separation.lock().unwrap_or_else(PoisonError::into_inner);
+                if loaded
+                    .as_ref()
+                    .is_some_and(|(loaded_mode, _)| *loaded_mode != separation_mode)
+                {
+                    *loaded = None;
+                }
+                let result = match &mut *loaded {
+                    Some((_, separation)) => separation.stems(&thread_path, &thread_progress),
+                    empty => factory(separation_mode).and_then(|made| {
+                        empty
+                            .insert((separation_mode, made))
+                            .1
+                            .stems(&thread_path, &thread_progress)
+                    }),
                 };
                 let _ = sender.send(result.map_err(|error| failure_message(&error)));
             });
@@ -437,6 +458,31 @@ impl StemSession {
             progress,
             finished,
         });
+        true
+    }
+
+    /// The mode new separations are made in.
+    pub(crate) fn separation_mode(&self) -> SeparationMode {
+        self.separation_mode
+    }
+
+    /// Makes the separations that start from now on use `mode`. The network
+    /// that is loaded is let go when it is not the one of `mode`, before the
+    /// next one loads, since the Advanced network needs several gigabytes. A
+    /// separation that is running keeps the mode it started with, and the
+    /// network it uses is let go by the next one to start. Returns true when
+    /// the mode changed.
+    pub(crate) fn set_separation_mode(&mut self, mode: SeparationMode) -> bool {
+        if self.separation_mode == mode {
+            return false;
+        }
+        self.separation_mode = mode;
+        let mut loaded = match self.separation.try_lock() {
+            Ok(loaded) => loaded,
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return true,
+        };
+        *loaded = None;
         true
     }
 
@@ -506,7 +552,7 @@ mod tests {
 
     use super::*;
 
-    fn failing() -> Result<Box<dyn StemSeparation>, EuphoriaError> {
+    fn failing(_mode: SeparationMode) -> Result<Box<dyn StemSeparation>, EuphoriaError> {
         Err(EuphoriaError::NoDataDirectory)
     }
 
@@ -519,6 +565,68 @@ mod tests {
             assert!(Instant::now() < deadline, "the separation never finished");
             std::thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    static LOADED_NETWORKS: AtomicUsize = AtomicUsize::new(0);
+    static MOST_LOADED_NETWORKS: AtomicUsize = AtomicUsize::new(0);
+    static OPENED_MODES: Mutex<Vec<SeparationMode>> = Mutex::new(Vec::new());
+
+    struct CountedNetwork;
+
+    impl CountedNetwork {
+        fn load(mode: SeparationMode) -> Result<Box<dyn StemSeparation>, EuphoriaError> {
+            OPENED_MODES.lock().unwrap().push(mode);
+            let loaded = LOADED_NETWORKS.fetch_add(1, Ordering::SeqCst) + 1;
+            MOST_LOADED_NETWORKS.fetch_max(loaded, Ordering::SeqCst);
+            Ok(Box::new(CountedNetwork))
+        }
+    }
+
+    impl Drop for CountedNetwork {
+        fn drop(&mut self) {
+            LOADED_NETWORKS.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+
+    impl StemSeparation for CountedNetwork {
+        fn stems(
+            &mut self,
+            _path: &Path,
+            _observer: &dyn SeparationObserver,
+        ) -> Result<StemFiles, EuphoriaError> {
+            Ok(StemFiles::in_directory(PathBuf::from("/stems/track")))
+        }
+    }
+
+    #[test]
+    fn changing_the_separation_mode_lets_go_of_the_network_before_the_next_one_loads() {
+        let mut session = StemSession::new(CountedNetwork::load);
+        let track = Path::new("/music/track.mp3");
+        assert_eq!(session.separation_mode(), SeparationMode::Default);
+        assert!(!session.set_separation_mode(SeparationMode::Default));
+
+        assert!(session.start(track));
+        wait_for_finish(&mut session);
+        assert_eq!(LOADED_NETWORKS.load(Ordering::SeqCst), 1);
+
+        assert!(session.start(track));
+        wait_for_finish(&mut session);
+        assert_eq!(
+            OPENED_MODES.lock().unwrap().len(),
+            1,
+            "the same mode keeps its network"
+        );
+
+        assert!(session.set_separation_mode(SeparationMode::Advanced));
+        assert_eq!(LOADED_NETWORKS.load(Ordering::SeqCst), 0);
+
+        assert!(session.start(track));
+        wait_for_finish(&mut session);
+        assert_eq!(
+            *OPENED_MODES.lock().unwrap(),
+            [SeparationMode::Default, SeparationMode::Advanced]
+        );
+        assert_eq!(MOST_LOADED_NETWORKS.load(Ordering::SeqCst), 1);
     }
 
     #[test]

@@ -186,6 +186,8 @@ pub(crate) struct EuphoriaApp {
     /// Where the energy should go with the track to play after the one
     /// playing.
     pub(crate) next_energy: crate::next_rail::EnergyChoice,
+    /// How tracks are separated into stems.
+    pub(crate) stem_settings: crate::stem_settings::StemSettings,
     /// The library index of the track playing on the player or a deck,
     /// which the list of tracks to play next follows.
     pub(crate) rail_anchor: Option<usize>,
@@ -592,6 +594,7 @@ impl EuphoriaApp {
             selected: None,
             mixes: Vec::new(),
             next_energy: settings.next_energy,
+            stem_settings: settings.stems,
             rail_anchor: None,
             next_rows: Vec::new(),
             next_preview: crate::next_preview::NextPreview::default(),
@@ -641,7 +644,11 @@ impl EuphoriaApp {
             window_focus,
             output,
             by_ear: crate::key_by_ear::ByEar::default(),
-            stems: crate::stems::StemSession::new(crate::stems::model_separation),
+            stems: {
+                let mut stems = crate::stems::StemSession::new(crate::stems::model_separation);
+                stems.set_separation_mode(settings.stems.mode());
+                stems
+            },
             decks: crate::decks::Decks::with_filter(settings.suggestion_filter.clone()),
             focus: crate::focus::FocusView::new(settings.focus_lanes),
             planner: crate::transition_plan::Planner::default(),
@@ -1503,6 +1510,21 @@ impl EuphoriaApp {
     /// Shows or hides the Stage column of the track table.
     pub(crate) fn toggle_stage_column(&mut self, cx: &mut Context<'_, Self>) {
         self.display.show_stage_column = !self.display.show_stage_column;
+        self.remember_tag_settings(cx);
+    }
+
+    /// Chooses how tracks are separated from now on, and saves the choice.
+    /// Stems already made stay where they are.
+    pub(crate) fn set_stems_mode(
+        &mut self,
+        mode: euphoria_core::stems::SeparationMode,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if self.stem_settings.mode() == mode {
+            return;
+        }
+        self.stem_settings = crate::stem_settings::StemSettings::for_mode(mode);
+        self.stems.set_separation_mode(mode);
         self.remember_tag_settings(cx);
     }
 
@@ -2846,6 +2868,7 @@ impl EuphoriaApp {
             inspector_sections: self.inspector_sections.choices,
             track_filters: self.track_filters.clone(),
             next_energy: self.next_energy,
+            stems: self.stem_settings,
             first_run: Some(self.first_run),
         };
         settings
