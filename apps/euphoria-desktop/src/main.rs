@@ -128,6 +128,9 @@ mod reanalyze;
 mod reanalyze_ui_tests;
 mod reference_sound;
 mod relink_flow;
+mod rescan;
+#[cfg(test)]
+mod rescan_ui_tests;
 mod reveal;
 #[cfg(test)]
 mod row_actions_ui_tests;
@@ -197,8 +200,8 @@ use crate::actions::{
     AddCueAtPlayhead, AddFolder, AddToSet, AnalyzeAgain, BuildSet, CloseFocusView, EditTags,
     ExportLibrary, FocusSearch, OpenCommandPalette, OpenEuphoria, OpenFocusView, OpenLive,
     OpenSetBuilder, OpenSettings, PlanTransition, PlayNextRow, PlayPaletteTrack, Quit,
-    ResetColumnWidths, RevealTrack, SelectAllTracks, SeparateStems, StopAnalysis, ToggleDecks,
-    ToggleFavorite, ToggleLiveKeepRunning, ToggleLiveListening, ToggleLiveOpenAtLogin,
+    RescanFolders, ResetColumnWidths, RevealTrack, SelectAllTracks, SeparateStems, StopAnalysis,
+    ToggleDecks, ToggleFavorite, ToggleLiveKeepRunning, ToggleLiveListening, ToggleLiveOpenAtLogin,
     ToggleMetronome, TogglePlayback, ToggleSidebar, UndoCueEdit, UndoTagWrite, UseDeckTheme,
     UseGraphiteTheme, UsePaperTheme, UseSlateTheme, WriteTags,
 };
@@ -399,6 +402,7 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
     cx.bind_keys([
         KeyBinding::new("cmd-q", Quit, None),
         KeyBinding::new("cmd-o", AddFolder, None),
+        KeyBinding::new("cmd-r", RescanFolders, None),
         KeyBinding::new("cmd-f", FocusSearch, None),
         KeyBinding::new("cmd-k", OpenCommandPalette, None),
         KeyBinding::new("cmd-p", OpenCommandPalette, None),
@@ -465,6 +469,8 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         KeyBinding::new("ctrl-q", Quit, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-o", AddFolder, None),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-r", RescanFolders, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-shift-r", RevealTrack, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("ctrl-f", FocusSearch, None),
@@ -542,6 +548,7 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
     });
 
     register_view_command::<AnalyzeAgain>(view, cx, |view, cx| view.analyze_selection_again(cx));
+    register_view_command::<RescanFolders>(view, cx, |view, cx| view.rescan_folders(cx));
     register_view_command::<StopAnalysis>(view, cx, |view, cx| view.stop_analysis(cx));
     register_view_command::<SeparateStems>(view, cx, |view, cx| view.separate_selected_stems(cx));
 
@@ -607,6 +614,7 @@ pub(crate) fn build_menus(current_theme: ThemeName, sidebar_folded: bool) -> Vec
         ]),
         Menu::new("File").items([
             MenuItem::action("Add Folder\u{2026}", AddFolder),
+            MenuItem::action("Rescan Folders", RescanFolders),
             MenuItem::separator(),
             MenuItem::action("Export Library\u{2026}", ExportLibrary),
         ]),

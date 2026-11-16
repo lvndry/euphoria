@@ -191,6 +191,21 @@ A long folder name is cut short; point at it to read the full path. When the tre
 
 If you add a folder that is inside a folder you already added, it appears in the outer folder's tree rather than a second time.
 
+### Look for new and removed files
+
+Euphoria searches your folders when you add them and each time the app opens. To pick up files you added, moved or deleted since then, click the circling arrows beside the **Folders** heading, choose **File > Rescan Folders**, press Command R (Control R on Linux and Windows), or run **Rescan folders** from ⌘K. To look through one folder only, right click it in the tree and choose **Rescan this folder**; the rest of the library is left alone.
+
+While the folders are searched the button dims, and the toolbar says where and how many audio files have turned up, as when you add a folder. Then:
+
+- New files, and new folders holding audio files, join the library and the tree. Only they are analyzed; a file the cache already knows is filled in at once.
+- The track of a file that is gone leaves the library. When a playlist or a favorite holds it, it stays as a [missing file](#missing-files) instead, so you can locate it or remove it. The tracks of a folder on a drive that is not connected are kept.
+- A file moved to another folder under its own name, or renamed in its folder, keeps its track, its playlists, its stars and what you set, when Euphoria knows its audio from the cache, a playlist or a favorite. It is not analyzed again.
+- A file whose size or modification date changed since it was analyzed is analyzed again through the cache, so only new audio is analyzed.
+
+A [toast](#toasts) says what changed, for example "3 new tracks, 1 removed", or "No changes". The selection, the scroll position, the playing track and any open panel stay as they were, and playback never stops. When the selected track was removed, nothing is selected and the toast says so.
+
+Euphoria does not watch your folders while it runs: a file added in Finder shows after a rescan or the next launch.
+
 To give the table more room, fold the sidebar away. Any of these folds it, and the same one brings it back:
 
 - the sidebar button at the left of the toolbar, beside the window buttons, which stays there while the sidebar is folded
@@ -613,6 +628,7 @@ Every write ends with one short toast at the bottom centre, above the player bar
 - Tag writes, automatic batches and tag editor saves: "Wrote key and BPM to 18 files", with **Undo** and its shortcut, Command Z. Undo is the same undo as **Tags > Undo Last Tag Write…**, and after it the toast says "Put the old tags back in 18 files".
 - Exports to a DJ program or an M3U8 file, stem exports, shifted copies and mashups: "Exported 575 tracks to rekordbox XML", with **Show in Finder** in place of Undo. An export to rekordbox adds a second line, "In rekordbox, open the XML view to import it."
 - Saving a set as a playlist: a toast with no action, since nothing was written outside Euphoria.
+- [Rescanning the folders](#look-for-new-and-removed-files): "3 new tracks, 1 removed", or "No changes", with no action.
 
 The toast slides up and fades in over 180 ms, stays 10 seconds, and waits while the pointer is over it. One toast shows at a time and a new one replaces the old; replacing a write's toast takes its Undo away, though **Tags > Undo Last Tag Write…** still works. With macOS **Reduce motion** on, it appears at once. Command Z runs a toast's Undo only when no text field has the keyboard; in a field it stays that field's own undo, and without a toast with Undo it undoes the last cue edit.
 
