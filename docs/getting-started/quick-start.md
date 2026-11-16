@@ -20,7 +20,7 @@ Key             BPM  Energy              Quality   Time  File
 ```
 
 - **Key** is the Camelot code, in the colour of its place on the wheel, and the musical key. Tracks whose codes are equal or next to each other mix well; see [keys and the Camelot wheel](../concepts/keys-and-camelot.md).
-- A **Review** column appears when a track is worth checking by ear, and names why: `key` when the key may be its relative or a fifth away, `tempo` when the BPM may be half or double.
+- A **Review** column appears when a track is worth checking by ear, and names why: `key` when the key may be its relative or a fifth away, `tempo` when the BPM may be half or double and that other tempo is one a DJ could count.
 - **BPM** is the tempo in beats per minute, always reported between 90 and 180; see [how the tempo is chosen](../concepts/accuracy.md#how-the-tempo-is-chosen).
 - **Energy** is how intense the track sounds, from 1 (calm) to 10 (relentless); see [energy rating](../concepts/energy.md).
 - **Quality** is how good the file sounds on a big system; see [audio quality](../concepts/audio-quality.md).

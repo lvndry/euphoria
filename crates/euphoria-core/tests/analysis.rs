@@ -89,7 +89,7 @@ fn silence_has_no_confidence_and_nothing_to_review() {
     assert_eq!(analysis.key_confidence(), None);
     assert_eq!(analysis.tempo_confidence(), None);
     assert_eq!(analysis.key_runner_up, None);
-    assert!(!analysis.needs_review());
+    assert!(!analysis.needs_review(TempoRange::DEFAULT));
 }
 
 #[cfg(feature = "drone")]
@@ -197,24 +197,29 @@ fn a_tempo_that_is_not_a_positive_number_has_no_place_in_a_range() {
 }
 
 #[test]
-fn a_track_needs_review_when_its_key_or_its_tempo_is_rated_low() {
+fn a_track_needs_review_when_its_key_is_rated_low_or_its_tempo_low_with_a_plausible_octave() {
+    let range = TempoRange::DEFAULT;
     let confident = rated(0.02, 124.0, 0.5);
     assert_eq!(confident.key_confidence(), Some(Confidence::High));
     assert_eq!(confident.tempo_confidence(), Some(Confidence::High));
-    assert!(!confident.needs_review());
+    assert!(!confident.needs_review(range));
 
-    assert!(rated(0.001, 124.0, 0.5).needs_review());
-    assert!(rated(0.02, 124.0, 0.01).needs_review());
-    assert!(!rated(0.005, 124.0, 0.2).needs_review());
+    assert!(rated(0.001, 124.0, 0.5).needs_review(range));
+    assert!(rated(0.02, 174.0, 0.01).needs_review(range));
+    assert!(
+        !rated(0.02, 124.0, 0.01).needs_review(range),
+        "neither 62 nor 248 is a tempo a DJ counts"
+    );
+    assert!(!rated(0.005, 124.0, 0.2).needs_review(range));
 
     let fallback_tempo = TrackAnalysis {
         tempo_score_margin: None,
         beat_grid: None,
         cues: Vec::new(),
-        ..confident
+        ..rated(0.02, 87.0, 0.5)
     };
     assert_eq!(fallback_tempo.tempo_confidence(), Some(Confidence::Low));
-    assert!(fallback_tempo.needs_review());
+    assert!(fallback_tempo.needs_review(range));
 }
 
 #[test]

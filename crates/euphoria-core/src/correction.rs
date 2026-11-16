@@ -244,7 +244,7 @@ mod tests {
     #[test]
     fn a_correction_wins_and_is_no_longer_rated_or_listed_for_review() {
         let analysis = doubtful();
-        assert!(analysis.needs_review());
+        assert!(analysis.needs_review(TempoRange::DEFAULT));
         let corrected = Correction::of_key(Key::new(4, Mode::Minor))
             .with_bpm(Some(87.0))
             .unwrap()
@@ -254,7 +254,7 @@ mod tests {
         assert_eq!(corrected.key_runner_up, None);
         assert_eq!(corrected.key_confidence(), None);
         assert_eq!(corrected.tempo_confidence(), None);
-        assert!(!corrected.needs_review());
+        assert!(!corrected.needs_review(TempoRange::DEFAULT));
         assert_eq!(corrected.energy, Some(6), "the rest of the analysis stays");
     }
 
@@ -263,7 +263,10 @@ mod tests {
         let corrected = Correction::of_key(Key::new(4, Mode::Minor)).apply(doubtful());
         assert_eq!(corrected.bpm, Some(174.0));
         assert_eq!(corrected.tempo_confidence(), Some(Confidence::Low));
-        assert!(corrected.needs_review(), "the tempo is still doubtful");
+        assert!(
+            corrected.needs_review(TempoRange::DEFAULT),
+            "the tempo is still doubtful"
+        );
     }
 
     #[test]

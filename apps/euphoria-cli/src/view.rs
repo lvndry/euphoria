@@ -425,7 +425,18 @@ fn review_sentence(
             ),
             None => "key may be its relative or a fifth away".to_string(),
         },
-        ReviewReason::TempoUnsure => "BPM may be half or double".to_string(),
+        ReviewReason::TempoUnsure => {
+            match analysis
+                .bpm
+                .and_then(|bpm| Some((bpm, options.tempo_range.alternative(bpm)?)))
+            {
+                Some((bpm, alternative)) => {
+                    let counted = if alternative < bpm { "half" } else { "double" };
+                    format!("BPM may be {alternative:.1}, counted at {counted} time")
+                }
+                None => "BPM may be half or double".to_string(),
+            }
+        }
         ReviewReason::KeyConflict { tag_key } => {
             format!("the tags say {}", options.notation.short(*tag_key))
         }
@@ -1243,6 +1254,22 @@ Key             BPM  Energy              Quality  Time  Review  File
  8A  A minor  124.9       7  ━━━━━━━───  weak     6:48  key     techno/a rather long name of a track (extended mix).mp3
 ";
         assert_eq!(table(200), expected);
+    }
+
+    #[test]
+    fn the_tempo_reason_names_the_half_or_double_to_try() {
+        let options = options(200);
+        let mut doubtful = analysis(0.02, 0.01);
+        doubtful.bpm = Some(174.0);
+        assert_eq!(
+            review_sentence(&ReviewReason::TempoUnsure, &doubtful, &options),
+            "BPM may be 87.0, counted at half time"
+        );
+        doubtful.bpm = Some(95.0);
+        assert_eq!(
+            review_sentence(&ReviewReason::TempoUnsure, &doubtful, &options),
+            "BPM may be 190.0, counted at double time"
+        );
     }
 
     #[test]

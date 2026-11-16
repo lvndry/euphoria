@@ -492,7 +492,7 @@ fn analyze(arguments: &AnalyzeArguments) -> Result<ExitCode> {
     let (results, grid_infos) =
         grid_import::apply(results, &user_edits, collection_grids.as_ref(), analysis)?;
     let corrections = batch::corrections(&results, analysis, batch::CorrectionCheck::Quick)?;
-    let tag_keys = TagKeys::read(&results, &user_edits);
+    let tag_keys = TagKeys::read(&results, &user_edits, analysis.tempo_range());
     let analyzed_count = results.len();
     let import_summary = arguments.collection.as_ref().map(|_| {
         let files: Vec<PathBuf> = results.iter().map(|result| result.path.clone()).collect();

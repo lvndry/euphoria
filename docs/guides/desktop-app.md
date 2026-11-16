@@ -245,7 +245,7 @@ Not there yet: covers in the table rows, the ⌘K palette and the "Next after" r
 
 ### What else the key and the tempo could be
 
-The Key and BPM boxes show no confidence word. A key or tempo Euphoria doubts puts the track under **Needs review**, which says in words what may be wrong: the key may be its relative or a fifth away, or the BPM half or double.
+The Key and BPM boxes show no confidence word. A key or tempo Euphoria doubts puts the track under **Needs review**, which says in words what may be wrong: the key may be its relative or a fifth away, or the BPM half or double. A doubtful tempo is listed only when half or double it is a tempo a DJ could count; [accuracy](../concepts/accuracy.md#which-tempos-are-listed-for-review) says why.
 
 When the key is not rated high, the key that matched second best sits beside it, as a chip such as "or 9A": play the track and compare the two by ear. When a DJ could plausibly count the track at half or double the tempo, that tempo is shown under it, such as "or 87.0". Click either to use it instead, as the next section explains.
 
@@ -267,7 +267,7 @@ A track is under **Needs review** for one or more of four reasons. In the list e
 | Chip | What it means | How to settle it |
 | --- | --- | --- |
 | **Key: relative or 5th?** | The key is rated low confidence: it may be its relative key or a key a fifth away. | Play the key tone or the piano under the Key box (see [check the key by ear](#check-the-key-by-ear-and-correct-it)). Then click **Try** with the second best key if it is right, **Correct...** to pick another, or **Looks right** to keep the detected key. |
-| **BPM: half or double?** | The tempo is rated low confidence: the BPM may be half or double, the most common tempo error. | Turn on the [metronome](#metronome) in the toolbar: it starts at the selected track's tempo, so you can hear whether the clicks sit on the beat. Click **½ ×** or **2 ×** to use half or double, or **Looks right** to keep it. |
+| **BPM: half or double?** | The tempo is rated low confidence and half or double it is a tempo a DJ could count, between 75 and 200 BPM or the ends of your [tempo range](#settings) when those are further out: the BPM may be counted in the wrong octave, the most common tempo error. A track at 120 is not listed, since 60 and 240 are not plausible; one at 174 is, since it may be 87. | Turn on the [metronome](#metronome) in the toolbar: it starts at the selected track's tempo, so you can hear whether the clicks sit on the beat. The box names the other tempo and offers one button for it, **½ ×** or **2 ×**, or **Looks right** to keep the tempo. |
 | **Tag says 8A** | The key field in the file's tags names another key than the one detected (the same case as the red **≠**; see [when the tags name another key](#when-the-tags-name-another-key)). | The box offers **Keep** the tags' key, which sets it as your key, or **Use** the detected key, which confirms it. Either way the conflict does not come back. |
 | **Failed** | The file could not be analyzed. The box gives the reason. | Fix the file if the reason points to a problem, then click **Analyze again**. A file that fails again stays under Needs review. |
 
