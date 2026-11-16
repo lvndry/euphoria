@@ -8,25 +8,32 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use euphoria_core::{
-    Correction, FileResult, KeyDifference, ReviewReason, TagKey, TagKeyAgreement, TrackAnalysis,
+    Correction, FileResult, KeyDifference, ReviewReason, TagKey, TagKeyAgreement, TempoRange,
+    TrackAnalysis,
 };
 use rayon::prelude::*;
 
 use crate::batch::UserEditsByFile;
 
-/// The key field of each analyzed file that has one, and what the user set
-/// or confirmed for each file in the desktop app.
+/// The key field of each analyzed file that has one, what the user set or
+/// confirmed for each file in the desktop app, and the range tempos are
+/// reported in, which decides whether a doubtful tempo is worth checking.
 #[derive(Debug, Default)]
 pub struct TagKeys {
     by_path: HashMap<PathBuf, TagKey>,
     corrections: HashMap<PathBuf, Correction>,
+    tempo_range: TempoRange,
 }
 
 impl TagKeys {
     /// Reads the key field of every file that was analyzed. A file whose
     /// tags cannot be read counts as having none: its analysis is reported
-    /// as usual.
-    pub fn read(results: &[FileResult], user_edits: &UserEditsByFile) -> Self {
+    /// as usual. Tempos are taken to be reported in `tempo_range`.
+    pub fn read(
+        results: &[FileResult],
+        user_edits: &UserEditsByFile,
+        tempo_range: TempoRange,
+    ) -> Self {
         let by_path = results
             .par_iter()
             .filter(|result| result.outcome.is_ok())
@@ -42,6 +49,7 @@ impl TagKeys {
         Self {
             by_path,
             corrections,
+            tempo_range,
         }
     }
 
@@ -54,7 +62,15 @@ impl TagKeys {
                 .filter_map(|(path, text)| Some((path.to_path_buf(), TagKey::from_text(text)?)))
                 .collect(),
             corrections: HashMap::new(),
+            tempo_range: TempoRange::DEFAULT,
         }
+    }
+
+    /// The same, with tempos reported in `tempo_range`.
+    #[cfg(test)]
+    pub fn with_tempo_range(mut self, tempo_range: TempoRange) -> Self {
+        self.tempo_range = tempo_range;
+        self
     }
 
     /// The same, with the key of the file at `path` set by the user.
@@ -79,10 +95,16 @@ impl TagKeys {
     }
 
     /// Why the file at `path` is worth checking by ear, as the desktop app
-    /// lists it: a key or tempo rated low that the user has not set or
-    /// confirmed, or tags that name another key.
+    /// lists it: a key rated low, or a tempo rated low with a plausible half
+    /// or double, that the user has not set or confirmed, or tags that name
+    /// another key.
     pub fn review_reasons(&self, path: &Path, analysis: &TrackAnalysis) -> Vec<ReviewReason> {
-        euphoria_core::review_reasons(analysis, &self.correction(path), self.get(path))
+        euphoria_core::review_reasons(
+            analysis,
+            &self.correction(path),
+            self.get(path),
+            self.tempo_range,
+        )
     }
 
     /// True when the user set or confirmed the key or the tempo of the file

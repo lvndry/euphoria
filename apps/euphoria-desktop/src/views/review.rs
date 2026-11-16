@@ -134,37 +134,28 @@ pub(crate) fn section(
             }
             ReviewReason::TempoUnsure => {
                 let mut buttons = Vec::new();
-                if let Some(bpm) = shown_bpm {
-                    let half = bpm / 2.0;
-                    let double = bpm * 2.0;
-                    if half >= 1.0 {
-                        buttons.push(
-                            choice_button("review-tempo-half", "\u{BD} \u{D7}", false, &palette)
-                                .tooltip(tooltip_of(format!(
-                                    "Count it at {}",
-                                    crate::format::bpm(half)
-                                )))
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.accept_bpm(half, cx);
-                                }))
-                                .test_support()
-                                .into_any_element(),
-                        );
-                    }
-                    if double <= 999.0 {
-                        buttons.push(
-                            choice_button("review-tempo-double", "2 \u{D7}", false, &palette)
-                                .tooltip(tooltip_of(format!(
-                                    "Count it at {}",
-                                    crate::format::bpm(double)
-                                )))
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.accept_bpm(double, cx);
-                                }))
-                                .test_support()
-                                .into_any_element(),
-                        );
-                    }
+                let alternative = shown_bpm.and_then(|bpm| {
+                    let alternative = app.session.library().tempo_range().alternative(bpm)?;
+                    Some((alternative, alternative < bpm))
+                });
+                if let Some((alternative, is_half)) = alternative {
+                    let (id, label) = if is_half {
+                        ("review-tempo-half", "\u{BD} \u{D7}")
+                    } else {
+                        ("review-tempo-double", "2 \u{D7}")
+                    };
+                    buttons.push(
+                        choice_button(id, label, false, &palette)
+                            .tooltip(tooltip_of(format!(
+                                "Count it at {}",
+                                crate::format::bpm(alternative)
+                            )))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.accept_bpm(alternative, cx);
+                            }))
+                            .test_support()
+                            .into_any_element(),
+                    );
                 }
                 buttons.push(
                     choice_button("review-tempo-looks-right", "Looks right", false, &palette)
@@ -172,10 +163,19 @@ pub(crate) fn section(
                         .test_support()
                         .into_any_element(),
                 );
+                let doubt = match alternative {
+                    Some((alternative, is_half)) => format!(
+                        "The BPM may be {}, counted at {} time.",
+                        crate::format::bpm(alternative),
+                        if is_half { "half" } else { "double" }
+                    ),
+                    None => "The BPM may be half or double.".to_string(),
+                };
                 reason_line(
                     "review-tempo-unsure",
-                    "The BPM may be half or double. Turn on the metronome in the toolbar: it starts at this track's tempo, so you can hear whether the clicks sit on the beat."
-                        .to_string(),
+                    format!(
+                        "{doubt} Turn on the metronome in the toolbar: it starts at this track's tempo, so you can hear whether the clicks sit on the beat."
+                    ),
                     buttons,
                     &palette,
                 )

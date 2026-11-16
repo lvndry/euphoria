@@ -99,6 +99,9 @@ pub(crate) struct Track {
     /// grid another range already reported, keeps changing the range back
     /// and forth from moving the first downbeat.
     canonical_beat_grid: Option<BeatGrid>,
+    /// The range the library shows tempos in, which decides whether a
+    /// doubtful tempo has a half or double worth checking.
+    tempo_range: TempoRange,
     file_name_lowercase: String,
     title_lowercase: String,
     artist_lowercase: Option<String>,
@@ -107,7 +110,7 @@ pub(crate) struct Track {
 }
 
 impl Track {
-    fn new(path: PathBuf) -> Self {
+    fn new(path: PathBuf, tempo_range: TempoRange) -> Self {
         let file_name = path
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
@@ -140,6 +143,7 @@ impl Track {
             correction: Correction::default(),
             edited_cues: None,
             canonical_beat_grid: None,
+            tempo_range,
         }
     }
 
@@ -359,14 +363,18 @@ impl Track {
     }
 
     /// Why the track is worth checking: its analysis failed, the core rates
-    /// its key or its tempo low, or its tags name another key. A value the
-    /// user set or confirmed is no longer in doubt.
+    /// its key low, or its tempo low with a half or double a DJ could count
+    /// in the library's tempo range, or its tags name another key. A value
+    /// the user set or confirmed is no longer in doubt.
     pub(crate) fn review_reasons(&self) -> Vec<ReviewReason> {
         match &self.status {
             TrackStatus::Failed(message) => euphoria_core::failed_reason(message.clone()),
-            TrackStatus::Analyzed(analysis) => {
-                euphoria_core::review_reasons(analysis, &self.correction, self.tag_key.as_ref())
-            }
+            TrackStatus::Analyzed(analysis) => euphoria_core::review_reasons(
+                analysis,
+                &self.correction,
+                self.tag_key.as_ref(),
+                self.tempo_range,
+            ),
             TrackStatus::Queued | TrackStatus::Analyzing | TrackStatus::Missing => Vec::new(),
         }
     }
@@ -578,7 +586,7 @@ impl Library {
                 continue;
             }
             self.index_by_path.insert(file.clone(), self.tracks.len());
-            self.tracks.push(Track::new(file.clone()));
+            self.tracks.push(Track::new(file.clone(), self.tempo_range));
             added.push(file);
         }
         if !added.is_empty() {
@@ -688,7 +696,7 @@ impl Library {
         if !self.tracks[index].is_missing() {
             return false;
         }
-        let mut relinked = Track::new(new.clone());
+        let mut relinked = Track::new(new.clone(), self.tempo_range);
         relinked.status = TrackStatus::Missing;
         relinked.correction = self.tracks[index].correction;
         relinked.edited_cues = self.tracks[index].edited_cues.take();
@@ -710,7 +718,7 @@ impl Library {
         let Some(index) = self.index_by_path.remove(old) else {
             return false;
         };
-        let at_new_path = Track::new(new.clone());
+        let at_new_path = Track::new(new.clone(), self.tempo_range);
         let track = &mut self.tracks[index];
         if track.tag_title.is_none() {
             track.title_lowercase = at_new_path.title_lowercase;
@@ -854,12 +862,18 @@ impl Library {
         }
         self.tempo_range = range;
         for track in &mut self.tracks {
+            track.tempo_range = range;
             if let TrackStatus::Analyzed(analysis) = &mut track.status {
                 // The same as `with_tempo_range`, in place, so the rest of
                 // the analysis, such as its key timeline, is not copied.
                 analysis.set_tempo_range_from(track.canonical_beat_grid, range);
             }
         }
+        self.review_count = self
+            .tracks
+            .iter()
+            .filter(|track| track.needs_review())
+            .count();
         self.revision += 1;
     }
 
@@ -1360,7 +1374,7 @@ mod tests {
         let both = Path::new("/music/both doubtful.mp3");
         let failed = Path::new("/music/broken.mp3");
         library.add_files(vec![both.to_path_buf(), failed.to_path_buf()]);
-        library.record_outcome(both, Ok(rated(0.001, 124.0, 0.01)));
+        library.record_outcome(both, Ok(rated(0.001, 174.0, 0.01)));
         library.record_outcome(failed, Err("cannot decode".into()));
         assert_eq!(library.counts().needs_review, 2);
 
@@ -1475,6 +1489,33 @@ mod tests {
         assert!(reasons(4).is_empty());
         assert!(!library.tracks()[4].needs_review());
         assert_eq!(library.counts().needs_review, 4);
+    }
+
+    #[test]
+    fn the_tempo_range_decides_whether_a_doubtful_tempo_is_counted_for_review() {
+        let mut library = Library::default();
+        let dubstep = Path::new("/music/dubstep.mp3");
+        let house = Path::new("/music/house.mp3");
+        library.add_files(vec![dubstep.to_path_buf()]);
+        library.record_outcome(dubstep, Ok(rated(0.02, 140.0, 0.01)));
+        assert!(library.tracks()[0].review_reasons().is_empty());
+        assert_eq!(library.counts().needs_review, 0);
+
+        let hip_hop = TempoRange::new(70.0, 140.0).unwrap();
+        library.set_tempo_range(hip_hop);
+        assert_eq!(
+            library.tracks()[0].review_reasons(),
+            [ReviewReason::TempoUnsure]
+        );
+        assert_eq!(library.counts().needs_review, 1);
+
+        library.add_files(vec![house.to_path_buf()]);
+        library.record_outcome(house, Ok(rated(0.02, 119.8, 0.01)));
+        assert!(library.tracks()[1].review_reasons().is_empty());
+        assert_eq!(library.counts().needs_review, 1);
+
+        library.set_tempo_range(TempoRange::DEFAULT);
+        assert_eq!(library.counts().needs_review, 0);
     }
 
     #[test]
@@ -1608,7 +1649,7 @@ mod tests {
         );
         library.record_outcome(
             Path::new("/music/doubtful tempo.mp3"),
-            Ok(rated(0.02, 124.0, 0.01)),
+            Ok(rated(0.02, 174.0, 0.01)),
         );
         library.record_outcome(Path::new("/music/broken.mp3"), Err("cannot decode".into()));
         let needing_review = library.visible_tracks(

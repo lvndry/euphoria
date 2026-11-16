@@ -106,7 +106,7 @@ Outside dance music, on GTZAN, Accuracy 1 is 93.0% for disco and 88.0% for hip h
 - **Slow or loose music.** With the default range a tempo below 90 BPM comes out at double, and jazz or classical without a steady beat is often wrong. Set a lower range for slow music, such as `70-140` for hip hop, and treat the tempo of music without a steady beat as a guess.
 - **Melodic house.** GiantSteps has no melodic house genre, so its key and tempo are not measured; progressive house and deep house are the nearest genres scored. One measure that has been checked is weak there: telling warm up, build and peak tracks apart within the genre (see [set stage](set-stage.md)).
 
-In every genre, a low [confidence](#confidence) rating, which puts the track under **Needs review**, is the best single hint that a track needs checking.
+In every genre, a low [confidence](#confidence) rating, which puts the track under **Needs review**, is the best single hint that a track needs checking. A tempo rated low is listed only when half or double it is a tempo a DJ could count; see [which tempos are listed for review](#which-tempos-are-listed-for-review).
 
 ## Key detection with drone-v2
 
@@ -273,7 +273,7 @@ The benchmark measures only the default. Other ranges move tempos by whole octav
 
 Every key and every tempo is rated high, medium or low, for how far to trust it, and comes with a second answer: the runner up key, and for some tempos half or double the tempo. The point is to tell a DJ which tracks are worth checking by ear before a set, and what the likely alternative is.
 
-The ratings are not shown next to the key or the tempo, in the desktop app or in the terminal; they are in the command line's `--json` output. In the desktop app a low rating puts the track under Needs review, where each track says why in words, such as that the key may be its relative or a fifth away or the BPM half or double, and offers the likely alternative as one click, or a **Looks right** button that keeps the value and ends the doubt without changing it. See [Settle a track under Needs review](../guides/desktop-app.md#settle-a-track-under-needs-review).
+The ratings are not shown next to the key or the tempo, in the desktop app or in the terminal; they are in the command line's `--json` output. In the desktop app a low rating puts the track under Needs review, a tempo only when it has a plausible half or double, where each track says why in words, such as that the key may be its relative or a fifth away or the BPM half or double, and offers the likely alternative as one click, or a **Looks right** button that keeps the value and ends the doubt without changing it. See [Settle a track under Needs review](../guides/desktop-app.md#settle-a-track-under-needs-review).
 
 ### Key confidence
 
@@ -328,6 +328,32 @@ On the first half the bands are right modulo octaves 98.5%, 81.2% and 58.8% of t
 For the octave errors, Euphoria offers half or double the reported tempo as an alternative when that is a tempo a DJ could count, between 75 and 200 BPM, or the ends of the chosen range when those are further out. With the default range that means half of a tempo from 150 up, and double of one up to 100. The tempogram scores could not pick out octave errors (they back the other octave about as strongly whether or not it is right), but where the reported tempo sits does: on the first half, octave errors are reported at a median of 170 BPM.
 
 The span was chosen on the first half, where it resolves 24 of its 26 octave errors while offering an alternative for 39% of tracks; widening it to 60 to 200 resolves all 26 but offers one for 89% of tracks, which says little. On the held out half it resolves 22 of 26 and is offered for 42% of tracks.
+
+### Which tempos are listed for review
+
+A tempo rated low puts the track under **Needs review** only when it has a half or double as above: a tempo a DJ could count, between 75 and 200 BPM or the ends of the chosen range. The review then says which one, and the desktop app offers a single **½ ×** or **2 ×** button for it. A track at 119.8 BPM is not listed: 59.9 and 239.6 are not tempos a DJ counts. One at 174 is, since it may be 87, and so is one at 140 in the hip hop range, 70 to 140, where it is reported at 70 and may be 140.
+
+A low rating on its own says another tempo, not an octave of this one, scored nearly as well in the tempogram; it says nothing about the octave. The tempogram's score at the other octave was checked as a further condition and dropped: it is at least 30% of the reported tempo's score for all but one of the 253 previews with a plausible half or double, so it rules nothing out. Without a plausible half or double, a tempo rated low is right 78 times out of 82 on the GiantSteps previews (95%), more often than tempos rated medium, so listing it would mostly ask about tempos that are right, and no half or double button could fix the four that are wrong (they are 3:2 or other subdivisions).
+
+On the 661 GiantSteps Tempo previews in the default range, before and after this rule (genres with fewer than 20 previews grouped):
+
+| Genre | Previews | Tempo reviews before | After | Octave errors | Of those, listed before | Listed after | Right tempos no longer listed |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Breaks | 26 | 9 | 2 | 0 | 0 | 0 | 7 |
+| Deep house | 24 | 5 | 0 | 1 | 0 | 0 | 5 |
+| Drum and bass | 139 | 22 | 21 | 17 | 3 | 3 | 0 |
+| Dubstep | 76 | 9 | 2 | 6 | 0 | 0 | 5 |
+| Electro house | 22 | 5 | 0 | 1 | 0 | 0 | 5 |
+| Electronica | 52 | 17 | 8 | 8 | 1 | 1 | 9 |
+| House | 23 | 4 | 0 | 1 | 0 | 0 | 4 |
+| Psy-trance | 34 | 2 | 1 | 2 | 1 | 1 | 1 |
+| Tech house | 22 | 2 | 0 | 0 | 0 | 0 | 2 |
+| Techno | 61 | 18 | 2 | 0 | 0 | 0 | 15 |
+| Trance | 74 | 12 | 3 | 0 | 0 | 0 | 9 |
+| Other genres | 108 | 27 | 11 | 20 | 4 | 4 | 16 |
+| All | 661 | 132 | 50 | 56 | 9 | 9 | 78 |
+
+Every octave error that was listed is still listed, now with the right button. In the hip hop range, 70 to 140, reviews fall from 132 to 58 and all 39 listed octave errors stay listed; in the drum and bass range, 120 to 200, from 132 to 50 with all 8 kept. The low rating catches few octave errors in the first place, 9 of 56, because it does not rate the octave; the "or 87.0" note beside the tempo, offered whatever the rating, names the right tempo for 50 of the 56.
 
 ### What the confidence does and does not show
 

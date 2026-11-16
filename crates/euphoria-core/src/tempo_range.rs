@@ -24,7 +24,8 @@ pub struct TempoRange {
 }
 
 /// Half or double a reported tempo is offered as an alternative only when
-/// it lies between these, widened to take in the chosen range. Set on half
+/// it lies between these, widened to take in the chosen range, and a tempo
+/// rated low is listed for review only when it has one. Set on half
 /// of the GiantSteps previews and checked on the other half: with the
 /// default range it resolves 22 of the 26 octave errors of that half, and
 /// is offered for 42% of its tracks.

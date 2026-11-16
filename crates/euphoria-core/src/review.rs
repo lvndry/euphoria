@@ -9,6 +9,7 @@ use crate::confidence::Confidence;
 use crate::correction::Correction;
 use crate::key::Key;
 use crate::tag_key::{TagKey, TagKeyAgreement};
+use crate::tempo_range::TempoRange;
 
 /// One reason a track is listed under Needs review.
 #[derive(Debug, Clone, PartialEq)]
@@ -17,7 +18,9 @@ pub enum ReviewReason {
     Failed(String),
     /// The key is rated low confidence.
     KeyUnsure,
-    /// The tempo is rated low confidence.
+    /// The tempo is rated low confidence and half or double it is a tempo
+    /// a DJ could count, so the track may be counted in the wrong octave.
+    /// See [`TrackAnalysis::tempo_alternative_in`].
     TempoUnsure,
     /// The key field of the file's tags names another key.
     KeyConflict {
@@ -39,14 +42,22 @@ impl ReviewReason {
     }
 }
 
-/// Why an analyzed track is worth checking: the core rates its key or its
-/// tempo low, or its tags name another key. A value the user set or
-/// confirmed with "Looks right" is no longer in doubt. `analysis` may carry
-/// the correction already, or not: the checks give the same answer.
+/// Why an analyzed track is worth checking: the core rates its key low, it
+/// rates its tempo low and half or double that tempo, reported in `range`,
+/// is one a DJ could count, or its tags name another key. A value the user
+/// set or confirmed with "Looks right" is no longer in doubt. `analysis`
+/// may carry the correction already, or not: the checks give the same
+/// answer.
+///
+/// A tempo rated low with no plausible half or double is not listed. The
+/// rating measures how close the best tempo that is not an octave of it
+/// came, not the octave, and on GiantSteps Tempo such tempos are right as
+/// often as tempos rated medium.
 pub fn review_reasons(
     analysis: &TrackAnalysis,
     correction: &Correction,
     tag_key: Option<&TagKey>,
+    range: TempoRange,
 ) -> Vec<ReviewReason> {
     let mut reasons = Vec::new();
     if correction.key.is_none()
@@ -58,6 +69,7 @@ pub fn review_reasons(
     if correction.bpm.is_none()
         && !correction.bpm_confirmed
         && analysis.tempo_confidence() == Some(Confidence::Low)
+        && analysis.tempo_alternative_in(range).is_some()
     {
         reasons.push(ReviewReason::TempoUnsure);
     }
@@ -119,12 +131,25 @@ mod tests {
 
     #[test]
     fn a_doubtful_key_and_tempo_are_two_reasons() {
-        let reasons = review_reasons(&rated(0.001, 87.0, 0.01), &Correction::default(), None);
+        let reasons = review_reasons(
+            &rated(0.001, 87.0, 0.01),
+            &Correction::default(),
+            None,
+            TempoRange::DEFAULT,
+        );
         assert_eq!(
             reasons,
             [ReviewReason::KeyUnsure, ReviewReason::TempoUnsure]
         );
-        assert!(review_reasons(&rated(0.02, 124.0, 0.6), &Correction::default(), None).is_empty());
+        assert!(
+            review_reasons(
+                &rated(0.02, 124.0, 0.6),
+                &Correction::default(),
+                None,
+                TempoRange::DEFAULT
+            )
+            .is_empty()
+        );
     }
 
     #[test]
@@ -132,11 +157,11 @@ mod tests {
         let analysis = rated(0.001, 87.0, 0.01);
         let key_confirmed = Correction::default().confirming_key();
         assert_eq!(
-            review_reasons(&analysis, &key_confirmed, None),
+            review_reasons(&analysis, &key_confirmed, None, TempoRange::DEFAULT),
             [ReviewReason::TempoUnsure]
         );
         let both = key_confirmed.confirming_bpm();
-        assert!(review_reasons(&analysis, &both, None).is_empty());
+        assert!(review_reasons(&analysis, &both, None, TempoRange::DEFAULT).is_empty());
         assert!(is_reviewed(&key_confirmed));
         assert!(!is_reviewed(&Correction::default()));
     }
@@ -147,7 +172,9 @@ mod tests {
         let set = Correction::of_key(Key::new(4, Mode::Minor))
             .with_bpm(Some(90.0))
             .unwrap();
-        assert!(review_reasons(&analysis, &set, Some(&tagged("9A"))).is_empty());
+        assert!(
+            review_reasons(&analysis, &set, Some(&tagged("9A")), TempoRange::DEFAULT).is_empty()
+        );
         assert!(is_reviewed(&set));
     }
 
@@ -155,7 +182,12 @@ mod tests {
     fn tags_that_name_another_key_are_a_conflict_until_confirmed() {
         let analysis = rated(0.02, 124.0, 0.6);
         let tag = tagged("9A");
-        let reasons = review_reasons(&analysis, &Correction::default(), Some(&tag));
+        let reasons = review_reasons(
+            &analysis,
+            &Correction::default(),
+            Some(&tag),
+            TempoRange::DEFAULT,
+        );
         assert_eq!(
             reasons,
             [ReviewReason::KeyConflict {
@@ -164,8 +196,16 @@ mod tests {
         );
         assert_eq!(reasons[0].code(), "key_conflict");
         let confirmed = Correction::default().confirming_key();
-        assert!(review_reasons(&analysis, &confirmed, Some(&tag)).is_empty());
-        assert!(review_reasons(&analysis, &Correction::default(), Some(&tagged("8A"))).is_empty());
+        assert!(review_reasons(&analysis, &confirmed, Some(&tag), TempoRange::DEFAULT).is_empty());
+        assert!(
+            review_reasons(
+                &analysis,
+                &Correction::default(),
+                Some(&tagged("8A")),
+                TempoRange::DEFAULT
+            )
+            .is_empty()
+        );
     }
 
     #[test]
@@ -174,9 +214,88 @@ mod tests {
             &rated(0.001, 87.0, 0.01),
             &Correction::default(),
             Some(&tagged("9A")),
+            TempoRange::DEFAULT,
         );
         let codes: Vec<&str> = reasons.iter().map(ReviewReason::code).collect();
         assert_eq!(codes, ["key_unsure", "tempo_unsure", "key_conflict"]);
         assert_eq!(failed_reason("cannot decode")[0].code(), "failed");
+    }
+
+    fn tempo_reasons(estimate: f32, tempo_margin: f32, range: TempoRange) -> Vec<ReviewReason> {
+        review_reasons(
+            &rated(0.02, estimate, tempo_margin).with_tempo_range(range),
+            &Correction::default(),
+            None,
+            range,
+        )
+    }
+
+    fn alternative(estimate: f32, range: TempoRange) -> Option<f32> {
+        rated(0.02, estimate, 0.01).tempo_alternative_in(range)
+    }
+
+    #[test]
+    fn a_doubtful_tempo_with_no_plausible_half_or_double_is_not_listed() {
+        assert_eq!(alternative(119.8, TempoRange::DEFAULT), None);
+        assert!(tempo_reasons(119.8, 0.01, TempoRange::DEFAULT).is_empty());
+        assert!(tempo_reasons(124.0, -0.05, TempoRange::DEFAULT).is_empty());
+    }
+
+    #[test]
+    fn a_doubtful_tempo_with_a_plausible_octave_is_listed_with_it() {
+        let hip_hop: TempoRange = "70-140".parse().unwrap();
+        assert_eq!(alternative(87.0, hip_hop), Some(174.0));
+        assert_eq!(
+            tempo_reasons(87.0, 0.01, hip_hop),
+            [ReviewReason::TempoUnsure]
+        );
+        assert_eq!(alternative(174.0, TempoRange::DEFAULT), Some(87.0));
+        assert_eq!(
+            tempo_reasons(174.0, 0.01, TempoRange::DEFAULT),
+            [ReviewReason::TempoUnsure]
+        );
+        assert_eq!(alternative(70.0, hip_hop), Some(140.0));
+        assert_eq!(
+            tempo_reasons(70.0, 0.01, hip_hop),
+            [ReviewReason::TempoUnsure]
+        );
+    }
+
+    #[test]
+    fn half_of_140_is_offered_only_when_the_range_makes_70_plausible() {
+        assert_eq!(alternative(140.0, TempoRange::DEFAULT), None);
+        assert!(tempo_reasons(140.0, 0.01, TempoRange::DEFAULT).is_empty());
+
+        let hip_hop: TempoRange = "70-140".parse().unwrap();
+        assert_eq!(rated(0.02, 140.0, 0.01).tempo_in(hip_hop), Some(70.0));
+        assert_eq!(alternative(140.0, hip_hop), Some(140.0));
+        assert_eq!(
+            tempo_reasons(140.0, 0.01, hip_hop),
+            [ReviewReason::TempoUnsure]
+        );
+    }
+
+    #[test]
+    fn a_tempo_rated_medium_or_high_is_not_listed_even_with_a_plausible_octave() {
+        assert!(tempo_reasons(174.0, 0.2, TempoRange::DEFAULT).is_empty());
+        assert!(tempo_reasons(87.0, 0.6, TempoRange::DEFAULT).is_empty());
+    }
+
+    #[test]
+    fn the_tempo_range_decides_whether_a_doubtful_tempo_is_listed() {
+        let hip_hop: TempoRange = "70-140".parse().unwrap();
+        let drum_and_bass: TempoRange = "120-200".parse().unwrap();
+        assert!(tempo_reasons(140.0, 0.01, TempoRange::DEFAULT).is_empty());
+        assert_eq!(
+            tempo_reasons(140.0, 0.01, hip_hop),
+            [ReviewReason::TempoUnsure]
+        );
+        assert!(tempo_reasons(140.0, 0.01, drum_and_bass).is_empty());
+
+        assert_eq!(alternative(100.0, TempoRange::DEFAULT), Some(200.0));
+        assert_eq!(
+            tempo_reasons(100.0, 0.01, TempoRange::DEFAULT),
+            [ReviewReason::TempoUnsure]
+        );
     }
 }

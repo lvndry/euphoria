@@ -9,6 +9,7 @@ use rayon::prelude::*;
 use crate::audio::AudioBuffer;
 use crate::audio_budget::{budgeted_seconds, global_audio_budget};
 use crate::confidence::{Confidence, key_confidence, tempo_confidence};
+use crate::correction::Correction;
 use crate::detect::{
     BeatGrid, KeyReading, KeySection, SectionCue, StratumDetector, detect_beat_grid_and_cues,
     read_key,
@@ -195,11 +196,10 @@ impl TrackAnalysis {
             .and_then(|tempo| range.alternative(tempo))
     }
 
-    /// Whether the key or the tempo is rated low, so the track is worth
-    /// checking by ear.
-    pub fn needs_review(&self) -> bool {
-        self.key_confidence() == Some(Confidence::Low)
-            || self.tempo_confidence() == Some(Confidence::Low)
+    /// Whether the key or the tempo, reported in `range`, is in doubt, so
+    /// the track is worth checking by ear. See [`crate::review_reasons`].
+    pub fn needs_review(&self, range: TempoRange) -> bool {
+        !crate::review::review_reasons(self, &Correction::default(), None, range).is_empty()
     }
 }
 
