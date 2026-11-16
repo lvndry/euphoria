@@ -1,7 +1,7 @@
 // Copyright 2026 The Euphoria contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Loops on screen: the loop buttons under the focus view's lanes, the
+//! Loops on screen: the loop buttons at the top of the focus view, the
 //! loop as a tinted stretch of the detail with an edge to drag at each end,
 //! and the loops saved with a track, listed with its cues.
 

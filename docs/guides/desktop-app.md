@@ -530,7 +530,7 @@ Every lane shares one playhead and one cursor. Point anywhere over the lanes and
 
 ### Loops
 
-Under the lanes, the **Loop** row loops the track you hear while it plays or is paused in the focus view:
+At the top of the focus view, next to the **Library** button, the **Loop** row loops the track you hear while it plays or is paused in the focus view:
 
 - **½** and **1 beat**, then **1, 2, 4, 8** and **16 bars**. The loop starts on the beat of the grid at or before the playhead, so it lines up with the music, and the button stays pressed while it plays; press it again to leave the loop. A track without a beat grid loops from the playhead itself, with the length worked out from its tempo, or from 120 BPM when it has none. While a loop plays, another length makes the same loop that long from its start.
 - **½×** and **2×** halve and double the loop from its start. If the playhead is past the end of a halved loop, playing moves back into it at the same place in the bar.

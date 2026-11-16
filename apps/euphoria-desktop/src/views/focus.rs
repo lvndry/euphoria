@@ -102,7 +102,7 @@ pub(crate) fn render(
     let Some(track) = app.selected_track() else {
         return page.test_support().into_any_element();
     };
-    page.child(top_bar(app, cx))
+    page.child(top_bar(track, app, cx))
         .child(header(track, app, cx))
         .child(timeline(track, app, cx))
         .child(bottom(track, app, cx))
@@ -110,9 +110,10 @@ pub(crate) fn render(
         .into_any_element()
 }
 
-fn top_bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
+fn top_bar(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
     let palette = app.theme.palette;
     let hover_background = palette.line;
+    let loop_bar = crate::views::loops::loop_bar(track, app, cx);
     let back = div()
         .id("focus-back")
         .flex()
@@ -251,6 +252,8 @@ fn top_bar(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
         .items_center()
         .gap(GAP_SMALL)
         .child(back)
+        .child(div().w(GAP_MEDIUM))
+        .child(loop_bar)
         .child(div().flex_1())
         .child(zoom_button("focus-zoom-out", "\u{2212}", 2.0))
         .child(zoom_button("focus-zoom-in", "+", 0.5))
@@ -835,11 +838,6 @@ fn timeline(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>)
         .children(overview)
         .child(windowed)
         .child(readout_line)
-        .child(
-            div()
-                .pl(px(GUTTER + LANE_GAP))
-                .child(crate::views::loops::loop_bar(track, app, cx)),
-        )
         .test_support()
         .into_any_element()
 }
