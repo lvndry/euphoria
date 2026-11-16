@@ -602,7 +602,7 @@ fn clicking_a_stem_label_solos_it_and_a_second_click_restores_the_full_track(
             .all(|(index, gain)| (*gain > 0.99) == (index == BASS))
     );
     cx.update(|cx| {
-        assert!(view.read(cx).player.offers_stems() || view.read(cx).stems.focus().is_some())
+        assert!(view.read(cx).player.offers_stems() || view.read(cx).stems.picked().is_some())
     });
 
     click(window, ("focus-stem-label", DRUMS), cx);
@@ -616,48 +616,131 @@ fn clicking_a_stem_label_solos_it_and_a_second_click_restores_the_full_track(
 
     click(window, ("focus-stem-label", DRUMS), cx);
     assert_eq!(gains(&view, cx), [1.0; 4]);
-    cx.update(|cx| assert_eq!(view.read(cx).stems.focus(), None));
+    cx.update(|cx| assert_eq!(view.read(cx).stems.picked(), None));
 
     click(window, ("focus-stem-label", VOCALS), cx);
     click(window, "focus-stem-full-track", cx);
     assert_eq!(gains(&view, cx), [1.0; 4]);
 }
 
-#[gpui::test]
-fn option_clicking_a_stem_label_mutes_it_and_keeps_the_others(cx: &mut TestAppContext) {
-    let (window, view, _scratch) = open_focus_with_stems("focus-stem-mute", cx);
-    let option = gpui::Modifiers {
-        alt: true,
-        ..gpui::Modifiers::default()
-    };
+fn secondary_click(
+    window: AnyWindowHandle,
+    id: impl Into<gpui::ElementId>,
+    cx: &mut TestAppContext,
+) {
+    let id = id.into();
     cx.update_window(window, |_, window, cx| {
+        let secondary = gpui::Modifiers::secondary_key(cx);
         window.render_frame(cx);
-        window.click_with_modifiers(("focus-stem-label", DRUMS), option, cx);
+        window.click_with_modifiers(id, secondary, cx);
     })
     .unwrap();
     cx.run_until_parked();
-    let muted = gains(&view, cx);
-    assert!(
-        muted
-            .iter()
-            .enumerate()
-            .all(|(index, gain)| (*gain < 0.01) == (index == DRUMS))
-    );
+}
+
+fn audible(view: &Entity<EuphoriaApp>, cx: &mut TestAppContext) -> [bool; 4] {
+    cx.update(|cx| {
+        let stems = view.read(cx).stems.audible();
+        euphoria_core::stems::Stem::ALL.map(|stem| stems.contains(stem))
+    })
+}
+
+fn heard(gains: [f32; 4]) -> [bool; 4] {
+    gains.map(|gain| gain > 0.99)
+}
+
+#[gpui::test]
+fn command_clicking_stem_labels_adds_and_removes_them_from_what_plays(cx: &mut TestAppContext) {
+    let (window, view, _scratch) = open_focus_with_stems("focus-stem-multi", cx);
+
+    click(window, ("focus-stem-label", VOCALS), cx);
+    secondary_click(window, ("focus-stem-label", DRUMS), cx);
+    let pair = [true, false, false, true];
+    assert_eq!(audible(&view, cx), pair);
+    assert_eq!(heard(gains(&view, cx)), pair, "the mix follows the names");
     cx.update(|cx| {
         assert_eq!(
-            view.read(cx).stems.focus(),
-            Some(crate::stems::StemFocus::Mute(
-                euphoria_core::stems::Stem::Drums
-            ))
+            view.read(cx)
+                .stems
+                .audible()
+                .summary(&[
+                    euphoria_core::stems::Stem::Vocals,
+                    euphoria_core::stems::Stem::Drums,
+                    euphoria_core::stems::Stem::Bass,
+                    euphoria_core::stems::Stem::Other,
+                ])
+                .as_deref(),
+            Some("Solo: Vocals + Drums")
         )
     });
 
-    cx.update_window(window, |_, window, cx| {
-        window.render_frame(cx);
-        window.click_with_modifiers(("focus-stem-label", DRUMS), option, cx);
-    })
-    .unwrap();
+    secondary_click(window, ("focus-stem-label", BASS), cx);
+    secondary_click(window, ("focus-stem-label", VOCALS), cx);
+    let drums_and_bass = [true, true, false, false];
+    assert_eq!(audible(&view, cx), drums_and_bass);
+    assert_eq!(heard(gains(&view, cx)), drums_and_bass);
+
+    secondary_click(window, ("focus-stem-label", DRUMS), cx);
+    secondary_click(window, ("focus-stem-label", BASS), cx);
+    assert_eq!(audible(&view, cx), [true; 4], "removing the last plays all");
+    assert_eq!(gains(&view, cx), [1.0; 4]);
+    cx.update(|cx| {
+        let app = view.read(cx);
+        assert_eq!(app.stems.picked(), None);
+        assert_eq!(app.stems.mode(), crate::stems::StemMode::Full);
+    });
+}
+
+#[gpui::test]
+fn command_clicking_a_stem_while_all_play_mutes_only_it(cx: &mut TestAppContext) {
+    let (window, view, _scratch) = open_focus_with_stems("focus-stem-mute", cx);
+    secondary_click(window, ("focus-stem-label", DRUMS), cx);
+    let without_drums = [false, true, true, true];
+    assert_eq!(audible(&view, cx), without_drums);
+    assert_eq!(heard(gains(&view, cx)), without_drums);
+
+    secondary_click(window, ("focus-stem-label", VOCALS), cx);
+    cx.update(|cx| {
+        assert_eq!(
+            view.read(cx).stems.audible(),
+            crate::stems::StemMode::Instrumental
+                .stems()
+                .toggled(euphoria_core::stems::Stem::Drums)
+        )
+    });
+
+    secondary_click(window, ("focus-stem-label", DRUMS), cx);
+    cx.update(|cx| {
+        assert_eq!(
+            view.read(cx).stems.audible(),
+            crate::stems::StemMode::Instrumental.stems(),
+            "drums, bass and other is the instrumental choice"
+        )
+    });
+
+    secondary_click(window, ("focus-stem-label", VOCALS), cx);
+    assert_eq!(gains(&view, cx), [1.0; 4]);
+}
+
+#[gpui::test]
+fn the_quick_choices_show_on_the_stem_names(cx: &mut TestAppContext) {
+    let (window, view, _scratch) = open_focus_with_stems("focus-stem-quick", cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.set_stem_mode(crate::stems::StemMode::Acapella, cx)
+        })
+    });
     cx.run_until_parked();
+    assert_eq!(audible(&view, cx), [false, false, false, true]);
+
+    secondary_click(window, ("focus-stem-label", BASS), cx);
+    let vocals_and_bass = [false, true, false, true];
+    assert_eq!(audible(&view, cx), vocals_and_bass);
+    assert_eq!(heard(gains(&view, cx)), vocals_and_bass);
+
+    click(window, ("focus-stem-label", VOCALS), cx);
+    assert_eq!(audible(&view, cx), [false, false, false, true]);
+    click(window, ("focus-stem-label", VOCALS), cx);
     assert_eq!(gains(&view, cx), [1.0; 4]);
 }
 
@@ -677,7 +760,7 @@ fn changing_the_track_returns_to_the_full_track(cx: &mut TestAppContext) {
     assert_eq!(gains(&view, cx), [1.0; 4]);
     cx.update(|cx| {
         let app = view.read(cx);
-        assert_eq!(app.stems.focus(), None);
+        assert_eq!(app.stems.picked(), None);
         assert_eq!(app.stems.mode(), crate::stems::StemMode::Full);
     });
 }

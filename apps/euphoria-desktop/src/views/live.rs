@@ -15,7 +15,7 @@ use gpui::component::{Icon, IconName};
 use gpui::prelude::*;
 use gpui::{
     Action, AnyElement, Context, Div, Entity, FocusHandle, FontWeight, ObjectFit, ScrollHandle,
-    SharedString, TestSupportExt, Window, div, img, px,
+    SharedString, StyleRefinement, TestSupportExt, Window, div, img, px,
 };
 
 use crate::actions::{
@@ -26,7 +26,8 @@ use crate::assets::{MUSIC_ICON_PATH, PLAY_ICON_PATH};
 use crate::format;
 use crate::live_model::{Learning, ListenState, LiveModel, Steadiness, shown_title};
 use crate::next_rail::{EnergyChoice, NextRow, energy_text, relation_pill};
-use crate::theme::Palette;
+use crate::tag_settings::NotationChoice;
+use crate::theme::{AppTheme, Palette};
 use crate::views::controls::{segment, segmented};
 use crate::views::inspector::{quiet_note, value_with_unit};
 use crate::views::key_chip::key_chip;
@@ -48,6 +49,13 @@ const PANEL_MAXIMUM_SHARE: f32 = 0.7;
 const PANEL_FIXED_HEIGHT: f32 = 300.0;
 /// The least room the Next list gets, about two rows.
 const PANEL_ROW_ROOM: f32 = 120.0;
+
+/// The height of a row of the Next list, which is fixed so that the list
+/// can be drawn again from its cache without measuring its rows.
+const NEXT_ROW_HEIGHT: f32 = 51.0;
+/// How far the panel's content may grow or shrink, without a row or a part
+/// coming or going, before the window follows it.
+const RESIZE_SLACK: f32 = 12.0;
 
 const BIG_KEY_SIZE: f32 = 44.0;
 const COVER_SIDE: f32 = 40.0;
@@ -147,6 +155,286 @@ impl MoreItem {
     }
 }
 
+/// What decides how tall the panel's content is: the rows and the parts that
+/// come and go. The window follows a change of these at once, and a change of
+/// the content's height alone only past [`RESIZE_SLACK`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Structure {
+    pub(crate) rows: usize,
+    pub(crate) picker_open: bool,
+    pub(crate) earlier_open: bool,
+    pub(crate) earlier: usize,
+    pub(crate) has_card: bool,
+    pub(crate) is_learning: bool,
+    pub(crate) readout: ReadoutKind,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum ReadoutKind {
+    #[default]
+    Paused,
+    Unavailable,
+    Waiting,
+    Silent,
+    Heard,
+}
+
+fn structure(model: &LiveModel, rows: usize, picker_open: bool, earlier_open: bool) -> Structure {
+    let readout = match &model.state {
+        ListenState::Paused => ReadoutKind::Paused,
+        ListenState::Unavailable(_) => ReadoutKind::Unavailable,
+        ListenState::Listening if model.reading.listening || model.reading.key.is_none() => {
+            if model.hears_only_silence() {
+                ReadoutKind::Silent
+            } else {
+                ReadoutKind::Waiting
+            }
+        }
+        ListenState::Listening => ReadoutKind::Heard,
+    };
+    Structure {
+        rows,
+        picker_open,
+        earlier_open,
+        earlier: model.earlier_readings().len(),
+        has_card: model.matched_track().is_some(),
+        is_learning: matches!(model.learning, Learning::Working { .. }),
+        readout,
+    }
+}
+
+/// What the panel does with the window's height after a frame.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Sizing {
+    Keep,
+    Resize(f32),
+    /// The list is being scrolled: look again after this long.
+    AfterScroll(std::time::Duration),
+}
+
+/// When the window follows the height of the panel's content: when rows or
+/// parts came or went, or the content moved past [`RESIZE_SLACK`], and never
+/// while the list is being scrolled.
+#[derive(Debug, Clone)]
+pub(crate) struct PanelSizing {
+    pub(crate) window_height: f32,
+    sized_for: Option<Structure>,
+    scroll_offset: f32,
+    scrolled_at: Option<std::time::Instant>,
+}
+
+impl PanelSizing {
+    pub(crate) fn new(window_height: f32) -> Self {
+        Self {
+            window_height,
+            sized_for: None,
+            scroll_offset: 0.0,
+            scrolled_at: None,
+        }
+    }
+
+    /// Notes where the list is scrolled to, at `now`.
+    pub(crate) fn note_scroll(&mut self, offset: f32, now: std::time::Instant) {
+        if offset != self.scroll_offset {
+            self.scroll_offset = offset;
+            self.scrolled_at = Some(now);
+        }
+    }
+
+    /// What to do for content measured `content` tall with `structure`, in a
+    /// window no taller than `maximum`.
+    pub(crate) fn decide(
+        &mut self,
+        content: f32,
+        structure: Structure,
+        maximum: f32,
+        now: std::time::Instant,
+    ) -> Sizing {
+        let wanted = content.clamp(PANEL_MINIMUM_HEIGHT, maximum).ceil();
+        let change = (wanted - self.window_height).abs();
+        if change < 1.0 {
+            self.sized_for = Some(structure);
+            return Sizing::Keep;
+        }
+        if self.sized_for == Some(structure) && change < RESIZE_SLACK {
+            return Sizing::Keep;
+        }
+        if let Some(scrolled_at) = self.scrolled_at {
+            let since = now.saturating_duration_since(scrolled_at);
+            if since < crate::motion::LAYOUT {
+                return Sizing::AfterScroll(crate::motion::LAYOUT - since);
+            }
+        }
+        self.window_height = wanted;
+        self.sized_for = Some(structure);
+        Sizing::Resize(wanted)
+    }
+}
+
+/// A row of the Next list as it is drawn, made once per ranking rather than
+/// on every frame.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ShownRow {
+    track_index: usize,
+    path: std::path::PathBuf,
+    key: Option<euphoria_core::Key>,
+    title: SharedString,
+    artist: Option<SharedString>,
+    tempo: Option<SharedString>,
+    pills: Vec<(SharedString, bool)>,
+}
+
+fn shown_rows(model: &LiveModel) -> Vec<ShownRow> {
+    let Some(library) = model.library.as_ref() else {
+        return Vec::new();
+    };
+    model
+        .next_rows
+        .iter()
+        .filter_map(|next: &NextRow| {
+            let track = library.track(next.track_index)?;
+            let mut pills = vec![(SharedString::from(relation_pill(next.relation)), true)];
+            if let Some(text) = energy_text(track.energy(), next.energy_change) {
+                pills.push((text.into(), false));
+            }
+            Some(ShownRow {
+                track_index: next.track_index,
+                path: track.path.clone(),
+                key: track.key(),
+                title: shown_title(track).into(),
+                artist: track
+                    .shown_artist()
+                    .map(|artist| SharedString::from(artist.into_owned())),
+                tempo: next
+                    .tempo_difference_percent
+                    .map(|percent| format::signed_percent(percent).into()),
+                pills,
+            })
+        })
+        .collect()
+}
+
+/// The Next list, a view of its own that is drawn from its cache unless its
+/// rows, the selection or the scroll changed, so the level dot and the
+/// readout redraw without it.
+pub(crate) struct NextList {
+    rows: Vec<ShownRow>,
+    theme: AppTheme,
+    notation: NotationChoice,
+    selected_row: Option<usize>,
+    scroll: ScrollHandle,
+    #[cfg(test)]
+    pub(crate) renders: usize,
+}
+
+impl NextList {
+    fn show(
+        &mut self,
+        rows: Vec<ShownRow>,
+        theme: AppTheme,
+        notation: NotationChoice,
+        selected_row: Option<usize>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if self.rows == rows
+            && self.theme == theme
+            && self.notation == notation
+            && self.selected_row == selected_row
+        {
+            return;
+        }
+        self.rows = rows;
+        self.theme = theme;
+        self.notation = notation;
+        self.selected_row = selected_row;
+        cx.notify();
+    }
+
+    /// How tall the list is with `rows` rows and at most `room` to fill.
+    fn height(rows: usize, room: f32) -> f32 {
+        let gaps = rows.saturating_sub(1) as f32 * (GAP_TIGHT / px(1.0));
+        (rows as f32 * NEXT_ROW_HEIGHT + gaps).min(room)
+    }
+}
+
+impl Render for NextList {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<'_, Self>) -> impl IntoElement {
+        #[cfg(test)]
+        {
+            self.renders += 1;
+        }
+        let theme = self.theme;
+        let notation = self.notation;
+        let selected_row = self.selected_row;
+        div()
+            .relative()
+            .size_full()
+            .child(
+                div()
+                    .id("live-next-list")
+                    .flex()
+                    .flex_col()
+                    .size_full()
+                    .overflow_y_scroll()
+                    .track_scroll(&self.scroll)
+                    .gap(GAP_TIGHT)
+                    .children(self.rows.iter().enumerate().map(|(position, row)| {
+                        next_row(row, &theme, notation, selected_row == Some(position))
+                    }))
+                    .test_support(),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .right_0()
+                    .bottom_0()
+                    .w(Scrollbar::width())
+                    .child(Scrollbar::vertical(&self.scroll).viewport_from_layout()),
+            )
+    }
+}
+
+/// The dot that follows the level heard, a view of its own so that it is the
+/// only part drawn again when only the level changed.
+pub(crate) struct ListeningDot {
+    model: Entity<LiveModel>,
+}
+
+impl Render for ListeningDot {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+        let model = self.model.read(cx);
+        let level = model.level.read(cx).position;
+        let palette = model.theme.palette;
+        let dot_side = DOT_SMALLEST + (DOT_LARGEST - DOT_SMALLEST) * level;
+        let (dot_colour, dot_tip) = match &model.state {
+            ListenState::Listening if model.hears_only_silence() => (
+                palette.text_tertiary.opacity(0.7),
+                "Only silence so far. Nothing is recorded.".to_string(),
+            ),
+            ListenState::Listening => (
+                palette.accent.opacity(0.55 + 0.45 * level),
+                format!(
+                    "Listening to {}. Nothing is recorded: the audio stays in memory.",
+                    model.source.label()
+                ),
+            ),
+            ListenState::Paused => (palette.text_tertiary, "Not listening".to_string()),
+            ListenState::Unavailable(_) => (palette.warning, "Cannot listen".to_string()),
+        };
+        let dot_tip: SharedString = dot_tip.into();
+        div()
+            .id(LISTENING_ID)
+            .flex()
+            .items_center()
+            .justify_center()
+            .size(px(DOT_LARGEST))
+            .tooltip(move |window, cx| Tooltip::new(dot_tip.clone()).build(window, cx))
+            .child(div().size(px(dot_side)).rounded_full().bg(dot_colour))
+            .test_support()
+    }
+}
+
 pub(crate) struct LiveView {
     pub(crate) model: Entity<LiveModel>,
     pub(crate) picker_open: bool,
@@ -155,29 +443,120 @@ pub(crate) struct LiveView {
     pub(crate) focus: FocusHandle,
     /// The row the arrow keys are on, among those the Next list shows.
     pub(crate) selected_row: Option<usize>,
-    /// How tall the content was last drawn, in points.
-    pub(crate) content_height: std::rc::Rc<std::cell::Cell<Option<f32>>>,
-    /// The height the window was last given, in points.
-    pub(crate) window_height: f32,
+    pub(crate) dot: Entity<ListeningDot>,
+    pub(crate) list: Entity<NextList>,
+    /// How tall the content was last drawn, in points, and what it held.
+    content_height: std::rc::Rc<std::cell::Cell<Option<(f32, Structure)>>>,
+    pub(crate) sizing: PanelSizing,
+    looks_again: bool,
     /// Where the popover's top left corner belongs, from the top left of the
     /// main display, once it is opened under the menu bar item.
     pub(crate) top_left: Option<(f32, f32)>,
+    #[cfg(test)]
+    pub(crate) resizes: Vec<(f32, f32)>,
+    #[cfg(test)]
+    pub(crate) renders: usize,
 }
 
 impl LiveView {
     pub(crate) fn new(model: Entity<LiveModel>, cx: &mut Context<'_, Self>) -> Self {
-        cx.observe(&model, |_, _, cx| cx.notify()).detach();
+        cx.observe(&model, |view, _, cx| {
+            view.show_rows(cx);
+            cx.notify();
+        })
+        .detach();
         model.update(cx, |model, cx| model.ensure_library(cx));
-        Self {
+        let scroll = ScrollHandle::new();
+        let dot_model = model.clone();
+        let dot = cx.new(|_| ListeningDot { model: dot_model });
+        let list_scroll = scroll.clone();
+        let (theme, notation) = {
+            let model = model.read(cx);
+            (model.theme, model.notation)
+        };
+        let list = cx.new(|_| NextList {
+            rows: Vec::new(),
+            theme,
+            notation,
+            selected_row: None,
+            scroll: list_scroll,
+            #[cfg(test)]
+            renders: 0,
+        });
+        let mut view = Self {
             model,
             picker_open: false,
             earlier_open: false,
-            scroll: ScrollHandle::new(),
+            scroll,
             focus: cx.focus_handle(),
             selected_row: None,
+            dot,
+            list,
             content_height: std::rc::Rc::default(),
-            window_height: PANEL_HEIGHT,
+            sizing: PanelSizing::new(PANEL_HEIGHT),
+            looks_again: false,
             top_left: None,
+            #[cfg(test)]
+            resizes: Vec::new(),
+            #[cfg(test)]
+            renders: 0,
+        };
+        view.show_rows(cx);
+        view
+    }
+
+    /// Hands the Next list the rows the model ranked, which redraws it only
+    /// when they changed.
+    fn show_rows(&mut self, cx: &mut Context<'_, Self>) {
+        let model = self.model.read(cx);
+        let rows = shown_rows(model);
+        let theme = model.theme;
+        let notation = model.notation;
+        let selected_row = self.selected_row;
+        self.list.update(cx, |list, cx| {
+            list.show(rows, theme, notation, selected_row, cx);
+        });
+    }
+
+    /// Gives the window the height of its content when [`PanelSizing`] says
+    /// so, and looks again once a scroll has settled.
+    fn follow_content_height(
+        &mut self,
+        maximum_height: f32,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let now = std::time::Instant::now();
+        self.sizing
+            .note_scroll(self.scroll.offset().y / px(1.0), now);
+        let (Some((content, structure)), Some(top_left)) =
+            (self.content_height.get(), self.top_left)
+        else {
+            return;
+        };
+        match self.sizing.decide(content, structure, maximum_height, now) {
+            Sizing::Keep => {}
+            Sizing::Resize(height) => {
+                #[cfg(test)]
+                self.resizes.push((content, height));
+                window.defer(cx, move |window, cx| {
+                    crate::panel_frame::set_height_keeping_top(window, top_left, height, cx);
+                });
+            }
+            Sizing::AfterScroll(wait) => {
+                if !self.looks_again {
+                    self.looks_again = true;
+                    cx.spawn(async move |this, cx| {
+                        cx.background_executor().timer(wait).await;
+                        this.update(cx, |view, cx| {
+                            view.looks_again = false;
+                            cx.notify();
+                        })
+                        .ok();
+                    })
+                    .detach();
+                }
+            }
         }
     }
 
@@ -194,6 +573,7 @@ impl LiveView {
         };
         self.selected_row = Some(next);
         self.scroll.scroll_to_item(next);
+        self.show_rows(cx);
         cx.notify();
     }
 
@@ -216,7 +596,7 @@ impl LiveView {
     }
 }
 
-fn pill(text: String, is_key: bool, palette: &Palette) -> Div {
+fn pill(text: SharedString, is_key: bool, palette: &Palette) -> Div {
     div()
         .flex()
         .flex_shrink_0()
@@ -283,49 +663,16 @@ fn icon_button(
 
 fn header(model: &LiveModel, view: &LiveView, cx: &Context<'_, LiveView>) -> Div {
     let palette = model.theme.palette;
-    let level = model
-        .reading
-        .level
-        .filter(|_| model.is_listening())
-        .map_or(0.0, |level| level.meter_position());
-    let dot_side = DOT_SMALLEST + (DOT_LARGEST - DOT_SMALLEST) * level;
-    let needs_permission = model.is_listening() && model.reading.no_signal_seconds >= 10.0;
-    let (dot_colour, dot_tip) = match &model.state {
-        ListenState::Listening if needs_permission => (
-            palette.text_tertiary.opacity(0.7),
-            "Only silence so far. Nothing is recorded.".to_string(),
-        ),
-        ListenState::Listening => (
-            palette.accent.opacity(0.55 + 0.45 * level),
-            format!(
-                "Listening to {}. Nothing is recorded: the audio stays in memory.",
-                model.source.label()
-            ),
-        ),
-        ListenState::Paused => (palette.text_tertiary, "Not listening".to_string()),
-        ListenState::Unavailable(_) => (palette.warning, "Cannot listen".to_string()),
-    };
-    let dot_tip: SharedString = dot_tip.into();
     let model_entity = view.model.clone();
     let is_listening = model.is_listening();
     let source_label = model.source.label().to_string();
     let hover_background = palette.line;
-    let more_rows = more_menu(model, crate::login_item::is_enabled());
+    let more_rows = more_menu(model, model.opens_at_login);
     div()
         .flex()
         .items_center()
         .gap(GAP_SMALL)
-        .child(
-            div()
-                .id(LISTENING_ID)
-                .flex()
-                .items_center()
-                .justify_center()
-                .size(px(DOT_LARGEST))
-                .tooltip(move |window, cx| Tooltip::new(dot_tip.clone()).build(window, cx))
-                .child(div().size(px(dot_side)).rounded_full().bg(dot_colour))
-                .test_support(),
-        )
+        .child(view.dot.clone())
         .child(
             div()
                 .id(SOURCE_ID)
@@ -506,7 +853,7 @@ fn readout(model: &LiveModel) -> AnyElement {
     }
     let reading = &model.reading;
     let Some(key) = reading.key.filter(|_| !reading.listening) else {
-        let note = if reading.no_signal_seconds >= 10.0 {
+        let note = if model.hears_only_silence() {
             "Only silence so far. If audio is playing, allow Euphoria under System Settings, \
              Privacy & Security, Screen & System Audio Recording."
         } else {
@@ -644,8 +991,7 @@ fn cover(
 fn library_card(model: &LiveModel, cx: &Context<'_, LiveView>) -> Option<AnyElement> {
     let palette = model.theme.palette;
     let (track, found) = model.matched_track()?;
-    let heard = model.reading.heard_seconds.min(15.0);
-    let position = found.start_seconds + heard * found.playback.tempo_ratio;
+    let position = model.match_position_seconds()?;
     let times = match track.duration_seconds() {
         Some(duration) => format!("{} / {}", clock(position), clock(duration)),
         None => clock(position),
@@ -713,96 +1059,87 @@ fn learning_note(model: &LiveModel) -> Option<AnyElement> {
     )
 }
 
-fn next_row(model: &LiveModel, next: &NextRow, is_selected: bool) -> Option<AnyElement> {
-    let palette = model.theme.palette;
-    let track = model.library.as_ref()?.track(next.track_index)?;
+fn next_row(
+    row: &ShownRow,
+    theme: &AppTheme,
+    notation: NotationChoice,
+    is_selected: bool,
+) -> AnyElement {
+    let palette = theme.palette;
     let hover_background = palette.raised;
-    let mut pills = vec![(relation_pill(next.relation).to_string(), true)];
-    if let Some(text) = energy_text(track.energy(), next.energy_change) {
-        pills.push((text, false));
-    }
-    let path = track.path.clone();
-    Some(
-        div()
-            .id(row_id(next.track_index))
-            .flex()
-            .flex_shrink_0()
-            .items_start()
-            .gap(GAP_SMALL)
-            .py(px(4.0))
-            .px(px(2.0))
-            .rounded(RADIUS_SMALL)
-            .cursor_pointer()
-            .when(is_selected, |row| row.bg(palette.selection))
-            .hover(move |style| style.bg(hover_background))
-            .on_click(move |_, _, cx| crate::live_app::show_in_euphoria(path.clone(), cx))
-            .child(
-                div().flex().flex_shrink_0().w(px(38.0)).children(
-                    track
-                        .key()
-                        .map(|key| key_chip(&key, &model.theme, model.notation)),
+    let path = row.path.clone();
+    div()
+        .id(row_id(row.track_index))
+        .flex()
+        .flex_shrink_0()
+        .items_start()
+        .h(px(NEXT_ROW_HEIGHT))
+        .gap(GAP_SMALL)
+        .py(px(4.0))
+        .px(px(2.0))
+        .rounded(RADIUS_SMALL)
+        .cursor_pointer()
+        .when(is_selected, |element| element.bg(palette.selection))
+        .hover(move |style| style.bg(hover_background))
+        .on_click(move |_, _, cx| crate::live_app::show_in_euphoria(path.clone(), cx))
+        .child(
+            div()
+                .flex()
+                .flex_shrink_0()
+                .w(px(38.0))
+                .children(row.key.map(|key| key_chip(&key, theme, notation))),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w_0()
+                .gap(GAP_TIGHT)
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(GAP_SMALL)
+                        .child(div().flex_1().min_w_0().truncate().child(row.title.clone()))
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .text_size(SMALL_TEXT_SIZE)
+                                .text_color(palette.text_secondary)
+                                .children(row.tempo.clone()),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(GAP_SMALL)
+                        .children(row.artist.clone().map(|artist| {
+                            div()
+                                .min_w_0()
+                                .truncate()
+                                .text_size(SMALL_TEXT_SIZE)
+                                .text_color(palette.text_secondary)
+                                .child(artist)
+                        }))
+                        .children(
+                            row.pills
+                                .iter()
+                                .map(|(text, is_key)| pill(text.clone(), *is_key, &palette)),
+                        ),
                 ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w_0()
-                    .gap(GAP_TIGHT)
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(GAP_SMALL)
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .truncate()
-                                    .child(shown_title(track)),
-                            )
-                            .child(
-                                div()
-                                    .flex_shrink_0()
-                                    .text_size(SMALL_TEXT_SIZE)
-                                    .text_color(palette.text_secondary)
-                                    .children(
-                                        next.tempo_difference_percent.map(format::signed_percent),
-                                    ),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(GAP_SMALL)
-                            .children(track.shown_artist().map(|artist| {
-                                div()
-                                    .min_w_0()
-                                    .truncate()
-                                    .text_size(SMALL_TEXT_SIZE)
-                                    .text_color(palette.text_secondary)
-                                    .child(artist.to_string())
-                            }))
-                            .children(
-                                pills
-                                    .into_iter()
-                                    .map(|(text, is_key)| pill(text, is_key, &palette)),
-                            ),
-                    ),
-            )
-            .test_support()
-            .into_any_element(),
-    )
+        )
+        .test_support()
+        .into_any_element()
 }
 
 fn next_section(
     model: &LiveModel,
     model_entity: &Entity<LiveModel>,
-    scroll: &ScrollHandle,
-    selected_row: Option<usize>,
-    list_height: f32,
+    list: &Entity<NextList>,
+    rows: usize,
+    list_room: f32,
 ) -> Div {
     let palette = model.theme.palette;
     let control = segmented(
@@ -827,12 +1164,6 @@ fn next_section(
             .collect(),
         &palette,
     );
-    let rows: Vec<AnyElement> = model
-        .next_rows
-        .iter()
-        .enumerate()
-        .filter_map(|(position, next)| next_row(model, next, selected_row == Some(position)))
-        .collect();
     let has_key = model.is_listening() && !model.reading.listening && model.reading.key.is_some();
     let empty_text = if !has_key {
         "Tracks that mix in appear once a key is heard."
@@ -840,6 +1171,21 @@ fn next_section(
         "Reading your library\u{2026}"
     } else {
         "No track in your library mixes in with this."
+    };
+    let body = if rows == 0 {
+        div()
+            .text_size(SMALL_TEXT_SIZE)
+            .text_color(palette.text_tertiary)
+            .child(empty_text)
+            .into_any_element()
+    } else {
+        list.clone()
+            .cached(
+                StyleRefinement::default()
+                    .w_full()
+                    .h(px(NextList::height(rows, list_room))),
+            )
+            .into_any_element()
     };
     div()
         .flex()
@@ -863,42 +1209,7 @@ fn next_section(
                 )
                 .child(control),
         )
-        .child(
-            div()
-                .relative()
-                .flex()
-                .flex_col()
-                .min_h_0()
-                .child(
-                    div()
-                        .id("live-next-list")
-                        .flex()
-                        .flex_col()
-                        .min_h_0()
-                        .max_h(px(list_height))
-                        .overflow_y_scroll()
-                        .track_scroll(scroll)
-                        .gap(GAP_TIGHT)
-                        .when(rows.is_empty(), |list| {
-                            list.child(
-                                div()
-                                    .text_size(SMALL_TEXT_SIZE)
-                                    .text_color(palette.text_tertiary)
-                                    .child(empty_text),
-                            )
-                        })
-                        .children(rows),
-                )
-                .child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .right_0()
-                        .bottom_0()
-                        .w(Scrollbar::width())
-                        .child(Scrollbar::vertical(scroll).viewport_from_layout()),
-                ),
-        )
+        .child(body)
 }
 
 fn earlier_row(model: &LiveModel, is_open: bool, cx: &Context<'_, LiveView>) -> Option<AnyElement> {
@@ -984,6 +1295,10 @@ fn earlier_row(model: &LiveModel, is_open: bool, cx: &Context<'_, LiveView>) -> 
 
 impl Render for LiveView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+        #[cfg(test)]
+        {
+            self.renders += 1;
+        }
         let model_entity = self.model.clone();
         let picker_open = self.picker_open;
         let earlier_open = self.earlier_open;
@@ -993,18 +1308,13 @@ impl Render for LiveView {
                 display.bounds().size.height / px(1.0)
             });
         let maximum_height = (screen_height * PANEL_MAXIMUM_SHARE).max(PANEL_MINIMUM_HEIGHT);
-        if let (Some(content), Some(top_left)) = (self.content_height.get(), self.top_left) {
-            let wanted = content.clamp(PANEL_MINIMUM_HEIGHT, maximum_height).ceil();
-            if (wanted - self.window_height).abs() >= 1.0 {
-                self.window_height = wanted;
-                window.defer(cx, move |window, cx| {
-                    crate::panel_frame::set_height_keeping_top(window, top_left, wanted, cx);
-                });
-            }
-        }
+        self.follow_content_height(maximum_height, window, cx);
+        let rows = self.list.read(cx).rows.len();
         let model = self.model.read(cx);
         let palette = model.theme.palette;
         let seen_height = self.content_height.clone();
+        let drawn = structure(model, rows, picker_open, earlier_open);
+        let view_id = cx.entity_id();
 
         div().size_full().child(
             div()
@@ -1039,15 +1349,18 @@ impl Render for LiveView {
                 .child(next_section(
                     model,
                     &model_entity,
-                    &self.scroll,
-                    self.selected_row,
+                    &self.list,
+                    rows,
                     (maximum_height - PANEL_FIXED_HEIGHT).max(PANEL_ROW_ROOM),
                 ))
                 .children(earlier_row(model, earlier_open, cx))
                 .child(
                     gpui::canvas(
-                        move |bounds: gpui::Bounds<gpui::Pixels>, _, _| {
-                            seen_height.set(Some(bounds.size.height / px(1.0)));
+                        move |bounds: gpui::Bounds<gpui::Pixels>, window, cx| {
+                            let measured = Some((bounds.size.height / px(1.0), drawn));
+                            if seen_height.replace(measured) != measured {
+                                window.defer(cx, move |_, cx| cx.notify(view_id));
+                            }
                         },
                         |_, _, _, _| (),
                     )
