@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use euphoria_core::export::rekordbox::{
-    CueKind, CuePoint, Folder, Library, Playlist, PlaylistNode, Track,
+    CueKind, CuePoint, Folder, Library, LoopPoint, Playlist, PlaylistNode, Track,
 };
 use euphoria_core::export::traktor::{
     HOT_CUE_PADS, ModifiedTime, TraktorOptions, key_from_musical_key_value, write_nml,
@@ -608,6 +608,29 @@ fn libraries_traktor_cannot_hold_are_refused() {
         refusal(&not_in_collection).1,
         ExportProblem::NotInCollection
     );
+}
+
+#[test]
+fn saved_loops_are_written_as_loop_cues_with_their_length() {
+    let track = Track {
+        loops: vec![LoopPoint {
+            name: "Break".to_string(),
+            start: Duration::from_millis(64_000),
+            end: Duration::from_millis(71_500),
+        }],
+        ..Track::new(ON_THE_STARTUP_DISK, Duration::from_secs(300))
+    };
+    let document = export(&one_track(track), &options());
+    let parsed = roxmltree::Document::parse(&document).expect("the export is well formed");
+    let loops: Vec<_> = parsed
+        .descendants()
+        .filter(|node| node.has_tag_name("CUE_V2") && node.attribute("TYPE") == Some("5"))
+        .collect();
+    assert_eq!(loops.len(), 1);
+    assert_eq!(loops[0].attribute("NAME"), Some("Break"));
+    assert_eq!(loops[0].attribute("START"), Some("64000.000000"));
+    assert_eq!(loops[0].attribute("LEN"), Some("7500.000000"));
+    assert_eq!(loops[0].attribute("HOTCUE"), Some("-1"));
 }
 
 #[test]

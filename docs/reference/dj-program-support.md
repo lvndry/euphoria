@@ -37,3 +37,4 @@ Euphoria hands its analysis to a DJ program in one of three ways: a library file
 | Cue colours | `Red`, `Green` and `Blue` of hot cues, by the [energy of each section](../concepts/accuracy.md#energy-of-each-cue) | None: Traktor colours a cue by its type | With `--serato-markers`, Serato pad colours by energy |
 | Energy | `Comments` | `INFO COMMENT` | The comment field |
 | Your cues | Tracks with cues in the collection given with `--collection` are left out | Same, with your `collection.nml` | Not touched |
+| Saved loops | `POSITION_MARK` memory loops, `Type="4"` with `End`, with `--cues` | `CUE_V2` loops, `TYPE="5"` with `LEN`, with `--cues` | With `--serato-markers`, Serato saved loops |

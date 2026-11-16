@@ -369,6 +369,7 @@ fn selected(path: &std::path::Path, analysis: TrackAnalysis) -> PreviewInput {
         analysis: Some(analysis),
         correction: Default::default(),
         edited_cues: None,
+        saved_loops: Vec::new(),
     }))
     .unwrap()
 }
@@ -427,6 +428,7 @@ fn a_key_and_tempo_confirmed_with_looks_right_are_not_struck_out_for_low_confide
             analysis: Some(unsure.clone()),
             correction,
             edited_cues: None,
+            saved_loops: Vec::new(),
         }))
         .unwrap()
     };
@@ -500,6 +502,7 @@ fn library_targets(files: &[std::path::PathBuf], analysis: TrackAnalysis) -> Vec
             analysis: Some(analysis.clone()),
             correction: Default::default(),
             edited_cues: None,
+            saved_loops: Vec::new(),
         })
         .collect()
 }

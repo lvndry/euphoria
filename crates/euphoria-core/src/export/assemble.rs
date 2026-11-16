@@ -10,12 +10,13 @@ use std::time::Duration;
 use rayon::prelude::*;
 
 use super::playlists::playlists_from_folders;
-use super::rekordbox::{CueKind, CuePoint, Library, Playlist, PlaylistNode, Track};
+use super::rekordbox::{CueKind, CuePoint, Library, LoopPoint, Playlist, PlaylistNode, Track};
 use crate::analysis::{FileResult, TrackAnalysis};
 use crate::confidence::Confidence;
 use crate::cue_colours::CueColours;
 use crate::error::EuphoriaError;
 use crate::track_cues::{Cue, TrackCues};
+use crate::track_loops::{SavedLoop, loops_within};
 use crate::track_name::{TrackName, read_track_name};
 
 /// Which playlists an exported library gets.
@@ -93,6 +94,13 @@ pub struct ExportContents {
     ///
     /// [`Cache::edited_cues_for`]: crate::cache::Cache::edited_cues_for
     pub edited_cues: HashMap<PathBuf, Vec<Cue>>,
+    /// The loops users saved, by file, as [`Cache::saved_loops_for`] reads
+    /// them. They are written with the cues, on every track, grid or not,
+    /// since the user placed them; a loop past the end of the track is
+    /// left out.
+    ///
+    /// [`Cache::saved_loops_for`]: crate::cache::Cache::saved_loops_for
+    pub saved_loops: HashMap<PathBuf, Vec<SavedLoop>>,
     /// How the cues are coloured. By default each cue analysis placed is
     /// coloured by the energy of its section, and the user's keep the
     /// colour of their pad.
@@ -220,6 +228,10 @@ fn track_from_analysis(
     } else {
         Vec::new()
     };
+    let loops = match contents.saved_loops.get(path) {
+        Some(saved) if contents.cues => loop_points(saved, analysis.duration_seconds),
+        _ => Vec::new(),
+    };
     let track = Track {
         title,
         artist: tags.artist,
@@ -231,9 +243,24 @@ fn track_from_analysis(
         first_beat: beat_grid
             .and_then(|grid| Duration::try_from_secs_f64(grid.first_downbeat_seconds).ok()),
         cue_points,
+        loops,
         ..Track::new(path, duration)
     };
     (track, unread_tags)
+}
+
+/// The saved loops that fit in a track `duration_seconds` long, in order.
+fn loop_points(saved: &[SavedLoop], duration_seconds: f32) -> Vec<LoopPoint> {
+    loops_within(saved.to_vec(), f64::from(duration_seconds))
+        .into_iter()
+        .filter_map(|saved| {
+            Some(LoopPoint {
+                start: Duration::try_from_secs_f64(saved.start_seconds).ok()?,
+                end: Duration::try_from_secs_f64(saved.end_seconds).ok()?,
+                name: saved.name,
+            })
+        })
+        .collect()
 }
 
 /// Each cue as a memory cue, and as a hot cue on its pad when it has one,
@@ -330,8 +357,65 @@ mod tests {
             beat_grid: true,
             cues: true,
             edited_cues,
+            saved_loops: HashMap::new(),
             cue_colours: CueColours::Energy,
         }
+    }
+
+    #[test]
+    fn saved_loops_go_with_the_cues_whatever_the_grid_and_stay_within_the_track() {
+        let saved = |start_seconds, end_seconds, name: &str| SavedLoop {
+            start_seconds,
+            end_seconds,
+            name: name.to_string(),
+        };
+        let contents = ExportContents {
+            saved_loops: HashMap::from([(
+                track_path(),
+                vec![
+                    saved(64.0, 72.0, "Drop"),
+                    saved(8.0, 16.0, "Intro"),
+                    saved(1_000.0, 1_008.0, "Past the end"),
+                ],
+            )]),
+            ..with_cues(HashMap::new())
+        };
+        let loops = |analysis: TrackAnalysis, contents: ExportContents| {
+            assemble_library_with(
+                vec![FileResult {
+                    path: track_path(),
+                    outcome: Ok(analysis),
+                }],
+                PlaylistLayout::CollectionOnly,
+                contents,
+            )
+            .library
+            .tracks[0]
+                .loops
+                .iter()
+                .map(|point| {
+                    (
+                        point.name.clone(),
+                        point.start.as_secs_f64(),
+                        point.end.as_secs_f64(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let expected = vec![
+            ("Intro".to_string(), 8.0, 16.0),
+            ("Drop".to_string(), 64.0, 72.0),
+        ];
+        assert_eq!(loops(analysis(None), contents.clone()), expected);
+        assert_eq!(
+            loops(analysis(Some(confident_grid())), contents.clone()),
+            expected
+        );
+        let without_cues = ExportContents {
+            cues: false,
+            ..contents
+        };
+        assert!(loops(analysis(None), without_cues).is_empty());
     }
 
     #[test]

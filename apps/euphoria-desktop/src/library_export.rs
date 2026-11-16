@@ -347,10 +347,18 @@ impl LibraryExportJob {
 
     fn contents(&self, setup: &ExportSetup) -> ExportContents {
         let (_, edited_cues) = self.results();
+        let saved_loops = self
+            .export
+            .tracks()
+            .iter()
+            .filter(|track| !track.saved_loops.is_empty())
+            .map(|track| (track.path.clone(), track.saved_loops.clone()))
+            .collect();
         ExportContents {
             beat_grid: setup.beat_grid,
             cues: setup.cues && setup.can_write_cues(),
             edited_cues,
+            saved_loops,
             cue_colours: setup.cue_colours,
         }
     }

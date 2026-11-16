@@ -221,6 +221,8 @@ struct JsonTrack<'result> {
     /// "no grid" or "not in collection".
     rekordbox_grid: Option<&'static str>,
     cues: Vec<JsonCue>,
+    /// The loops the user saved, in order of their start.
+    loops: Vec<JsonLoop>,
     quality: Option<JsonQuality<'result>>,
     needs_review: Option<bool>,
     /// Why the track is worth checking by ear: any of "key_unsure",
@@ -269,6 +271,7 @@ impl<'result> JsonTrack<'result> {
             beat_grid_source: None,
             rekordbox_grid: None,
             cues: Vec::new(),
+            loops: Vec::new(),
             quality: None,
             needs_review: None,
             review_reasons: Vec::new(),
@@ -302,6 +305,23 @@ struct JsonCue {
     /// The energy rating of the section the cue starts, or `None` for the
     /// user's cues and when it was not measured.
     energy: Option<u8>,
+}
+
+#[derive(Serialize)]
+struct JsonLoop {
+    start_seconds: f64,
+    end_seconds: f64,
+    name: String,
+}
+
+impl From<&euphoria_core::SavedLoop> for JsonLoop {
+    fn from(saved: &euphoria_core::SavedLoop) -> Self {
+        Self {
+            start_seconds: round_to_thousandths(saved.start_seconds),
+            end_seconds: round_to_thousandths(saved.end_seconds),
+            name: saved.name.clone(),
+        }
+    }
 }
 
 impl From<Cue> for JsonCue {
@@ -485,6 +505,13 @@ pub fn write_json(
                         .into_iter()
                         .map(JsonCue::from)
                         .collect(),
+                    loops: euphoria_core::loops_within(
+                        edits.loops.clone(),
+                        f64::from(analysis.duration_seconds),
+                    )
+                    .iter()
+                    .map(JsonLoop::from)
+                    .collect(),
                     quality: analysis.quality.as_ref().map(JsonQuality::from),
                     needs_review: Some(!review_reasons.is_empty()),
                     review_reasons: review_reasons
@@ -1842,6 +1869,7 @@ Key             BPM  Energy  Quality  Time  File
             Ok(UserEdits {
                 correction: Correction::of_bpm(85.0).unwrap(),
                 cues: None,
+                loops: Vec::new(),
             }),
         );
         let mut json = Vec::new();
@@ -1914,6 +1942,11 @@ Key             BPM  Energy  Quality  Time  File
                         energy: None,
                     },
                 ]),
+                loops: vec![euphoria_core::SavedLoop {
+                    start_seconds: 8.25,
+                    end_seconds: 12.25,
+                    name: "Intro loop".to_string(),
+                }],
             }),
         );
         let json = json_of(&user_edits);
@@ -1925,6 +1958,13 @@ Key             BPM  Energy  Quality  Time  File
             ])
         );
         assert_eq!(json[1]["set_by_user"], serde_json::json!(["cues"]));
+        assert_eq!(
+            json[1]["loops"],
+            serde_json::json!([
+                {"start_seconds": 8.25, "end_seconds": 12.25, "name": "Intro loop"},
+            ])
+        );
+        assert_eq!(json[0]["loops"], serde_json::json!([]));
     }
 
     #[test]

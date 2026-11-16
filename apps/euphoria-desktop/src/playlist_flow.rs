@@ -495,6 +495,7 @@ impl EuphoriaApp {
                     None => track.title().to_string(),
                 },
                 edited_cues: track.edited_cues.clone(),
+                saved_loops: track.saved_loops.clone(),
             })
             .collect();
         PlaylistExport {
@@ -520,6 +521,8 @@ pub(crate) struct ExportedTrack {
     display_name: String,
     /// The cues the user set, which replace those analysis placed.
     pub(crate) edited_cues: Option<Vec<euphoria_core::Cue>>,
+    /// The loops the user saved.
+    pub(crate) saved_loops: Vec<euphoria_core::SavedLoop>,
 }
 
 /// A playlist ready to export off the main thread.
