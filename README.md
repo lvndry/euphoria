@@ -35,7 +35,15 @@ In development: an export for Serato DJ.
 
 ## Install
 
-On a Mac with Apple Silicon and macOS 15 or later, with [Homebrew](https://brew.sh):
+On a Mac with Apple Silicon and macOS 15 or later, or on Linux on x86_64, one command installs the app and the command line tool for your user, after checking every file against the release's checksums:
+
+```
+curl -fsSL https://github.com/lvndry/euphoria/releases/latest/download/install.sh | sh
+```
+
+It puts the command line tool in `~/.local/bin`, and the app in Applications on macOS or as `~/.local/bin/euphoria-desktop` with a launcher entry on Linux. Pass `--cli-only` or `--app-only` with `sh -s -- --cli-only`, run it again to upgrade, and run it with `--uninstall` to remove exactly what it installed. See [installation](docs/getting-started/installation.md#install-with-the-install-script) for the details.
+
+On a Mac, with [Homebrew](https://brew.sh) instead:
 
 ```
 brew tap lvndry/euphoria
