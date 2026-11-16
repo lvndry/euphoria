@@ -633,7 +633,7 @@ fn an_unsaved_manifest_can_put_back_tag_only_changes() {
 
     let report = revert_unrecorded(&manifest);
 
-    assert_eq!(report.restored, [input.clone()]);
+    assert_eq!(report.restored.as_slice(), std::slice::from_ref(&input));
     assert!(report.kept.is_empty());
     assert_eq!(
         read_replaygain(&input).unwrap(),
