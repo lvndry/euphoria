@@ -54,7 +54,7 @@ pub(crate) fn section(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, Eup
                         segment(
                             ("stems-mode", index),
                             SharedString::from(mode.label()),
-                            app.stems.mode() == *mode && app.stems.focus().is_none(),
+                            app.stems.audible() == mode.stems(),
                             index == 0,
                             &palette,
                         )

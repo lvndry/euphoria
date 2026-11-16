@@ -27,7 +27,7 @@ use crate::focus::{
 use crate::format;
 use crate::library::Track;
 use crate::peaks::BandPeaks;
-use crate::stems::{StemFocus, StemStatus};
+use crate::stems::{StemSet, StemStatus};
 use crate::theme::Palette;
 use crate::track_overview::{TimeRange, VocalLane};
 use crate::transition_plan::OPEN_PLANNER_LINK;
@@ -987,7 +987,7 @@ fn stems_lane(
     let palette = app.theme.palette;
     let is_ready = matches!(app.focus.stems_of(&track.path), Some(StemsLane::Ready(_)));
     let shown: &[Stem] = if is_ready { shown } else { &STEM_ROWS };
-    let focus = app.stems.focus();
+    let audible = app.stems.audible();
     let height =
         shown.len() as f32 * STEM_ROW_HEIGHT + shown.len().saturating_sub(1) as f32 * STEM_ROW_GAP;
     let names = div()
@@ -1003,10 +1003,8 @@ fn stems_lane(
                 .items_center()
                 .text_size(LABEL_TEXT_SIZE)
                 .line_height(px(STEM_ROW_HEIGHT))
-                .text_color(stem_label_colour(focus, stem, &palette))
-                .when(focus.is_some_and(|focus| !focus.is_audible(stem)), |name| {
-                    name.line_through()
-                })
+                .text_color(stem_label_colour(audible, stem, &palette))
+                .when(!audible.contains(stem), |name| name.line_through())
                 .child(stem.label())
                 .test_support();
             if !is_ready {
@@ -1017,20 +1015,21 @@ fn stems_lane(
                 .hover(move |style| style.text_color(hover_colour))
                 .tooltip(move |window, cx| {
                     Tooltip::new(format!(
-                        "Solo {} (\u{2325}-click to mute it instead)",
-                        stem.label()
+                        "Click to hear only this. {}-click to add or remove it.",
+                        secondary_key_name(cx)
                     ))
                     .build(window, cx)
                 })
                 .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
-                    this.click_stem_lane(stem, event.modifiers().alt, cx)
+                    let toggles = event.modifiers().secondary(cx);
+                    this.click_stem_lane(stem, toggles, cx)
                 }))
         }));
     let body = match app.focus.stems_of(&track.path) {
         Some(StemsLane::Ready(activity)) => {
             let rows = shown.iter().map(|stem| {
                 let stem = *stem;
-                let is_heard = focus.is_none_or(|focus| focus.is_audible(stem));
+                let is_heard = audible.contains(stem);
                 let windows = activity.windows_of(stem);
                 let runs = runs_of(windows);
                 let bars = runs
@@ -1118,12 +1117,23 @@ fn stems_lane(
     lane_row(names, height, body)
 }
 
-fn stem_label_colour(focus: Option<StemFocus>, stem: Stem, palette: &Palette) -> gpui::Hsla {
-    match focus {
-        Some(StemFocus::Solo(soloed)) if soloed == stem => palette.accent,
-        Some(StemFocus::Solo(_)) => palette.text_tertiary.opacity(0.55),
-        Some(StemFocus::Mute(muted)) if muted == stem => palette.text_tertiary.opacity(0.55),
-        _ => palette.text_tertiary,
+fn stem_label_colour(audible: StemSet, stem: Stem, palette: &Palette) -> gpui::Hsla {
+    if audible.is_all() {
+        palette.text_tertiary
+    } else if audible.contains(stem) {
+        palette.accent
+    } else {
+        palette.text_tertiary.opacity(0.55)
+    }
+}
+
+/// The name of the key that adds a click to a selection: Command on a Mac,
+/// Control elsewhere.
+fn secondary_key_name(cx: &gpui::App) -> &'static str {
+    if cx.platform_info().is_mac() {
+        "\u{2318}"
+    } else {
+        "Ctrl"
     }
 }
 
@@ -1133,23 +1143,20 @@ fn stem_focus_control(
     palette: &Palette,
     cx: &mut Context<'_, EuphoriaApp>,
 ) -> AnyElement {
-    let focus = app.stems.focus();
+    let summary = app.stems.audible().summary(&STEM_ROWS);
+    let is_picked = summary.is_some();
     let hover_colour = palette.text;
-    let summary = match focus {
-        Some(focus) => focus.summary(),
-        None => "Click a stem to hear it alone".to_string(),
-    };
     let full_track = div()
         .id("focus-stem-full-track")
         .child("Full track")
-        .when(focus.is_some(), |button| {
+        .when(is_picked, |button| {
             button
                 .cursor_pointer()
                 .text_color(palette.text_secondary)
                 .hover(move |style| style.text_color(hover_colour))
-                .on_click(cx.listener(|this, _, _, cx| this.set_stem_focus(None, cx)))
+                .on_click(cx.listener(|this, _, _, cx| this.pick_stems(StemSet::ALL, cx)))
         })
-        .when(focus.is_none(), |button| {
+        .when(!is_picked, |button| {
             button.text_color(palette.text_tertiary)
         })
         .test_support();
@@ -1161,12 +1168,12 @@ fn stem_focus_control(
         .h(px(16.0))
         .pl(px(GUTTER + LANE_GAP))
         .text_size(LABEL_TEXT_SIZE)
-        .text_color(if focus.is_some() {
+        .text_color(if is_picked {
             palette.accent
         } else {
             palette.text_tertiary
         })
-        .child(summary)
+        .child(summary.unwrap_or_else(|| "Click a stem to hear it alone".to_string()))
         .child(div().text_color(palette.text_tertiary).child("\u{b7}"))
         .child(full_track)
         .test_support()
