@@ -321,6 +321,48 @@ Half or double the tempo is offered as an alternative for 267 previews (40.4%), 
 
 Rating confidence costs no measurable time: the tempogram already scores the candidate tempos the margin is taken from, and the key margin is the difference of two scores libkeyfinder already computed. On the same machine, under heavy load from other work, `euphoria analyze --no-cache` took 1.10 CPU seconds on one preview before and 1.06 after, 4.92 and 4.69 on an eight minute file, and 42.8 and 42.4 on 40 previews with 4 workers, with the same peak memory.
 
+## Beat grid drift
+
+Measured on 16 November 2026 on an Apple M5, macOS 27.2, with three worker threads, by `euphoria-bench grid-tempo bench/data/tempo --gtzan <all ten GTZAN genres>` built from main and from the change that measures drift at the beat nearest the grid, analyzer version 19 against 20. The tempo is the one Euphoria reports in the default range; within 0.05 BPM compares it with the label.
+
+Before:
+
+| Genre | Tracks | Grid high | Medium | Low | Within 0.05 BPM | Accuracy 1 | Accuracy 2 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| drum-and-bass | 139 | 55 | 32 | 52 | 33.1% | 85.6% | 97.8% |
+| dubstep | 76 | 19 | 10 | 47 | 14.5% | 81.6% | 89.5% |
+| trance | 74 | 8 | 4 | 62 | 2.7% | 89.2% | 89.2% |
+| techno | 61 | 16 | 6 | 39 | 6.6% | 91.8% | 91.8% |
+| electronica | 52 | 19 | 5 | 28 | 17.3% | 76.9% | 92.3% |
+| psy-trance | 34 | 15 | 3 | 16 | 11.8% | 94.1% | 100.0% |
+| breaks | 26 | 9 | 5 | 12 | 7.7% | 96.2% | 96.2% |
+| deep-house | 24 | 9 | 2 | 13 | 4.2% | 95.8% | 100.0% |
+| house | 23 | 5 | 5 | 13 | 4.3% | 95.7% | 100.0% |
+| electro-house | 22 | 3 | 1 | 18 | 18.2% | 90.9% | 95.5% |
+| tech-house | 22 | 11 | 1 | 10 | 9.1% | 100.0% | 100.0% |
+| 12 other genres | 108 | 26 | 16 | 66 | 18.5% | 74.1% | 92.6% |
+| all | 661 | 195 | 90 | 376 | 16.0% | 85.8% | 94.3% |
+
+After:
+
+| Genre | Tracks | Grid high | Medium | Low | Within 0.05 BPM | Accuracy 1 | Accuracy 2 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| drum-and-bass | 139 | 67 | 58 | 14 | 39.6% | 85.6% | 97.8% |
+| dubstep | 76 | 29 | 31 | 16 | 18.4% | 81.6% | 89.5% |
+| trance | 74 | 21 | 36 | 17 | 6.8% | 89.2% | 89.2% |
+| techno | 61 | 29 | 24 | 8 | 24.6% | 91.8% | 91.8% |
+| electronica | 52 | 26 | 20 | 6 | 23.1% | 76.9% | 92.3% |
+| psy-trance | 34 | 25 | 6 | 3 | 14.7% | 94.1% | 100.0% |
+| breaks | 26 | 13 | 13 | 0 | 19.2% | 96.2% | 96.2% |
+| deep-house | 24 | 17 | 5 | 2 | 16.7% | 95.8% | 100.0% |
+| house | 23 | 9 | 14 | 0 | 30.4% | 95.7% | 100.0% |
+| electro-house | 22 | 5 | 9 | 8 | 22.7% | 90.9% | 95.5% |
+| tech-house | 22 | 17 | 3 | 2 | 18.2% | 100.0% | 100.0% |
+| 12 other genres | 108 | 42 | 42 | 24 | 28.7% | 74.1% | 92.6% |
+| all | 661 | 300 | 261 | 100 | 24.5% | 85.8% | 94.3% |
+
+276 grids rated low became medium or high, 2 medium became high, 1 high became medium, and the tempo moved on 280 previews. The GTZAN tables are in [Accuracy](../../docs/concepts/accuracy.md#drift).
+
 ## Reading the numbers
 
 - libkeyfinder is level with Essentia's best profile on key (69.4% against 69.5% MIREX) and about 8 times cheaper than stratum-dsp.

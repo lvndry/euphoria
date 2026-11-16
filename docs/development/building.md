@@ -177,6 +177,12 @@ cargo run --release -p euphoria-bench -- beats --tracks held-out
 
 It prints the tables in [bench/results/beats.md](https://github.com/lvndry/euphoria/blob/main/bench/results/beats.md): the beat F-measure and how often the grid and the downbeat are right, with the tempo as reported and with its octave taken from the annotation, and how often each confidence level is right. Settings are chosen on the development half and checked on the held out half.
 
+`euphoria-bench grid-tempo` measures the grid per genre on GiantSteps Tempo, and with `--gtzan` on a folder of GTZAN excerpts of any genres laid out like `bench/data/beats`: how many grids are rated high, medium and low, the share of tempos within 0.05 BPM of the reference, Accuracy 1 and 2, and on GTZAN the beat F-measure and the share of grids right. `--dump FILE` writes one line per track with its rating and tempo, to compare two builds:
+
+```
+cargo run --release -p euphoria-bench -- grid-tempo bench/data/tempo --gtzan bench/data/beats --dump grids.tsv
+```
+
 ## Energy benchmark
 
 `euphoria-bench energy` scores the [energy rating](../concepts/energy.md) against reference ratings. It reads a labels file with one track per line: the path of an audio file, relative to the labels file, then a tab and a number where higher means more energy.

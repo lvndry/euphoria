@@ -35,9 +35,9 @@ use crate::tempo_range::TempoRange;
 /// [`ENERGY_MODEL_VERSION`](crate::ENERGY_MODEL_VERSION), which the cache
 /// checks as well, so recalibrating energy needs no change here.
 pub const ANALYZER_VERSION: &str = if cfg!(feature = "drone") {
-    "19+drone"
+    "20+drone"
 } else {
-    "19+stratum"
+    "20+stratum"
 };
 
 /// The version the analysis cache records for analyses made now.

@@ -39,6 +39,9 @@ const DRIFT_SEGMENT_HOP_SECONDS: f64 = 4.0;
 /// A stretch whose beats stand out from the rest of the envelope by less
 /// than this, as with a breakdown without drums, tells nothing about drift.
 const SALIENT_SEGMENT: f32 = 1.3;
+/// In a stretch, a peak of the comb score at least this share of the
+/// strongest can be the beat, even when an off-beat sound is stronger.
+const NEAREST_BEAT_SHARE: f32 = 0.5;
 /// A beat has an onset when the onset strength near it reaches this share
 /// of the strongest beat's.
 const BEAT_HIT_SHARE: f32 = 0.1;
@@ -444,7 +447,16 @@ pub(crate) fn drift_seconds(envelope: &OnsetEnvelope, fit: BeatFit) -> Option<f6
 
 /// Where the beats of each stretch of the track with clear beats fall
 /// against the grid of `period` and `phase`: the middle frame of the
-/// stretch and the offset, in frames, that lines the grid up with them best.
+/// stretch and the offset, in frames, of the beat nearest the grid.
+///
+/// The beat nearest the grid is the peak of the comb score over offsets
+/// closest to zero among those that stand out from the stretch, at least
+/// [`SALIENT_SEGMENT`] times its mean and [`NEAREST_BEAT_SHARE`] of its
+/// strongest peak. In a stretch where off-beat bass, hats or a syncopated
+/// riff are louder than the beat, the strongest peak sits half or a quarter
+/// of a beat away while the beat is still there, and taking the strongest
+/// peak would read a steady track as drifting. A tempo that really drifts
+/// moves the peak nearest the grid with it.
 fn stretch_offsets(values: &[f32], frame_rate: f64, period: f64, phase: f64) -> Vec<(f64, f64)> {
     let segment = DRIFT_SEGMENT_SECONDS * frame_rate;
     let hop = DRIFT_SEGMENT_HOP_SECONDS * frame_rate;
@@ -452,26 +464,47 @@ fn stretch_offsets(values: &[f32], frame_rate: f64, period: f64, phase: f64) -> 
     let mut start = 0.0;
     while start + segment <= values.len() as f64 {
         let last = start + segment;
-        let mut best = (0.0_f32, 0.0_f64);
-        let mut total = 0.0_f32;
-        let mut count = 0_u32;
+        let mut scores = Vec::new();
         let mut offset = -period / 2.0;
         while offset < period / 2.0 {
-            let score = comb(values, period, phase + offset, start, last);
-            total += score;
-            count += 1;
-            if score > best.0 {
-                best = (score, offset);
-            }
+            scores.push((offset, comb(values, period, phase + offset, start, last)));
             offset += 0.25;
         }
-        let mean = total / count.max(1) as f32;
-        if mean > 0.0 && best.0 / mean >= SALIENT_SEGMENT {
-            offsets.push((start + segment / 2.0, best.1));
+        if let Some(nearest) = nearest_salient_peak(&scores) {
+            offsets.push((start + segment / 2.0, nearest));
         }
         start += hop;
     }
     offsets
+}
+
+/// The offset of the peak closest to zero among `scores`, offsets in order
+/// around one period with their comb scores, that is at least
+/// [`SALIENT_SEGMENT`] times the mean score and [`NEAREST_BEAT_SHARE`] of
+/// the highest. `None` when no score stands out that far from the mean.
+fn nearest_salient_peak(scores: &[(f64, f32)]) -> Option<f64> {
+    let count = scores.len();
+    if count == 0 {
+        return None;
+    }
+    let mean = scores.iter().map(|(_, score)| score).sum::<f32>() / count as f32;
+    let highest = scores
+        .iter()
+        .map(|(_, score)| *score)
+        .fold(0.0_f32, f32::max);
+    if mean <= 0.0 || highest < SALIENT_SEGMENT * mean {
+        return None;
+    }
+    let floor = (SALIENT_SEGMENT * mean).max(NEAREST_BEAT_SHARE * highest);
+    (0..count)
+        .filter(|index| {
+            let score = scores[*index].1;
+            let before = scores[(index + count - 1) % count].1;
+            let after = scores[(index + 1) % count].1;
+            score >= floor && score >= before && score >= after
+        })
+        .map(|index| scores[index].0)
+        .min_by(|first, second| first.abs().total_cmp(&second.abs()))
 }
 
 /// The period and phase of a line through the offsets of the stretches
@@ -1176,6 +1209,152 @@ mod tests {
             1e-9,
             "downbeat",
         );
+    }
+
+    /// A kick at every beat time in `beats`, with noise between them of
+    /// `noise` amplitude, from deterministic pseudo random numbers.
+    fn kicks_at(beats: &[f64], seconds: f64, noise: f32) -> AudioBuffer {
+        let mut samples = vec![0.0_f32; (seconds * f64::from(SAMPLE_RATE)) as usize];
+        let mut state = 0x9E37_79B9_7F4A_7C15_u64;
+        for sample in &mut samples {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            *sample = noise * (2.0 * ((state >> 40) as f32 / (1_u64 << 24) as f32) - 1.0);
+        }
+        for beat in beats {
+            add_hit(&mut samples, *beat, 60.0, 0.05, 0.8);
+        }
+        AudioBuffer::new(samples, NonZeroU32::new(SAMPLE_RATE).unwrap())
+    }
+
+    /// Beat times from `first` to `seconds`, the tempo at each moment given
+    /// by `tempo_at`.
+    fn beats_with_tempo(first: f64, seconds: f64, tempo_at: impl Fn(f64) -> f64) -> Vec<f64> {
+        let mut beats = Vec::new();
+        let mut time = first;
+        while time < seconds - 1.0 {
+            beats.push(time);
+            time += 60.0 / tempo_at(time);
+        }
+        beats
+    }
+
+    #[test]
+    fn steady_clicks_in_noise_after_a_silent_intro_do_not_drift() {
+        let beats = beats_with_tempo(12.0, 120.0, |_| 126.0);
+        let mut audio = kicks_at(&beats, 120.0, 0.02);
+        let mut samples = audio.samples().to_vec();
+        for sample in samples.iter_mut().take(12 * SAMPLE_RATE as usize) {
+            *sample = 0.0;
+        }
+        audio = AudioBuffer::new(samples, NonZeroU32::new(SAMPLE_RATE).unwrap());
+
+        let grid = detect_beat_grid(&audio, 126.3).expect("clicks have a grid");
+
+        assert!(
+            grid.drift_seconds.expect("two minutes have stretches") < 0.01,
+            "{grid:?}"
+        );
+        assert_ne!(grid.confidence(), Confidence::Low, "{grid:?}");
+    }
+
+    #[test]
+    fn a_steady_track_whose_off_beats_are_louder_for_a_while_does_not_drift() {
+        let tempo = 128.0;
+        let seconds = 120.0;
+        let beat = 60.0 / tempo;
+        let mut samples = vec![0.0_f32; (seconds * f64::from(SAMPLE_RATE)) as usize];
+        let mut noise_state = 0x2545_F491_4F6C_DD1D_u64;
+        let mut index = 0;
+        loop {
+            let time = 0.3 + f64::from(index) * beat;
+            if time + beat >= seconds {
+                break;
+            }
+            let off_beat_section = (40.0..80.0).contains(&time);
+            add_hit(&mut samples, time, 60.0, 0.05, 0.8);
+            add_noise_burst(&mut samples, time, 0.3, &mut noise_state);
+            if off_beat_section {
+                add_noise_burst(&mut samples, time + beat / 2.0, 0.45, &mut noise_state);
+                add_hit(&mut samples, time + beat / 2.0, 110.0, 0.06, 0.8);
+            }
+            index += 1;
+        }
+        let audio = AudioBuffer::new(samples, NonZeroU32::new(SAMPLE_RATE).unwrap());
+
+        let grid = detect_beat_grid(&audio, tempo).expect("the track has a grid");
+
+        assert!(
+            grid.drift_seconds.expect("two minutes have stretches") < 0.01,
+            "{grid:?}"
+        );
+        assert_ne!(grid.confidence(), Confidence::Low, "{grid:?}");
+    }
+
+    #[test]
+    fn a_tempo_that_ramps_by_one_to_three_percent_is_rated_low() {
+        for percent in [1.0, 2.0, 3.0] {
+            let seconds = 120.0;
+            let beats = beats_with_tempo(0.3, seconds, |time| {
+                120.0 * (1.0 + percent / 100.0 * time / seconds)
+            });
+            let audio = kicks_at(&beats, seconds, 0.0);
+
+            let grid = detect_beat_grid(&audio, 120.0 * (1.0 + percent / 200.0)).expect("a grid");
+
+            assert!(
+                grid.drift_seconds.expect("two minutes have stretches") > DRIFT_LIMIT_SECONDS,
+                "{percent}%: {grid:?}"
+            );
+            assert_eq!(grid.confidence(), Confidence::Low, "{percent}%: {grid:?}");
+        }
+    }
+
+    #[test]
+    fn a_tempo_that_wanders_like_a_band_without_a_click_is_rated_low() {
+        let seconds = 120.0;
+        let steady = beats_with_tempo(0.3, seconds, |time| {
+            100.0 * (1.0 + 0.02 * (std::f64::consts::TAU * time / 45.0).sin())
+        });
+        let mut state = 0x0123_4567_89AB_CDEF_u64;
+        let played: Vec<f64> = steady
+            .iter()
+            .map(|beat| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                let unit = (state >> 40) as f64 / (1_u64 << 24) as f64;
+                beat + 0.016 * (unit - 0.5)
+            })
+            .collect();
+        let audio = kicks_at(&played, seconds, 0.01);
+
+        let grid = detect_beat_grid(&audio, 100.0).expect("a grid");
+
+        assert_eq!(grid.confidence(), Confidence::Low, "{grid:?}");
+    }
+
+    #[test]
+    fn the_beat_nearest_the_grid_wins_over_a_stronger_off_beat() {
+        let scores: Vec<(f64, f32)> = (-8..8)
+            .map(|step| {
+                let offset = f64::from(step);
+                let score = match step {
+                    0 => 2.0,
+                    -8 => 3.0,
+                    _ => 0.5,
+                };
+                (offset, score)
+            })
+            .collect();
+        assert_eq!(nearest_salient_peak(&scores), Some(0.0));
+        let weak_beat: Vec<(f64, f32)> = scores
+            .iter()
+            .map(|(offset, score)| (*offset, if *offset == 0.0 { 1.0 } else { *score }))
+            .collect();
+        assert_eq!(nearest_salient_peak(&weak_beat), Some(-8.0));
+        assert_eq!(nearest_salient_peak(&[(0.0, 1.0), (1.0, 1.0)]), None);
     }
 
     #[test]

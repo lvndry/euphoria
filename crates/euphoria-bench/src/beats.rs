@@ -20,7 +20,7 @@ pub const USAGE: &str =
 const WINDOW_SECONDS: f64 = 0.07;
 /// A grid or a choice of downbeat counts as right when its F-measure
 /// reaches this.
-const RIGHT_F_MEASURE: f64 = 0.9;
+pub(crate) const RIGHT_F_MEASURE: f64 = 0.9;
 
 /// Which excerpts a run covers, every other one in name order for a half.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -245,7 +245,7 @@ fn check_manifest(excerpts: &[Excerpt]) -> Result<()> {
 
 /// The share of annotated times found by predicted ones and of predicted
 /// times that match an annotated one, combined: the standard beat F-measure.
-fn f_measure(predicted: &[f64], reference: &[f64]) -> f64 {
+pub(crate) fn f_measure(predicted: &[f64], reference: &[f64]) -> f64 {
     let hits = matched_count(predicted, reference);
     if hits == 0 {
         return 0.0;
@@ -280,7 +280,7 @@ fn matched_count(predicted: &[f64], reference: &[f64]) -> usize {
 
 /// The times from `start` every `step` seconds that fall within the span
 /// of the annotated beats, widened by the window.
-fn times_within(start: f64, step: f64, first: f64, last: f64) -> Vec<f64> {
+pub(crate) fn times_within(start: f64, step: f64, first: f64, last: f64) -> Vec<f64> {
     let earliest = first - WINDOW_SECONDS;
     let latest = last + WINDOW_SECONDS;
     let mut time = start - ((start - earliest) / step).ceil().max(0.0) * step;
@@ -315,7 +315,7 @@ fn score(grid: Option<BeatGrid>, excerpt: &Excerpt) -> Score {
 }
 
 /// The tempo of the annotated beats, from the median time between them.
-fn annotated_tempo(beats: &[f64]) -> f64 {
+pub(crate) fn annotated_tempo(beats: &[f64]) -> f64 {
     let mut intervals: Vec<f64> = beats.windows(2).map(|pair| pair[1] - pair[0]).collect();
     intervals.sort_by(f64::total_cmp);
     60.0 / intervals[intervals.len() / 2]
