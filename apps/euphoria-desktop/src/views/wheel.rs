@@ -4,22 +4,25 @@
 //! The Camelot wheel: twelve numbers around it, the major keys (B) on the
 //! outer ring and the minor keys (A) on the inner ring, each cell labelled.
 //! The selected key's cell is filled with the accent colour and the cells of
-//! the keys that mix with it, the matching keys, with an accent tint and an
-//! accent ring, so the moves a DJ can make are visible at a glance.
+//! the keys that mix with it, the matching keys, with a tint and a ring in
+//! the colour of the move that reaches them, so the moves a DJ can make, and
+//! which is which, are visible at a glance.
 
 use euphoria_core::harmony::Relation;
 use euphoria_core::harmony::words::relation_name;
 use euphoria_core::{Key, Mode};
+use gpui::component::oklch;
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Bounds, FontWeight, Hsla, PathBuilder, Pixels, Point, SharedString, TestSupportExt,
-    canvas, div, point, px,
+    AnyElement, Bounds, Div, FontWeight, Hsla, PathBuilder, Pixels, Point, SharedString,
+    TestSupportExt, canvas, div, point, px,
 };
 
 use crate::camelot::CamelotPosition;
 use crate::mixes::keys_related_by;
-use crate::theme::{Palette, blend};
+use crate::theme::Palette;
+use crate::views::RADIUS_SMALL;
 
 /// The size the radii below are drawn for; the wheel is scaled from it.
 const WHEEL_SIZE: f32 = 148.0;
@@ -48,12 +51,10 @@ const ARC_STEP_DEGREES: f32 = 3.0;
 const CELL_LABEL_SIZE: f32 = 9.5;
 /// Size of the code in the middle.
 const CODE_SIZE: f32 = 14.0;
-/// How much accent the fill of a matching key keeps over the quiet fill:
-/// enough to tell it from the other keys at a glance, little enough that the
-/// text on it stays readable and the selected key stays the strongest.
-const MATCHING_STRENGTH: f32 = 0.45;
-/// Width of the accent ring around a matching key.
+/// Width of the ring around a matching key.
 const MATCHING_RING_WIDTH: f32 = 1.5;
+/// Width and height of a move's colour swatch in the lists of key moves.
+const SWATCH_SIZE: f32 = 10.0;
 
 /// How strongly a cell of the wheel is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,23 +65,35 @@ pub(crate) enum Emphasis {
     Matching(Relation),
 }
 
-/// The fills, ring and label colours of the wheel in one palette.
+/// The fills, rings and label colours of the wheel in one palette.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct WheelColours {
     /// The fill of a key that is neither selected nor matching.
     pub(crate) quiet: Hsla,
     /// The label on a quiet key.
     pub(crate) quiet_label: Hsla,
-    /// The fill of a matching key.
-    pub(crate) matching: Hsla,
-    /// The ring around a matching key.
-    pub(crate) matching_ring: Hsla,
     /// The label on a matching key.
     pub(crate) matching_label: Hsla,
     /// The fill of the selected key.
     pub(crate) selected: Hsla,
     /// The label on the selected key.
     pub(crate) selected_label: Hsla,
+    is_dark: bool,
+}
+
+/// The hue of each key move, in OKLCH degrees. The two common moves get
+/// blue and amber, a pair that stays apart for red-green colour blindness.
+/// The same key has none: it is the selected key itself.
+fn move_hue(relation: Relation) -> Option<f32> {
+    match relation {
+        Relation::Same => None,
+        Relation::Adjacent => Some(250.0),
+        Relation::Relative => Some(70.0),
+        Relation::Diagonal => Some(185.0),
+        Relation::EnergyBoost => Some(340.0),
+        Relation::MoodChange => Some(295.0),
+        Relation::SemitoneBoost => Some(125.0),
+    }
 }
 
 impl WheelColours {
@@ -89,18 +102,38 @@ impl WheelColours {
         Self {
             quiet: palette.raised,
             quiet_label: palette.text_secondary,
-            matching: blend(palette.accent, palette.raised, MATCHING_STRENGTH),
-            matching_ring: palette.accent,
             matching_label: palette.text,
             selected: palette.accent,
             selected_label: palette.accent_ink,
+            is_dark: palette.is_dark,
         }
     }
 
-    fn fill(&self, emphasis: Option<Emphasis>) -> Hsla {
+    /// The fill of a key reached by `relation`: a soft tint of the move's
+    /// hue, lighter than the selected key in a light palette and darker in
+    /// a dark one, so the selected key stays the strongest mark.
+    pub(crate) fn move_fill(&self, relation: Relation) -> Hsla {
+        match (move_hue(relation), self.is_dark) {
+            (None, _) => self.selected,
+            (Some(hue), true) => oklch(0.42, 0.09, hue),
+            (Some(hue), false) => oklch(0.8, 0.08, hue),
+        }
+    }
+
+    /// The ring around a key reached by `relation`, a stronger shade of its
+    /// fill.
+    pub(crate) fn move_ring(&self, relation: Relation) -> Hsla {
+        match (move_hue(relation), self.is_dark) {
+            (None, _) => self.selected,
+            (Some(hue), true) => oklch(0.75, 0.13, hue),
+            (Some(hue), false) => oklch(0.55, 0.14, hue),
+        }
+    }
+
+    pub(crate) fn fill(&self, emphasis: Option<Emphasis>) -> Hsla {
         match emphasis {
             Some(Emphasis::Selected) => self.selected,
-            Some(Emphasis::Matching(_)) => self.matching,
+            Some(Emphasis::Matching(relation)) => self.move_fill(relation),
             None => self.quiet,
         }
     }
@@ -112,6 +145,19 @@ impl WheelColours {
             None => self.quiet_label,
         }
     }
+}
+
+/// The small square of a move's colour put before its name in the lists of
+/// key moves, filled and ringed as the wheel draws the keys it reaches.
+pub(crate) fn move_swatch(relation: Relation, palette: &Palette) -> Div {
+    let colours = WheelColours::of(palette);
+    div()
+        .flex_shrink_0()
+        .size(px(SWATCH_SIZE))
+        .rounded(RADIUS_SMALL)
+        .border_1()
+        .border_color(colours.move_ring(relation))
+        .bg(colours.move_fill(relation))
 }
 
 /// The id of the cell for the key `code`, which says how the cell is drawn:
@@ -226,7 +272,7 @@ pub(crate) fn wheel(
                         {
                             window.paint_path(path, colours.fill(*emphasis));
                         }
-                        if matches!(emphasis, Some(Emphasis::Matching(_)))
+                        if let Some(Emphasis::Matching(relation)) = emphasis
                             && let Some(ring) = cell_path(
                                 PathBuilder::stroke(px(MATCHING_RING_WIDTH)),
                                 centre,
@@ -234,7 +280,7 @@ pub(crate) fn wheel(
                                 scale,
                             )
                         {
-                            window.paint_path(ring, colours.matching_ring);
+                            window.paint_path(ring, colours.move_ring(*relation));
                         }
                     }
                 },
@@ -326,6 +372,7 @@ mod tests {
 
     use super::*;
     use crate::theme::{AppTheme, ThemeName};
+    use gpui::Styled;
 
     fn position(text: &str) -> CamelotPosition {
         CamelotPosition::of(&text.parse::<Key>().unwrap())
@@ -433,34 +480,177 @@ mod tests {
         }
     }
 
+    const MOVES: [Relation; 6] = [
+        Relation::Adjacent,
+        Relation::Relative,
+        Relation::Diagonal,
+        Relation::EnergyBoost,
+        Relation::MoodChange,
+        Relation::SemitoneBoost,
+    ];
+
     #[test]
-    fn matching_keys_stand_out_and_every_label_reads_in_every_theme() {
+    fn every_move_stands_out_and_every_label_reads_in_every_theme() {
         for name in ThemeName::ALL {
             let colours = WheelColours::of(&AppTheme::named(name).palette);
-            let matching_against_quiet = contrast(colours.matching, colours.quiet);
-            assert!(
-                matching_against_quiet >= 1.5,
-                "{name:?}: matching fill against the other keys {matching_against_quiet:.2}"
-            );
-            let selected_against_matching = contrast(colours.selected, colours.matching);
-            assert!(
-                selected_against_matching >= 1.5,
-                "{name:?}: selected fill against a matching one {selected_against_matching:.2}"
-            );
-            let ring_against_quiet = contrast(colours.matching_ring, colours.quiet);
-            assert!(
-                ring_against_quiet >= 3.0,
-                "{name:?}: ring against the other keys {ring_against_quiet:.2}"
-            );
+            for relation in MOVES {
+                let fill = colours.move_fill(relation);
+                let ring = colours.move_ring(relation);
+                let fill_against_quiet = contrast(fill, colours.quiet);
+                assert!(
+                    fill_against_quiet >= 1.5,
+                    "{name:?} {relation:?}: fill against the other keys {fill_against_quiet:.2}"
+                );
+                let selected_against_fill = contrast(colours.selected, fill);
+                assert!(
+                    selected_against_fill >= 1.5,
+                    "{name:?} {relation:?}: selected fill against it {selected_against_fill:.2}"
+                );
+                let ring_against_quiet = contrast(ring, colours.quiet);
+                assert!(
+                    ring_against_quiet >= 3.0,
+                    "{name:?} {relation:?}: ring against the other keys {ring_against_quiet:.2}"
+                );
+                let label = contrast(colours.matching_label, fill);
+                assert!(label >= 4.5, "{name:?} {relation:?}: label {label:.2}");
+            }
             for (label, fill, what) in [
                 (colours.selected_label, colours.selected, "selected"),
-                (colours.matching_label, colours.matching, "matching"),
                 (colours.quiet_label, colours.quiet, "quiet"),
             ] {
                 let ratio = contrast(label, fill);
                 assert!(ratio >= 4.5, "{name:?}: {what} label {ratio:.2}");
             }
         }
+    }
+
+    #[test]
+    fn the_moves_have_colours_apart_and_the_common_ones_stay_apart_without_red_green() {
+        for name in ThemeName::ALL {
+            let colours = WheelColours::of(&AppTheme::named(name).palette);
+            for (index, first) in MOVES.iter().enumerate() {
+                for second in &MOVES[index + 1..] {
+                    let apart =
+                        distance(colours.move_ring(*first), colours.move_ring(*second), None);
+                    assert!(
+                        apart >= 0.08,
+                        "{name:?}: {first:?} and {second:?} rings {apart:.3}"
+                    );
+                }
+            }
+            for vision in [None, Some(PROTANOPIA), Some(DEUTERANOPIA)] {
+                for colour in [WheelColours::move_fill, WheelColours::move_ring] {
+                    let apart = distance(
+                        colour(&colours, Relation::Adjacent),
+                        colour(&colours, Relation::Relative),
+                        vision,
+                    );
+                    assert!(apart >= 0.12, "{name:?}: one step and relative {apart:.3}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn two_moves_from_eight_a_fill_their_keys_differently() {
+        let colours = WheelColours::of(&AppTheme::named(ThemeName::Slate).palette);
+        let fills: Vec<(String, Hsla)> = emphasized_codes("A minor", &Relation::ALL)
+            .into_iter()
+            .filter(|(code, _)| code == "9A" || code == "8B")
+            .map(|(code, emphasis)| (code, colours.fill(Some(emphasis))))
+            .collect();
+        assert_eq!(fills.len(), 2);
+        assert_eq!(fills[0].1, colours.move_fill(Relation::Relative), "8B");
+        assert_eq!(fills[1].1, colours.move_fill(Relation::Adjacent), "9A");
+        assert_ne!(fills[0].1, fills[1].1);
+    }
+
+    #[test]
+    fn every_key_is_reached_by_one_move_at_most() {
+        let key: Key = "A minor".parse().unwrap();
+        let mut reached = Vec::new();
+        for relation in Relation::ALL {
+            for other in keys_related_by(&key, &[relation]) {
+                assert!(!reached.contains(&other), "{other} reached twice");
+                reached.push(other);
+            }
+        }
+    }
+
+    #[test]
+    fn the_swatch_of_a_move_is_drawn_as_the_wheel_draws_its_keys() {
+        for name in ThemeName::ALL {
+            let palette = AppTheme::named(name).palette;
+            let colours = WheelColours::of(&palette);
+            for relation in Relation::ALL {
+                let wheel_fill = if relation == Relation::Same {
+                    colours.fill(Some(Emphasis::Selected))
+                } else {
+                    colours.fill(Some(Emphasis::Matching(relation)))
+                };
+                let mut swatch = move_swatch(relation, &palette);
+                assert_eq!(
+                    swatch.style().background,
+                    Some(wheel_fill.into()),
+                    "{name:?} {relation:?}"
+                );
+            }
+        }
+    }
+
+    /// Machado, Oliveira and Fernandes (2009) at full severity, on linear
+    /// red, green and blue.
+    const PROTANOPIA: [[f32; 3]; 3] = [
+        [0.152_286, 1.052_583, -0.204_868],
+        [0.114_503, 0.786_281, 0.099_216],
+        [-0.003_882, -0.048_116, 1.051_998],
+    ];
+    const DEUTERANOPIA: [[f32; 3]; 3] = [
+        [0.367_322, 0.860_646, -0.227_968],
+        [0.280_085, 0.672_501, 0.047_413],
+        [-0.011_820, 0.042_940, 0.968_881],
+    ];
+
+    fn linear(colour: Hsla) -> [f32; 3] {
+        let rgba = colour.to_rgb();
+        let channel = |value: f32| {
+            if value <= 0.04045 {
+                value / 12.92
+            } else {
+                ((value + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        [channel(rgba.r), channel(rgba.g), channel(rgba.b)]
+    }
+
+    fn oklab(colour: Hsla, vision: Option<[[f32; 3]; 3]>) -> [f32; 3] {
+        let mut rgb = linear(colour);
+        if let Some(matrix) = vision {
+            rgb = matrix
+                .map(|row| (row[0] * rgb[0] + row[1] * rgb[1] + row[2] * rgb[2]).clamp(0.0, 1.0));
+        }
+        let [red, green, blue] = rgb;
+        let long = (0.412_221_46 * red + 0.536_332_55 * green + 0.051_445_99 * blue).cbrt();
+        let medium = (0.211_903_5 * red + 0.680_699_5 * green + 0.107_396_96 * blue).cbrt();
+        let short = (0.088_302_46 * red + 0.281_718_85 * green + 0.629_978_7 * blue).cbrt();
+        [
+            0.210_454_26 * long + 0.793_617_8 * medium - 0.004_072_047 * short,
+            1.977_998_5 * long - 2.428_592_2 * medium + 0.450_593_7 * short,
+            0.025_904_037 * long + 0.782_771_77 * medium - 0.808_675_77 * short,
+        ]
+    }
+
+    /// How far apart two colours look, in OKLab, for typical vision or the
+    /// colour blindness `vision` simulates.
+    fn distance(first: Hsla, second: Hsla, vision: Option<[[f32; 3]; 3]>) -> f32 {
+        let first = oklab(first, vision);
+        let second = oklab(second, vision);
+        first
+            .iter()
+            .zip(second)
+            .map(|(one, other)| (one - other).powi(2))
+            .sum::<f32>()
+            .sqrt()
     }
 
     fn contrast(first: Hsla, second: Hsla) -> f32 {
