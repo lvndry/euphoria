@@ -186,7 +186,7 @@ jobs:
         with:
           shared-key: macos-clippy
           # Pull request caches would only push main's out of the 10 GB limit.
-          save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'ci-faster-pull-requests' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Clippy without the default features
@@ -206,17 +206,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: macos-test
-          save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'ci-faster-pull-requests' }}
-      # One build for every crate: the desktop app enables the core's stems
-      # feature, so the core's unit tests run with it, as they do in the app.
-      - name: Build the unit tests
-        run: cargo test -p euphoria-core -p euphoria-cli -p euphoria-bench -p euphoria-desktop --lib --bins --locked --no-run
-      - name: Core unit tests
-        run: cargo test -p euphoria-core --features stems --lib --locked
-      - name: Command line and benchmark unit tests
-        run: cargo test -p euphoria-cli -p euphoria-bench --bins --locked
-      - name: Desktop unit and headless UI tests
-        run: cargo test -p euphoria-desktop --bins --locked
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # One command, so one build: selecting fewer crates changes the
+      # features Cargo unifies and rebuilds the core and its dependencies.
+      # The desktop app enables the core's stems feature, so the core's unit
+      # tests run with it, as they do in the app.
+      - name: Core, command line, benchmark and desktop unit and headless UI tests
+        run: cargo test -p euphoria-core -p euphoria-cli -p euphoria-bench -p euphoria-desktop --lib --bins --locked
 
   test-macos-integration:
     name: Integration and packaging tests on macOS
@@ -237,7 +233,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: macos-integration
-          save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'ci-faster-pull-requests' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Command line and core integration tests
         run: cargo test -p euphoria-cli -p euphoria-core --test '*' --locked
@@ -277,7 +273,7 @@ jobs:
         with:
           # Do not restore native objects built against a newer Ubuntu ABI.
           shared-key: ubuntu-22.04-test
-          save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'ci-faster-pull-requests' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # The desktop app is built, linted and tested by its own job below,
       # so these test every other crate.
       - name: Unit tests
@@ -322,7 +318,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: macos-packages
-          save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'ci-faster-pull-requests' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Build the app and the disk image
         run: ./scripts/bundle-macos.sh
@@ -378,7 +374,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ubuntu-22.04-build
-          save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'ci-faster-pull-requests' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build with the X11 and Wayland back ends
         run: cargo build --workspace --locked
       - name: Clippy
@@ -410,7 +406,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ubuntu-22.04-desktop
-          save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'ci-faster-pull-requests' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build the app
         run: cargo build -p euphoria-desktop --locked
       - name: Unit and headless UI tests
@@ -452,7 +448,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ubuntu-22.04-packages
-          save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'ci-faster-pull-requests' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build the app and the AppImage
         if: needs.changes.outputs.packaging == 'true'
         run: ./scripts/bundle-linux.sh
