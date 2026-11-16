@@ -29,12 +29,15 @@ use serde::Serialize;
 
 use self::aiff::AiffWriter;
 use self::limiter::TruePeakLimiter;
-pub use self::manifest::{Manifest, RevertReport, RunMode, manifests_in, revert, tag_track};
+pub use self::manifest::{
+    Manifest, RevertReport, RunMode, manifests_in, revert, revert_unrecorded, tag_track,
+};
 pub use self::preview::{ComparisonClip, comparison_clip};
 pub use self::replaygain::{
     REPLAYGAIN_REFERENCE_LUFS, ReplayGainFields, read_replaygain, write_replaygain,
 };
 use crate::audio_stream::AudioStream;
+use crate::cache::ContentHash;
 use crate::error::EuphoriaError;
 use crate::shift::{
     ExistingOutput, PitchShifter, ShiftedFormat, ShiftedWriter, create_temporary_file, install,
@@ -201,6 +204,9 @@ pub struct ClippingReport {
 /// Everything measured about a track and what preparing it will do.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TrackPlan {
+    /// The bytes measured for this plan. Kept out of the public JSON plan.
+    #[serde(skip)]
+    source_content: ContentHash,
     /// Sample rate of the source, kept in the copy.
     pub sample_rate: u32,
     /// Channels of the source, kept in the copy.
@@ -245,6 +251,16 @@ pub struct TrackPlan {
 }
 
 impl TrackPlan {
+    /// Refuses to use measured gain or ReplayGain on different source bytes.
+    pub fn verify_source(&self, input: &Path) -> Result<(), EuphoriaError> {
+        let current = ContentHash::of_file(input)
+            .map_err(|error| failure(input, format!("cannot check the measured file: {error}")))?;
+        if current != self.source_content {
+            return Err(failure(input, "the track changed since it was measured"));
+        }
+        Ok(())
+    }
+
     /// True when the plan leaves the track as it is: no gain and no
     /// pitch shift.
     pub fn changes_nothing(&self) -> bool {
@@ -257,6 +273,7 @@ impl TrackPlan {
 #[derive(Debug, Clone)]
 pub struct TrackMeasurement {
     path: PathBuf,
+    source_content: ContentHash,
     sample_rate: u32,
     channels: u16,
     frames: u64,
@@ -276,6 +293,12 @@ pub(crate) fn failure(path: &Path, reason: impl Into<String>) -> EuphoriaError {
 /// Reads the track at `input` once, measuring its loudness, peaks and
 /// clipping.
 pub fn measure_track(input: &Path) -> Result<TrackMeasurement, EuphoriaError> {
+    let source_content = ContentHash::of_file(input).map_err(|error| {
+        failure(
+            input,
+            format!("cannot read the file to measure it: {error}"),
+        )
+    })?;
     let mut stream = AudioStream::open(input)?;
     let sample_rate = stream.sample_rate().get();
     let channels = stream.channel_count().get();
@@ -324,8 +347,14 @@ pub fn measure_track(input: &Path) -> Result<TrackMeasurement, EuphoriaError> {
     for channel in 0..u32::from(channels) {
         true_peak = true_peak.max(meter.true_peak(channel).map_err(meter_error)?);
     }
+    let after_measurement = ContentHash::of_file(input)
+        .map_err(|error| failure(input, format!("cannot check the measured file: {error}")))?;
+    if after_measurement != source_content {
+        return Err(failure(input, "the track changed while it was measured"));
+    }
     Ok(TrackMeasurement {
         path: input.to_path_buf(),
+        source_content,
         sample_rate,
         channels,
         frames,
@@ -398,6 +427,7 @@ impl TrackMeasurement {
                 _ => (0.0, 0.0, 0.0, false),
             };
         Ok(TrackPlan {
+            source_content: measured.source_content,
             sample_rate: measured.sample_rate,
             channels: measured.channels,
             frames: measured.frames,
@@ -541,6 +571,7 @@ pub fn prepare_track(
             "the output is the original file, which is never changed",
         ));
     }
+    plan.verify_source(input)?;
     if ShiftedFormat::of_path(output).is_none()
         && output.extension().and_then(|extension| extension.to_str()) != Some("aiff")
     {
@@ -619,6 +650,10 @@ pub fn prepare_track(
             return Err(error);
         }
     };
+    if let Err(error) = plan.verify_source(input) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error);
+    }
     if let Err(error) = install(&temporary, output, ExistingOutput::Keep) {
         let _ = std::fs::remove_file(&temporary);
         return Err(error);

@@ -10,7 +10,7 @@ use gpui::prelude::*;
 use std::path::PathBuf;
 
 use gpui::{
-    AnyWindowHandle, App, Bounds, Entity, Global, WeakEntity, WindowBounds, WindowKind,
+    AnyWindowHandle, App, Bounds, Entity, Global, Pixels, WeakEntity, WindowBounds, WindowKind,
     WindowOptions, point, px, size,
 };
 
@@ -97,10 +97,31 @@ fn install_menu_bar(model: &Entity<LiveModel>, cx: &mut App) {
     let _ = (model, cx);
 }
 
+fn display_containing_anchor(
+    anchor: PanelAnchor,
+    displays: &[Bounds<Pixels>],
+) -> Option<Bounds<Pixels>> {
+    let x = px(anchor.center_x as f32);
+    let y = px(anchor.top as f32);
+    displays.iter().copied().find(|bounds| {
+        x >= bounds.origin.x
+            && x < bounds.origin.x + bounds.size.width
+            && y >= bounds.origin.y
+            && y < bounds.origin.y + bounds.size.height
+    })
+}
+
 fn panel_options(anchor: Option<PanelAnchor>, cx: &App) -> (WindowOptions, (f32, f32)) {
     let width = px(PANEL_WIDTH);
     let height = px(PANEL_HEIGHT);
-    let display = cx.primary_display().map(|display| display.bounds());
+    let displays: Vec<_> = cx
+        .displays()
+        .iter()
+        .map(|display| display.bounds())
+        .collect();
+    let display = anchor
+        .and_then(|anchor| display_containing_anchor(anchor, &displays))
+        .or_else(|| cx.primary_display().map(|display| display.bounds()));
     let fallback = display.map_or(point(px(80.0), px(80.0)), |bounds| {
         point(
             bounds.origin.x + bounds.size.width - width - px(PANEL_MARGIN),
@@ -279,4 +300,30 @@ pub(crate) fn toggle_keep_running(cx: &mut App) {
 pub(crate) fn toggle_open_at_login(cx: &mut App) {
     let model = runtime_model(cx);
     model.update(cx, |model, cx| model.toggle_open_at_login(cx));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_menu_item_on_another_display_anchors_the_panel_there() {
+        let primary = Bounds {
+            origin: point(px(0.0), px(0.0)),
+            size: size(px(1440.0), px(900.0)),
+        };
+        let secondary = Bounds {
+            origin: point(px(1440.0), px(-100.0)),
+            size: size(px(1920.0), px(1080.0)),
+        };
+        let anchor = PanelAnchor {
+            center_x: 2200,
+            top: -50,
+        };
+
+        assert_eq!(
+            display_containing_anchor(anchor, &[primary, secondary]),
+            Some(secondary)
+        );
+    }
 }

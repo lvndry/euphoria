@@ -7,6 +7,7 @@
 //! beside the mix.
 
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -215,7 +216,18 @@ impl MixRenderJob {
             (chapters_path, chapters(&plan.tracks, &rendered.timeline)),
         ];
         for (path, text) in texts {
-            std::fs::write(&path, text)
+            // The save dialog only approves replacing the mix itself. A side
+            // file can also appear while a long mix renders, so create it
+            // exclusively even after the check before rendering.
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+                .map_err(|source| EuphoriaError::ExportFile {
+                    path: path.clone(),
+                    source,
+                })?;
+            file.write_all(text.as_bytes())
                 .map_err(|source| EuphoriaError::ExportFile { path, source })?;
         }
         Ok(MixRenderDone {
@@ -307,6 +319,18 @@ impl EuphoriaApp {
     /// already asked whether to replace a file there.
     pub(crate) fn begin_mix_render(&mut self, output: PathBuf, cx: &mut Context<'_, Self>) {
         if self.set_builder.render.is_some() {
+            return;
+        }
+        let (mix_path, _) = mix_output(output.clone());
+        if let Some(existing) = side_files(&mix_path)
+            .into_iter()
+            .find(|path| path.symlink_metadata().is_ok())
+        {
+            self.notice = Some(format!(
+                "Could not render the mix: {} already exists. Choose another mix name or move its side files first.",
+                existing.display()
+            ));
+            cx.notify();
             return;
         }
         let Some(plan) = self.mix_plan_job(cx) else {

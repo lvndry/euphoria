@@ -327,7 +327,10 @@ fn prepare_one(
                     .manifests
                     .entry(input.parent().map(Path::to_path_buf).unwrap_or_default())
                     .or_insert_with(|| Manifest::new(RunMode::TagOnly, settings));
-                match tag_track(manifest, input, fields) {
+                match plan
+                    .verify_source(input)
+                    .and_then(|()| tag_track(manifest, input, fields))
+                {
                     Ok(()) => outcome.tagged = true,
                     Err(error) => outcome.error = Some(crate::with_causes(error).to_string()),
                 }

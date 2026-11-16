@@ -106,6 +106,8 @@ pub(crate) struct LiveModel {
     pub(crate) reading: LiveReading,
     pub(crate) library: Option<Library>,
     library_requested: bool,
+    library_generation: u64,
+    library_folders: Vec<PathBuf>,
     library_loader: Arc<LibraryLoader>,
     matcher: MatcherHandle,
     fingerprint_loader: Arc<FingerprintLoader>,
@@ -168,6 +170,8 @@ impl LiveModel {
             reading: LiveReading::listening(),
             library: None,
             library_requested: false,
+            library_generation: 0,
+            library_folders: settings.folders.clone(),
             library_loader: Arc::new(library_loader),
             matcher: MatcherHandle::default(),
             fingerprint_loader: Arc::new(fingerprint_loader),
@@ -327,12 +331,17 @@ impl LiveModel {
         self.notation = settings.tags.key_notation;
         self.track_filters = settings.track_filters;
         self.suggestion_filter = settings.suggestion_filter;
-        self.stop_learning.store(true, Ordering::Relaxed);
-        self.stop_learning = Arc::new(AtomicBool::new(false));
-        if let Ok(mut handle) = self.matcher.write() {
-            *handle = None;
+        if self.library_folders != settings.folders {
+            self.library_folders = settings.folders;
+            self.stop_learning.store(true, Ordering::Relaxed);
+            self.stop_learning = Arc::new(AtomicBool::new(false));
+            self.fingerprint_paths = Arc::new(Vec::new());
+            if let Ok(mut handle) = self.matcher.write() {
+                *handle = None;
+            }
+            self.learning = Learning::NotStarted;
         }
-        self.learning = Learning::NotStarted;
+        self.library_generation = self.library_generation.wrapping_add(1);
         self.library = None;
         self.library_requested = false;
         self.ranked_for = None;
@@ -345,6 +354,7 @@ impl LiveModel {
             return;
         }
         self.library_requested = true;
+        let generation = self.library_generation;
         let loader = Arc::clone(&self.library_loader);
         cx.spawn(async move |this, cx| {
             let library = cx
@@ -352,6 +362,9 @@ impl LiveModel {
                 .spawn(async move { loader() })
                 .await;
             this.update(cx, |model, cx| {
+                if model.library_generation != generation {
+                    return;
+                }
                 model.library = Some(library);
                 model.ranked_for = None;
                 model.start_learning(cx);
@@ -371,21 +384,29 @@ impl LiveModel {
         let Some(library) = &self.library else {
             return;
         };
-        if self.learning != Learning::NotStarted {
-            return;
-        }
         let paths: Vec<PathBuf> = library
             .tracks()
             .iter()
             .filter(|track| track.analysis().is_some() && !track.is_missing())
             .map(|track| track.path.clone())
             .collect();
-        if paths.is_empty() {
+        if self.fingerprint_paths.as_ref() == &paths && self.learning != Learning::NotStarted {
             return;
         }
-        self.learning = Learning::Working { total: paths.len() };
-        self.learned.store(0, Ordering::Relaxed);
+        self.stop_learning.store(true, Ordering::Relaxed);
+        self.stop_learning = Arc::new(AtomicBool::new(false));
+        if let Ok(mut handle) = self.matcher.write() {
+            *handle = None;
+        }
+        self.learning = Learning::NotStarted;
         self.fingerprint_paths = Arc::new(paths);
+        self.learned = Arc::new(AtomicUsize::new(0));
+        if self.fingerprint_paths.is_empty() {
+            return;
+        }
+        self.learning = Learning::Working {
+            total: self.fingerprint_paths.len(),
+        };
         let loader = Arc::clone(&self.fingerprint_loader);
         let paths = Arc::clone(&self.fingerprint_paths);
         let done = Arc::clone(&self.learned);
