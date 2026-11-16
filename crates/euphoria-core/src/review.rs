@@ -18,9 +18,9 @@ pub enum ReviewReason {
     Failed(String),
     /// The key is rated low confidence.
     KeyUnsure,
-    /// Half or double the tempo is a tempo a DJ could count and the
-    /// onsets back it more strongly, so the track may be counted in the
-    /// wrong octave. See [`TrackAnalysis::tempo_octave_in_doubt`].
+    /// Half or double the tempo is a tempo a DJ could count, and the tempo
+    /// is rated low or the onsets back that octave more strongly, so the
+    /// track may be counted in the wrong octave. See [`TrackAnalysis::tempo_octave_in_doubt`].
     TempoUnsure,
     /// The key field of the file's tags names another key.
     KeyConflict {
@@ -48,9 +48,9 @@ impl ReviewReason {
 /// is no longer in doubt. `analysis` may carry the correction already, or
 /// not: the checks give the same answer.
 ///
-/// The tempo's confidence rating does not list a track by itself: it
-/// measures how close the best tempo that is not an octave of it came, not
-/// the octave, which is where tempo detection is most often wrong.
+/// A tempo is in doubt when it has a plausible half or double and either
+/// it is rated low or the onsets back that octave more strongly; see
+/// [`TrackAnalysis::tempo_octave_in_doubt`].
 pub fn review_reasons(
     analysis: &TrackAnalysis,
     correction: &Correction,
@@ -307,8 +307,12 @@ mod tests {
     }
 
     #[test]
-    fn a_doubtful_rating_lists_nothing_when_the_onsets_back_the_reported_octave() {
-        assert!(reasons_in(with_evidence(174.0, 0.01, -0.2, -0.3), TempoRange::DEFAULT).is_empty());
+    fn a_doubtful_rating_with_a_plausible_octave_is_listed_whatever_the_onsets_say() {
+        assert_eq!(
+            reasons_in(with_evidence(174.0, 0.01, -0.2, -0.3), TempoRange::DEFAULT),
+            [ReviewReason::TempoUnsure]
+        );
+        assert!(reasons_in(with_evidence(174.0, 0.2, -0.2, -0.3), TempoRange::DEFAULT).is_empty());
     }
 
     #[test]

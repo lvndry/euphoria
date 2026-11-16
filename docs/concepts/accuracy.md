@@ -108,7 +108,7 @@ Outside dance music, on GTZAN, Accuracy 1 is 93.0% for disco and 88.0% for hip h
 - **Slow or loose music.** With the default range a tempo below 90 BPM comes out at double, and jazz or classical without a steady beat is often wrong. Set a lower range for slow music, such as `70-140` for hip hop, and treat the tempo of music without a steady beat as a guess.
 - **Melodic house.** GiantSteps has no melodic house genre, so its key and tempo are not measured; progressive house and deep house are the nearest genres scored. One measure that has been checked is weak there: telling warm up, build and peak tracks apart within the genre (see [set stage](set-stage.md)).
 
-In every genre, a low [confidence](#confidence) rating, which puts the key under **Needs review**, is the best single hint that a key needs checking. A tempo is listed when half or double it is a tempo a DJ could count and the onsets back it more strongly; see [which tempos are listed for review](#which-tempos-are-listed-for-review).
+In every genre, a low [confidence](#confidence) rating, which puts the key under **Needs review**, is the best single hint that a key needs checking. A tempo is listed when half or double it is a tempo a DJ could count and the tempo is rated low or the onsets back that octave more strongly; see [which tempos are listed for review](#which-tempos-are-listed-for-review).
 
 ## Key detection with drone-v2
 
@@ -275,7 +275,7 @@ The benchmark measures only the default. Other ranges move tempos by whole octav
 
 Every key and every tempo is rated high, medium or low, for how far to trust it, and comes with a second answer: the runner up key, and for some tempos half or double the tempo. The point is to tell a DJ which tracks are worth checking by ear before a set, and what the likely alternative is.
 
-The ratings are not shown next to the key or the tempo, in the desktop app or in the terminal; they are in the command line's `--json` output. In the desktop app a key rated low puts the track under Needs review, and so does a tempo whose plausible half or double the onsets back more strongly, where each track says why in words, such as that the key may be its relative or a fifth away or the BPM half or double, and offers the likely alternative as one click, or a **Looks right** button that keeps the value and ends the doubt without changing it. See [Settle a track under Needs review](../guides/desktop-app.md#settle-a-track-under-needs-review).
+The ratings are not shown next to the key or the tempo, in the desktop app or in the terminal; they are in the command line's `--json` output. In the desktop app a key rated low puts the track under Needs review, and so does a tempo with a plausible half or double that is rated low or whose onsets back that octave more strongly, where each track says why in words, such as that the key may be its relative or a fifth away or the BPM half or double, and offers the likely alternative as one click, or a **Looks right** button that keeps the value and ends the doubt without changing it. See [Settle a track under Needs review](../guides/desktop-app.md#settle-a-track-under-needs-review).
 
 ### Key confidence
 
@@ -333,73 +333,131 @@ The span was chosen on the first half, where it resolves 24 of its 26 octave err
 
 ### Which tempos are listed for review
 
-A tempo puts the track under **Needs review** when it may be counted in the wrong octave: half or double it is a tempo a DJ could count, between 75 and 200 BPM or the ends of the chosen range, and the onsets of the track back that octave more strongly than the tempo shown. The review then says which one, such as "BPM may be 87.0, counted at half time", and the desktop app offers a single **½ ×** or **2 ×** button for it. A track at 119.8 BPM is never listed: 59.9 and 239.6 are not tempos a DJ counts.
+A tempo puts the track under **Needs review** when it may be counted in the wrong octave: half or double it is a tempo a DJ could count, between 75 and 200 BPM or the ends of the chosen range, and either the tempo is rated low or the onsets of the track back that octave more strongly than the tempo shown. The review then says which one, such as "BPM may be 87.0, counted at half time", and the desktop app offers a single **½ ×** or **2 ×** button for it. A track at 119.8 BPM is never listed: 59.9 and 239.6 are not tempos a DJ counts.
 
-The evidence is the measure the tempo detector already uses to [choose among its best candidates](#choosing-among-the-best-candidates): how strongly the onsets of the mid band, where snares, claps and chords sound, repeat after one beat and after one bar of four beats. For the tempo shown and for its half or double, the two repeat strengths are added, and the track is listed when the other octave's sum is at least 0.15 above the shown tempo's. A track counted at double repeats about as strongly after two of its beats as after one, since those are one beat of the music; a track counted right repeats more strongly after its own beat and bar than after twice them. The rule has one threshold and no weights fitted to a genre. Analyses made before the evidence was measured, and tempos from the fallback estimate, which has none, are listed as before, when the tempo is rated low and has a plausible half or double.
+The two conditions catch different octave errors. A low rating says another tempo, not an octave of this one, scored nearly as well in the tempogram: it lists tracks where the detector hesitated, and says nothing about the octave. The evidence is the measure the tempo detector already uses to [choose among its best candidates](#choosing-among-the-best-candidates): how strongly the onsets of the mid band, where snares, claps and chords sound, repeat after one beat and after one bar of four beats. For the tempo shown and for its half or double, the two repeat strengths are added, and the track is listed when the other octave's sum is at least 0.15 above the shown tempo's. A track counted at double repeats about as strongly after two of its beats as after one, since those are one beat of the music. That lists tracks where the detector was sure of the wrong octave. The two together list every octave error either lists alone. Analyses made before the evidence was measured, and tempos from the fallback estimate, which has none, are listed on the low rating alone.
 
-The low confidence rating no longer lists a tempo. It says another tempo, not an octave of this one, scored nearly as well in the tempogram; it says nothing about the octave, which is where most tempo errors are, and it caught 9 of the 56 octave errors of GiantSteps Tempo. Other measures were tried on the same previews and on all ten genres of GTZAN, scored by how well they tell octave errors from right tempos among tracks with a plausible half or double (AUC, where 0.5 is chance): the tempogram's score at the other octave (0.54 on GiantSteps, 0.54 on GTZAN), the confidence margin (0.55, 0.56), onset density (0.55, 0.34), the beat grid's comb score at the other octave (0.58, 0.68), the onset repeat after one beat (0.62, 0.65), and the sum of the repeats after one beat and one bar (0.64, 0.71), which is used. Weighted combinations fitted on one dataset scored worse on the other than this unweighted sum. No measure separates the two well: the two datasets annotate many tracks, drum and bass above all, at either octave, and the audio of a track labelled 87 and one labelled 174 is often the same kind of music.
+Other measures were tried on the GiantSteps previews and on all ten genres of GTZAN, scored by how well they tell octave errors from right tempos among tracks with a plausible half or double (AUC, where 0.5 is chance): the tempogram's score at the other octave (0.54 on GiantSteps, 0.54 on GTZAN), the confidence margin (0.55, 0.56), onset density (0.55, 0.34), the beat grid's comb score at the other octave (0.58, 0.68), the onset repeat after one beat (0.62, 0.65), and the sum of the repeats after one beat and one bar (0.64, 0.71), which is used. Weighted combinations fitted on one dataset scored worse on the other than this unweighted sum. No measure separates the two well: the datasets annotate many tracks, drum and bass above all, at either octave, and the audio of a track labelled 87 and one labelled 174 is often the same kind of music.
 
-The threshold sets how many right tempos are asked about. Listed tracks on the 661 GiantSteps previews and the 998 decodable GTZAN excerpts in the default range, by threshold, computed from the same onset measurements before the beat grid refines the tempo (octave errors listed, right tempos listed):
+The threshold sets how many right tempos are asked about. All tracks, by threshold, octave errors listed and right tempos listed, measured with `euphoria-bench tempo-review`:
 
-| Rule | GiantSteps octave errors | GiantSteps right tempos | GTZAN octave errors | GTZAN right tempos |
-| --- | --- | --- | --- | --- |
-| Rated low with a plausible octave (before) | 9 | 30 | 29 | 56 |
-| Other octave at least 0.05 above | 32 | 76 | 47 | 45 |
-| At least 0.10 above | 28 | 52 | 36 | 23 |
-| At least 0.15 above (shipped) | 19 | 34 | 30 | 14 |
-| At least 0.20 above | 11 | 20 | 19 | 9 |
-| At least 0.25 above | 7 | 14 | 10 | 5 |
+| Rule | GiantSteps, default range | Hip hop range | Drum and bass range | GTZAN, default range | Hip hop range | Drum and bass range |
+| --- | --- | --- | --- | --- | --- | --- |
+| Rated low alone (before) | 9 and 30 | 59 and 8 | 10 and 31 | 29 and 56 | 28 and 61 | 106 and 41 |
+| Evidence alone at 0.15 | 19 and 34 | 40 and 5 | 25 and 35 | 30 and 14 | 21 and 18 | 120 and 9 |
+| Either, evidence at 0.10 | 31 and 76 | 104 and 13 | 35 and 78 | 59 and 68 | 70 and 75 | 213 and 57 |
+| Either, evidence at 0.15 (shipped) | 25 and 61 | 80 and 12 | 30 and 63 | 55 and 62 | 45 and 70 | 193 and 49 |
+| Either, evidence at 0.20 | 18 and 48 | 69 and 10 | 22 and 50 | 47 and 60 | 37 and 65 | 169 and 48 |
+| Either, evidence at 0.25 | 14 and 44 | 67 and 10 | 18 and 46 | 39 and 58 | 34 and 62 | 148 and 45 |
+| Either, evidence at 0.30 | 12 and 35 | 64 and 10 | 16 and 37 | 35 and 57 | 30 and 61 | 138 and 43 |
 
-0.15 keeps the right tempos listed on GiantSteps close to the rule before (34 against 30) while it doubles the octave errors listed, and on GTZAN it lists a quarter of the right tempos for as many octave errors. Listing the low rated tempos as well would add more right tempos than octave errors (at 0.15, 61 right tempos and 25 octave errors on GiantSteps), so the rating is left out.
+Going from 0.20 to 0.15 adds, over the four default and hip hop cells, 34 octave errors for 22 right tempos; going on to 0.10 adds 59 for 27, but most of those right tempos are GiantSteps drum and bass in the default range, where the list would hold 76 right tempos against 30 before. 0.15 was kept. The cost is in the default range on GiantSteps: 61 right tempos are listed against 30 before, 44 of them drum and bass, whose labels are split between 174 and 87.
 
-Per genre on the 661 GiantSteps Tempo previews in the default range, measured with `euphoria-bench tempo-review` (genres with fewer than 20 previews grouped). Octave errors are tempos reported at half or double the label; for some of them half or double is not offered, as for a 140 BPM track labelled 70, which the default range cannot reach:
+Per genre on the 661 GiantSteps Tempo previews in the default range (genres with fewer than 20 previews grouped). Octave errors are tempos reported at half or double the label; for some of them half or double is not offered, as for a 140 BPM track labelled 70, which the default range cannot reach:
 
-| Genre | Previews | Tempo reviews before | After | Octave errors | Of those, offered the right octave | Listed before | Listed after | Right tempos listed before | After |
+| Genre | Tracks | Octave errors | Right octave offered | Octave errors listed, rated low | Evidence | Combined | Right tempos listed, rated low | Evidence | Combined |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Drum and bass | 139 | 21 | 38 | 17 | 17 | 3 | 8 | 17 | 30 |
-| Dubstep | 76 | 2 | 2 | 6 | 4 | 0 | 1 | 1 | 1 |
-| Trance | 74 | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| Techno | 61 | 2 | 0 | 0 | 0 | 0 | 0 | 1 | 0 |
-| Electronica | 52 | 8 | 2 | 8 | 7 | 1 | 2 | 5 | 0 |
-| Psy-trance | 34 | 1 | 2 | 2 | 2 | 1 | 2 | 0 | 0 |
-| Breaks | 26 | 2 | 1 | 0 | 0 | 0 | 0 | 1 | 1 |
-| Deep house | 24 | 0 | 1 | 1 | 1 | 0 | 1 | 0 | 0 |
-| House | 23 | 0 | 1 | 1 | 1 | 0 | 0 | 0 | 1 |
-| Electro house | 22 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
-| Tech house | 22 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| 12 other genres | 108 | 11 | 8 | 20 | 18 | 4 | 5 | 5 | 1 |
-| All | 661 | 50 | 58 | 56 | 50 | 9 | 19 | 30 | 34 |
-
-Drum and bass is where the rule asks most: 30 of its 115 right tempos with a plausible half are listed, against 17 before, and 8 of its 17 octave errors, against 3. Its tracks are labelled at 174 or at 87 with little in the audio to tell which, so a DJ who plays it in one octave may prefer the drum and bass range below. Every other genre lists as many or fewer right tempos than before.
+| drum-and-bass | 139 | 17 | 17 | 3 | 8 | 10 | 17 | 30 | 44 |
+| dubstep | 76 | 6 | 4 | 0 | 1 | 1 | 1 | 1 | 2 |
+| trance | 74 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| techno | 61 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 1 |
+| electronica | 52 | 8 | 7 | 1 | 2 | 3 | 5 | 0 | 5 |
+| psy-trance | 34 | 2 | 2 | 1 | 2 | 2 | 0 | 0 | 0 |
+| breaks | 26 | 0 | 0 | 0 | 0 | 0 | 1 | 1 | 2 |
+| deep-house | 24 | 1 | 1 | 0 | 1 | 1 | 0 | 0 | 0 |
+| house | 23 | 1 | 1 | 0 | 0 | 0 | 0 | 1 | 1 |
+| electro-house | 22 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| tech-house | 22 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 12 other genres | 108 | 20 | 18 | 4 | 5 | 8 | 5 | 1 | 6 |
+| all | 661 | 56 | 50 | 9 | 19 | 25 | 30 | 34 | 61 |
 
 On all ten genres of GTZAN, 30 second excerpts with the tempo taken from the median beat interval of the Marchand and Peeters annotations, never used to choose anything. Country, metal and pop are often reported at double because many of their tempos are below 90 BPM:
 
-| Genre | Excerpts | Tempo reviews before | After | Octave errors | Of those, offered the right octave | Listed before | Listed after | Right tempos listed before | After |
+| Genre | Tracks | Octave errors | Right octave offered | Octave errors listed, rated low | Evidence | Combined | Right tempos listed, rated low | Evidence | Combined |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Blues | 100 | 13 | 9 | 19 | 10 | 3 | 5 | 8 | 3 |
-| Classical | 100 | 17 | 3 | 14 | 6 | 3 | 0 | 9 | 3 |
-| Country | 100 | 4 | 3 | 43 | 19 | 2 | 3 | 0 | 0 |
-| Disco | 100 | 1 | 1 | 5 | 3 | 0 | 1 | 1 | 0 |
-| Hip hop | 100 | 16 | 5 | 9 | 7 | 2 | 3 | 14 | 2 |
-| Jazz | 99 | 12 | 2 | 32 | 10 | 8 | 2 | 1 | 0 |
-| Metal | 100 | 10 | 3 | 32 | 13 | 4 | 2 | 5 | 0 |
-| Pop | 100 | 11 | 10 | 32 | 17 | 1 | 9 | 10 | 1 |
-| Reggae | 99 | 5 | 6 | 19 | 15 | 5 | 3 | 0 | 3 |
-| Rock | 100 | 11 | 4 | 16 | 10 | 1 | 2 | 8 | 2 |
-| All | 998 | 100 | 46 | 221 | 110 | 29 | 30 | 56 | 14 |
+| blues | 100 | 19 | 10 | 3 | 5 | 7 | 8 | 3 | 9 |
+| classical | 100 | 14 | 6 | 3 | 0 | 3 | 9 | 3 | 9 |
+| country | 100 | 43 | 19 | 2 | 3 | 5 | 0 | 0 | 0 |
+| disco | 100 | 5 | 3 | 0 | 1 | 1 | 1 | 0 | 1 |
+| hiphop | 100 | 9 | 7 | 2 | 3 | 4 | 14 | 2 | 15 |
+| metal | 100 | 32 | 13 | 4 | 2 | 6 | 5 | 0 | 5 |
+| pop | 100 | 32 | 17 | 1 | 9 | 10 | 10 | 1 | 10 |
+| rock | 100 | 16 | 10 | 1 | 2 | 3 | 8 | 2 | 9 |
+| jazz | 99 | 32 | 10 | 8 | 2 | 9 | 1 | 0 | 1 |
+| reggae | 99 | 19 | 15 | 5 | 3 | 7 | 0 | 3 | 3 |
+| all | 998 | 221 | 110 | 29 | 30 | 55 | 56 | 14 | 62 |
 
-Jazz and classical lose listed octave errors (8 to 2 and 3 to 0): their reference tempos are the least reliable, and the low rating listed them because their beat is unclear, not because of the octave. Reggae lists 3 right tempos where it listed none.
+Jazz keeps the 8 octave errors the low rating listed and gains one; the evidence alone lists 2, because the low rating catches jazz where its beat is unclear, not because of the octave. Hip hop lists one right tempo more than before, blues one and rock one, and reggae three.
 
-In the other ranges, all tracks:
+In the hip hop range, 70 to 140, on GiantSteps:
 
-| Range | Dataset | Tempo reviews before | After | Octave errors listed before | After | Right tempos listed before | After |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Hip hop, 70 to 140 | GiantSteps | 68 | 42 | 49 | 30 | 8 | 5 |
-| Hip hop, 70 to 140 | GTZAN | 107 | 49 | 28 | 21 | 61 | 18 |
-| Drum and bass, 120 to 200 | GiantSteps | 53 | 66 | 10 | 25 | 31 | 35 |
-| Drum and bass, 120 to 200 | GTZAN | 172 | 133 | 106 | 119 | 41 | 9 |
+| Genre | Tracks | Octave errors | Right octave offered | Octave errors listed, rated low | Evidence | Combined | Right tempos listed, rated low | Evidence | Combined |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| drum-and-bass | 139 | 119 | 119 | 17 | 13 | 26 | 3 | 3 | 5 |
+| dubstep | 76 | 53 | 52 | 4 | 5 | 8 | 1 | 1 | 2 |
+| trance | 74 | 46 | 46 | 5 | 5 | 8 | 0 | 0 | 0 |
+| techno | 61 | 6 | 6 | 3 | 0 | 3 | 0 | 0 | 0 |
+| electronica | 52 | 24 | 23 | 8 | 5 | 9 | 1 | 0 | 1 |
+| psy-trance | 34 | 28 | 28 | 2 | 4 | 4 | 0 | 0 | 0 |
+| breaks | 26 | 22 | 22 | 8 | 4 | 8 | 0 | 0 | 0 |
+| deep-house | 24 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| house | 23 | 7 | 7 | 2 | 1 | 2 | 0 | 0 | 0 |
+| electro-house | 22 | 5 | 4 | 0 | 0 | 0 | 0 | 0 | 0 |
+| tech-house | 22 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 12 other genres | 108 | 35 | 35 | 10 | 3 | 12 | 3 | 1 | 4 |
+| all | 661 | 345 | 342 | 59 | 40 | 80 | 8 | 5 | 12 |
 
-The hip hop range is the one where the rule lists fewer octave errors than the low rating did; on the GiantSteps previews of dance music, which that range halves by design, the low rating happened to list many of them.
+On GTZAN:
+
+| Genre | Tracks | Octave errors | Right octave offered | Octave errors listed, rated low | Evidence | Combined | Right tempos listed, rated low | Evidence | Combined |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| blues | 100 | 30 | 22 | 3 | 2 | 5 | 9 | 2 | 9 |
+| classical | 100 | 23 | 16 | 2 | 3 | 4 | 11 | 4 | 12 |
+| country | 100 | 41 | 22 | 2 | 2 | 4 | 0 | 1 | 1 |
+| disco | 100 | 2 | 0 | 0 | 0 | 0 | 1 | 0 | 1 |
+| hiphop | 100 | 2 | 2 | 1 | 0 | 1 | 15 | 2 | 16 |
+| metal | 100 | 44 | 27 | 5 | 2 | 7 | 4 | 2 | 5 |
+| pop | 100 | 12 | 0 | 0 | 0 | 0 | 11 | 1 | 11 |
+| rock | 100 | 15 | 11 | 2 | 2 | 3 | 7 | 5 | 11 |
+| jazz | 99 | 36 | 19 | 8 | 2 | 9 | 3 | 0 | 3 |
+| reggae | 99 | 58 | 54 | 5 | 8 | 12 | 0 | 1 | 1 |
+| all | 998 | 263 | 173 | 28 | 21 | 45 | 61 | 18 | 70 |
+
+In the drum and bass range, 120 to 200, on GiantSteps:
+
+| Genre | Tracks | Octave errors | Right octave offered | Octave errors listed, rated low | Evidence | Combined | Right tempos listed, rated low | Evidence | Combined |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| drum-and-bass | 139 | 16 | 16 | 3 | 7 | 9 | 17 | 30 | 44 |
+| dubstep | 76 | 7 | 5 | 1 | 1 | 2 | 0 | 1 | 1 |
+| trance | 74 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| techno | 61 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 1 |
+| electronica | 52 | 13 | 12 | 2 | 6 | 7 | 5 | 1 | 6 |
+| psy-trance | 34 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 1 |
+| breaks | 26 | 0 | 0 | 0 | 0 | 0 | 1 | 1 | 2 |
+| deep-house | 24 | 1 | 1 | 0 | 1 | 1 | 0 | 0 | 0 |
+| house | 23 | 1 | 1 | 0 | 0 | 0 | 0 | 1 | 1 |
+| electro-house | 22 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| tech-house | 22 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 12 other genres | 108 | 24 | 22 | 4 | 10 | 11 | 6 | 1 | 7 |
+| all | 661 | 63 | 57 | 10 | 25 | 30 | 31 | 35 | 63 |
+
+On GTZAN:
+
+| Genre | Tracks | Octave errors | Right octave offered | Octave errors listed, rated low | Evidence | Combined | Right tempos listed, rated low | Evidence | Combined |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| blues | 100 | 33 | 26 | 14 | 13 | 24 | 3 | 2 | 5 |
+| classical | 100 | 29 | 22 | 13 | 2 | 15 | 3 | 0 | 3 |
+| country | 100 | 46 | 26 | 1 | 5 | 6 | 4 | 1 | 5 |
+| disco | 100 | 20 | 18 | 4 | 9 | 11 | 0 | 0 | 0 |
+| hiphop | 100 | 78 | 76 | 28 | 30 | 47 | 1 | 1 | 1 |
+| metal | 100 | 33 | 18 | 4 | 7 | 11 | 7 | 1 | 8 |
+| pop | 100 | 73 | 59 | 23 | 36 | 45 | 0 | 0 | 0 |
+| rock | 100 | 37 | 31 | 10 | 10 | 17 | 2 | 1 | 3 |
+| jazz | 99 | 26 | 14 | 5 | 4 | 9 | 16 | 0 | 16 |
+| reggae | 99 | 20 | 17 | 4 | 4 | 8 | 5 | 3 | 8 |
+| all | 998 | 395 | 307 | 106 | 120 | 193 | 41 | 9 | 49 |
+
+In every range and genre the combined rule lists at least the octave errors each rule lists alone. In the hip hop range it lists 80 octave errors of the GiantSteps previews against 59 for the low rating, with 12 right tempos against 8; on GTZAN 45 against 28, with 70 right tempos against 61.
 
 ### What the confidence does and does not show
 
@@ -495,7 +553,7 @@ Measuring the tuning adds 0.02 to 0.03 CPU seconds to the analysis of a track, 2
 
 The beat grid tells a DJ program where every beat and every bar of a track falls, so that its beat counter, its phase meter and its loops line up with the music. Euphoria finds one grid per track: the tempo, with decimals, and the time of the first downbeat, the first beat of a bar. It is rated high, medium or low like the key and the tempo. `euphoria analyze --json` reports it, and `euphoria export rekordbox --beat-grid` writes it into the rekordbox XML file; see [the command reference](../reference/cli.md#euphoria-export-rekordbox).
 
-![How often the grid is right on the held out excerpts: 97.2% of the 36 rated high, 100% of the 22 rated medium and 64.3% of the 42 rated low, against 84% of all excerpts.](../images/beat-grid/confidence.svg)
+![How often the grid is right on the held out excerpts: 97.3% of the 37 rated high, 96.4% of the 28 rated medium and 71.4% of the 35 rated low, against 88% of all excerpts.](../images/beat-grid/confidence.svg)
 
 ### How it is measured
 
@@ -503,16 +561,16 @@ No openly licensed dataset of electronic dance music has both audio and beat ann
 
 | On the 100 held out excerpts | Beat F-measure | Grid right | Downbeat right |
 | --- | --- | --- | --- |
-| Tempo as reported, between 90 and 180 BPM | 0.897 | 80% | 45% |
-| Octave of the tempo taken from the annotation | 0.908 | 84% | 49% |
+| Tempo as reported, between 90 and 180 BPM | 0.922 | 84% | 46% |
+| Octave of the tempo taken from the annotation | 0.934 | 88% | 50% |
 
 The second row judges the grid alone: a grid at half or double the annotated tempo misses half the beats or adds as many, which is the tempo's [octave](#how-the-tempo-is-chosen) and not the grid's placement. 14 of the excerpts are annotated below 90 BPM, outside the range tempos are reported in.
 
 | Grid confidence, held out | Excerpts | Grid right |
 | --- | --- | --- |
-| High | 36 | 97.2% |
-| Medium | 22 | 100% |
-| Low | 42 | 64.3% |
+| High | 37 | 97.3% |
+| Medium | 28 | 96.4% |
+| Low | 35 | 71.4% |
 
 The figures for the development half, where every setting was chosen, are close to these and are in [bench/results/beats.md](https://github.com/lvndry/euphoria/blob/main/bench/results/beats.md).
 
@@ -523,6 +581,44 @@ The downbeat is right about half the time, and on 57% of the excerpts whose beat
 ### Drift
 
 Euphoria fits one constant tempo to the whole track, which is how dance music is made and how Euphoria writes a grid into the rekordbox XML file. It then cuts the track into 8 second stretches, finds where the beats of each stretch fall, and measures how far they are from the grid. When one in ten of the stretches with clear beats wanders more than 35 ms from it, half the window in which a beat counts as found, the grid is rated low whatever else it shows. A live recording or a track mixed from vinyl gets a grid that fits it on average, rated low, and the export leaves that grid out so rekordbox analyzes the track itself. A grid that follows a changing tempo, with a tempo for each stretch, is not made.
+
+Where the beats of a stretch fall is the beat nearest the grid: of the offsets at which the stretch's onsets line up with a grid of the same tempo, the one closest to the grid among those that stand out, at least 1.3 times the average over every offset and at least half the strongest. Taking the strongest offset instead, as Euphoria did before, misread steady tracks: in a stretch where off-beat bass, open hats or a syncopated riff are louder than the kick, the strongest offset sits half or a quarter of a beat away while the beat is still on the grid. On the GiantSteps previews of dance music, 369 of the 376 grids rated low were rated low by that check, and in their stretches the offsets jumped between zero and half or a quarter of a beat instead of moving gradually, as a drifting tempo does. A tempo that really drifts moves the beat nearest the grid with it, so it is still caught: synthesized kicks whose tempo rises by 1, 2 or 3% over two minutes, and kicks that wander 2% around their tempo with a few milliseconds of human timing, are rated low, while steady clicks in noise after 12 seconds of silence and a steady track whose off-beats are louder than its kick for 40 seconds are not.
+
+| GiantSteps Tempo, by genre | Previews | Rated low before | After | Within 0.05 BPM before | After | Accuracy 1 before | After | Accuracy 2 before | After |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Drum and bass | 139 | 52 | 14 | 33.1% | 39.6% | 85.6% | 85.6% | 97.8% | 97.8% |
+| Dubstep | 76 | 47 | 16 | 14.5% | 18.4% | 81.6% | 81.6% | 89.5% | 89.5% |
+| Trance | 74 | 62 | 17 | 2.7% | 6.8% | 89.2% | 89.2% | 89.2% | 89.2% |
+| Techno | 61 | 39 | 8 | 6.6% | 24.6% | 91.8% | 91.8% | 91.8% | 91.8% |
+| Electronica | 52 | 28 | 6 | 17.3% | 23.1% | 76.9% | 76.9% | 92.3% | 92.3% |
+| Psy-trance | 34 | 16 | 3 | 11.8% | 14.7% | 94.1% | 94.1% | 100.0% | 100.0% |
+| Breaks | 26 | 12 | 0 | 7.7% | 19.2% | 96.2% | 96.2% | 96.2% | 96.2% |
+| Deep house | 24 | 13 | 2 | 4.2% | 16.7% | 95.8% | 95.8% | 100.0% | 100.0% |
+| House | 23 | 13 | 0 | 4.3% | 30.4% | 95.7% | 95.7% | 100.0% | 100.0% |
+| Electro house | 22 | 18 | 8 | 18.2% | 22.7% | 90.9% | 90.9% | 95.5% | 95.5% |
+| Tech house | 22 | 10 | 2 | 9.1% | 18.2% | 100.0% | 100.0% | 100.0% | 100.0% |
+| 12 other genres | 108 | 66 | 24 | 18.5% | 28.7% | 74.1% | 74.1% | 92.6% | 92.6% |
+| All | 661 | 376 | 100 | 16.0% | 24.5% | 85.8% | 85.8% | 94.3% | 94.3% |
+
+276 grids rated low became medium or high, 2 medium became high and 1 high became medium; none became low. The tempo moved on 280 previews, as more grids set it and the line fit of [the next section](#how-the-tempo-is-made-precise) uses the beat nearest the grid too, and 162 previews are now within 0.05 BPM of the label against 106, out of the 173 that trusting every grid would give. Accuracy 1 and 2 do not move in any genre.
+
+On all ten genres of GTZAN, never used to choose anything, with the tempo taken from the median of the annotated beat intervals, and the beat F-measure and the share of grids right against the annotated beats at the tempo as reported:
+
+| GTZAN genre | Excerpts | Rated low before | After | Within 0.05 BPM before | After | Beat F-measure before | After | Grid right before | After |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Blues | 100 | 92 | 92 | 4.0% | 4.0% | 0.570 | 0.572 | 21.0% | 21.0% |
+| Classical | 100 | 100 | 100 | 2.0% | 2.0% | 0.455 | 0.454 | 8.0% | 7.0% |
+| Country | 100 | 62 | 59 | 3.0% | 3.0% | 0.754 | 0.755 | 43.0% | 44.0% |
+| Disco | 100 | 36 | 34 | 8.0% | 8.0% | 0.933 | 0.934 | 81.0% | 82.0% |
+| Hip hop | 100 | 33 | 25 | 7.0% | 8.0% | 0.904 | 0.904 | 83.0% | 83.0% |
+| Jazz | 99 | 95 | 93 | 5.1% | 5.1% | 0.510 | 0.511 | 12.1% | 12.1% |
+| Metal | 100 | 85 | 81 | 6.0% | 4.0% | 0.750 | 0.751 | 41.0% | 41.0% |
+| Pop | 100 | 20 | 12 | 6.0% | 6.0% | 0.831 | 0.831 | 63.0% | 63.0% |
+| Reggae | 99 | 50 | 47 | 5.1% | 5.1% | 0.879 | 0.879 | 67.7% | 67.7% |
+| Rock | 100 | 75 | 69 | 7.0% | 7.0% | 0.773 | 0.773 | 48.0% | 49.0% |
+| All | 998 | 648 | 612 | 5.3% | 5.2% | 0.736 | 0.736 | 46.8% | 47.0% |
+
+Accuracy 1 and 2 are the same before and after in every GTZAN genre. Blues, jazz and country, where live playing drifts, keep their low ratings: blues does not change, and two jazz and three country excerpts move up, with no loss of beat F-measure, grids right or tempos within 0.05 BPM. Two metal excerpts are no longer within 0.05 BPM of their reference, which is the median of tapped beat intervals and not a production tempo, and one classical grid fewer is right. Most GTZAN grids rated low are rated low because their beats barely stand out (a salience below 6.5), not for drift: 600 of the 648 before.
 
 ### How the tempo is made precise
 
@@ -577,7 +673,7 @@ On GTZAN, 30 second excerpts of mostly live music whose reference tempo is the m
 
 On the 200 disco and hip hop excerpts of the beat benchmark, the beat F-measure (0.919) and the share of grids right (82.0%) are the same with and without snapping, and one excerpt's downbeat moved, from 49.0% right to 48.5%.
 
-A grid rated low is often closer to the labelled tempo than the detector's estimate too: on GiantSteps, using every grid would put 173 previews within 0.05 BPM against 106. Most of those grids are rated low for drift, which on two minute previews of tracks made at one tempo is more often the measure than the music. They are left out until drift is measured in a way that holds on such previews, since on GTZAN using every grid puts fewer blues excerpts within 0.05 BPM (1 against 4).
+A grid rated low leaves the detector's estimate. With drift measured at the beat nearest the grid (see [drift](#drift)), 561 of the 661 GiantSteps grids set the tempo and 162 previews are within 0.05 BPM of the label, against 106 when drift was measured at the strongest offset; trusting every grid would give 173, but on GTZAN it puts fewer blues excerpts within 0.05 BPM (1 against 4), so grids rated low still do not set the tempo. The genre table above was measured before the drift change, when the grid set the tempo of 285 previews.
 
 Analyses made before this change are analyzed again, since the stored tempo now means the grid's.
 

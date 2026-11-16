@@ -35,9 +35,9 @@ use crate::tempo_range::TempoRange;
 /// [`ENERGY_MODEL_VERSION`](crate::ENERGY_MODEL_VERSION), which the cache
 /// checks as well, so recalibrating energy needs no change here.
 pub const ANALYZER_VERSION: &str = if cfg!(feature = "drone") {
-    "20+drone"
+    "21+drone"
 } else {
-    "20+stratum"
+    "21+stratum"
 };
 
 /// The version the analysis cache records for analyses made now.
@@ -208,23 +208,30 @@ impl TrackAnalysis {
 
     /// Whether the tempo reported in `range` may be counted in the wrong
     /// octave: half or double it is a tempo a DJ could count (see
-    /// [`TrackAnalysis::tempo_alternative_in`]), and the onsets back that
-    /// tempo more strongly than the reported one (see
-    /// [`OctaveEvidence`]). An analysis without that evidence, such as one
-    /// whose tempo came from the fallback estimate, is in doubt when its
-    /// tempo is rated low.
+    /// [`TrackAnalysis::tempo_alternative_in`]), and either the tempo is
+    /// rated low or the onsets back that octave more strongly than the
+    /// reported tempo (see [`OctaveEvidence`]). The two catch different
+    /// octave errors: the rating those where the tempogram hesitated, the
+    /// evidence those where it was sure of the wrong octave.
     pub fn tempo_octave_in_doubt(&self, range: TempoRange) -> bool {
         let Some(alternative) = self.tempo_alternative_in(range) else {
             return false;
         };
-        let measured = self.tempo_in(TempoRange::DEFAULT);
-        let reported = self.tempo_in(range);
-        match (self.tempo_octave_evidence, measured, reported) {
-            (Some(evidence), Some(measured), Some(reported)) => evidence
-                .for_octave(measured, reported, alternative)
-                .is_some_and(octave_in_doubt),
-            _ => self.tempo_confidence() == Some(Confidence::Low),
-        }
+        self.tempo_confidence() == Some(Confidence::Low)
+            || self
+                .tempo_octave_evidence_in(range, alternative)
+                .is_some_and(octave_in_doubt)
+    }
+
+    /// How much more strongly the onsets back `alternative` than the tempo
+    /// reported in `range`, or `None` without evidence, as for a tempo from
+    /// the fallback estimate, or when either is more than an octave from
+    /// the tempo the evidence was measured at.
+    pub fn tempo_octave_evidence_in(&self, range: TempoRange, alternative: f32) -> Option<f32> {
+        let evidence = self.tempo_octave_evidence?;
+        let measured = self.tempo_in(TempoRange::DEFAULT)?;
+        let reported = self.tempo_in(range)?;
+        evidence.for_octave(measured, reported, alternative)
     }
 
     /// Whether the key or the tempo, reported in `range`, is in doubt, so

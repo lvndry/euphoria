@@ -63,12 +63,12 @@ const TEMPO_MEDIUM_MARGIN: f32 = 0.09;
 /// octave of it by at least this is rated high.
 const TEMPO_HIGH_MARGIN: f32 = 0.45;
 
-/// A tempo is listed under Needs review when the onsets favour half or
-/// double it over it by at least this much, and a DJ could count that
-/// octave. Chosen on GiantSteps Tempo so that about as many right tempos
-/// are listed as under the low confidence rule it replaces, and checked on
-/// all ten genres of GTZAN.
-const OCTAVE_DOUBT_EVIDENCE: f32 = 0.15;
+/// A tempo with a plausible half or double is listed under Needs review
+/// when the onsets favour that octave over it by at least this much, as
+/// well as when it is rated low. Chosen on GiantSteps Tempo and all ten
+/// genres of GTZAN, in the default, hip hop and drum and bass ranges: a
+/// lower threshold lists mostly more right drum and bass tempos.
+pub const OCTAVE_DOUBT_EVIDENCE: f32 = 0.15;
 
 /// Whether `evidence` for another octave of a tempo, as
 /// [`OctaveEvidence::for_octave`](crate::detect::OctaveEvidence::for_octave)

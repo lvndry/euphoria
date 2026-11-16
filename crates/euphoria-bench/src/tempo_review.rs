@@ -3,18 +3,19 @@
 
 //! Measures which tempos Needs review lists, per genre: how many octave
 //! errors it catches and how many right tempos it asks about, under the
-//! octave evidence rule and under the low confidence rule it replaced.
+//! low confidence rule, the octave evidence rule and the two combined.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
+use euphoria_core::confidence::OCTAVE_DOUBT_EVIDENCE;
 use euphoria_core::detect::{StratumDetector, TempoReading, detect_beat_grid};
 use euphoria_core::{Correction, TempoRange, TrackAnalysis, decode_mono, review_reasons};
 use rayon::prelude::*;
 
-use crate::dataset;
+use crate::references::{Reference, giantsteps_references, gtzan_references};
 use crate::scoring::within_tolerance;
 
 pub const USAGE: &str = "usage: euphoria-bench tempo-review [GIANTSTEPS_TEMPO_DIRECTORY] [--gtzan GTZAN_DIRECTORY] [--range SLOWEST-FASTEST]";
@@ -63,93 +64,6 @@ pub fn parse_arguments(arguments: impl IntoIterator<Item = String>) -> Result<Ar
     })
 }
 
-/// A track with its reference tempo and genre.
-struct Reference {
-    audio_path: PathBuf,
-    tempo: f32,
-    genre: String,
-}
-
-fn giantsteps_references(directory: &Path) -> Result<Vec<Reference>> {
-    let dataset = dataset::load_tempo_tracks(directory)?;
-    dataset
-        .tracks
-        .into_iter()
-        .map(|track| {
-            let genre_path = directory
-                .join("annotations/genre")
-                .join(format!("{}.genre", track.name));
-            let genre = std::fs::read_to_string(&genre_path)
-                .with_context(|| format!("reading {}", genre_path.display()))?;
-            Ok(Reference {
-                audio_path: track.audio_path,
-                tempo: track.annotation,
-                genre: genre.trim().to_string(),
-            })
-        })
-        .collect()
-}
-
-/// The GTZAN excerpts in `directory`: `annotations/gtzan_<genre>_<number>.beats`
-/// with `audio/<genre>.<number>.wav`, the tempo taken from the median time
-/// between the annotated beats.
-fn gtzan_references(directory: &Path) -> Result<Vec<Reference>> {
-    let annotations = directory.join("annotations");
-    let mut references = Vec::new();
-    for entry in std::fs::read_dir(&annotations)
-        .with_context(|| format!("reading {}", annotations.display()))?
-    {
-        let path = entry?.path();
-        let Some(name) = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .and_then(|name| name.strip_suffix(".beats"))
-        else {
-            continue;
-        };
-        let Some((genre, number)) = name
-            .strip_prefix("gtzan_")
-            .and_then(|rest| rest.split_once('_'))
-        else {
-            continue;
-        };
-        let audio_path = directory
-            .join("audio")
-            .join(format!("{genre}.{number}.wav"));
-        if !audio_path.is_file() {
-            continue;
-        }
-        let text = std::fs::read_to_string(&path)
-            .with_context(|| format!("reading {}", path.display()))?;
-        let mut intervals: Vec<f64> = Vec::new();
-        let mut previous: Option<f64> = None;
-        for line in text.lines() {
-            let Some(time) = line
-                .split_whitespace()
-                .next()
-                .and_then(|field| field.parse::<f64>().ok())
-            else {
-                continue;
-            };
-            if let Some(previous) = previous {
-                intervals.push(time - previous);
-            }
-            previous = Some(time);
-        }
-        if intervals.is_empty() {
-            continue;
-        }
-        intervals.sort_by(f64::total_cmp);
-        references.push(Reference {
-            audio_path,
-            tempo: (60.0 / intervals[intervals.len() / 2]) as f32,
-            genre: genre.to_string(),
-        });
-    }
-    references.sort_by(|first, second| first.audio_path.cmp(&second.audio_path));
-    Ok(references)
-}
-
 /// What the analysis stores about the tempo of a track, with everything
 /// else left empty.
 fn tempo_analysis(reading: TempoReading, refined: f32) -> TrackAnalysis {
@@ -174,36 +88,49 @@ fn tempo_analysis(reading: TempoReading, refined: f32) -> TrackAnalysis {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy)]
-struct Tally {
-    tracks: usize,
-    listed_before: usize,
-    listed_after: usize,
-    octave_errors: usize,
-    octave_with_alternative: usize,
-    octave_listed_before: usize,
-    octave_listed_after: usize,
-    right_listed_before: usize,
-    right_listed_after: usize,
+/// How one track stands under the review rules.
+#[derive(Debug, Clone, Copy)]
+struct Record {
+    right: bool,
+    octave_error: bool,
+    octave_offered: bool,
+    /// Listed by the rule before: rated low with a plausible half or double.
+    rated_low: bool,
+    /// How much more strongly the onsets back the plausible half or double
+    /// than the reported tempo, or `None` without one.
+    evidence: Option<f32>,
 }
 
-impl Tally {
-    fn add(&mut self, other: &Self) {
-        self.tracks += other.tracks;
-        self.listed_before += other.listed_before;
-        self.listed_after += other.listed_after;
-        self.octave_errors += other.octave_errors;
-        self.octave_with_alternative += other.octave_with_alternative;
-        self.octave_listed_before += other.octave_listed_before;
-        self.octave_listed_after += other.octave_listed_after;
-        self.right_listed_before += other.right_listed_before;
-        self.right_listed_after += other.right_listed_after;
+impl Record {
+    fn listed_by_evidence(&self, threshold: f32) -> bool {
+        self.evidence.is_some_and(|evidence| evidence >= threshold)
+    }
+
+    fn listed_combined(&self, threshold: f32) -> bool {
+        self.rated_low || self.listed_by_evidence(threshold)
+    }
+}
+
+/// Counts of listed octave errors and listed right tempos.
+#[derive(Debug, Default, Clone, Copy)]
+struct Listed {
+    octave_errors: usize,
+    right: usize,
+}
+
+impl Listed {
+    fn count(records: &[Record], rule: impl Fn(&Record) -> bool) -> Self {
+        let listed: Vec<&Record> = records.iter().filter(|record| rule(record)).collect();
+        Self {
+            octave_errors: listed.iter().filter(|record| record.octave_error).count(),
+            right: listed.iter().filter(|record| record.right).count(),
+        }
     }
 }
 
 /// How the rules treat one track, or `None` when it cannot be decoded or
 /// has no tempo, as one GTZAN excerpt cannot be.
-fn measure(reference: &Reference, range: TempoRange) -> Result<Option<Tally>> {
+fn measure(reference: &Reference, range: TempoRange) -> Result<Option<Record>> {
     let Ok(audio) = decode_mono(&reference.audio_path) else {
         return Ok(None);
     };
@@ -214,96 +141,133 @@ fn measure(reference: &Reference, range: TempoRange) -> Result<Option<Tally>> {
         return Ok(None);
     };
     let grid = detect_beat_grid(&audio, f64::from(reading.tempo_in(TempoRange::DEFAULT)));
-    let after = tempo_analysis(reading, reading.refined_by(grid.as_ref())).with_tempo_range(range);
-    let before = TrackAnalysis {
-        tempo_octave_evidence: None,
-        ..after.clone()
-    };
-    let listed = |analysis: &TrackAnalysis| {
-        !review_reasons(analysis, &Correction::default(), None, range).is_empty()
-    };
-    let Some(reported) = after.bpm else {
+    let analysis =
+        tempo_analysis(reading, reading.refined_by(grid.as_ref())).with_tempo_range(range);
+    let Some(reported) = analysis.bpm else {
         return Ok(None);
     };
-    let right = within_tolerance(reference.tempo, reported);
-    let octave = within_tolerance(reference.tempo, reported / 2.0)
+    let alternative = analysis.tempo_alternative_in(range);
+    let octave_error = within_tolerance(reference.tempo, reported / 2.0)
         || within_tolerance(reference.tempo, reported * 2.0);
-    let (listed_before, listed_after) = (listed(&before), listed(&after));
-    Ok(Some(Tally {
-        tracks: 1,
-        listed_before: usize::from(listed_before),
-        listed_after: usize::from(listed_after),
-        octave_errors: usize::from(octave),
-        octave_with_alternative: usize::from(
-            octave
-                && after
-                    .tempo_alternative_in(range)
-                    .is_some_and(|alternative| within_tolerance(reference.tempo, alternative)),
-        ),
-        octave_listed_before: usize::from(octave && listed_before),
-        octave_listed_after: usize::from(octave && listed_after),
-        right_listed_before: usize::from(right && listed_before),
-        right_listed_after: usize::from(right && listed_after),
+    let without_evidence = TrackAnalysis {
+        tempo_octave_evidence: None,
+        ..analysis.clone()
+    };
+    Ok(Some(Record {
+        right: within_tolerance(reference.tempo, reported),
+        octave_error,
+        octave_offered: octave_error
+            && alternative
+                .is_some_and(|alternative| within_tolerance(reference.tempo, alternative)),
+        rated_low: !review_reasons(&without_evidence, &Correction::default(), None, range)
+            .is_empty(),
+        evidence: alternative
+            .and_then(|alternative| analysis.tempo_octave_evidence_in(range, alternative)),
     }))
 }
 
-fn render(title: &str, references: &[Reference], tallies: &[Option<Tally>]) -> String {
-    let mut by_genre: BTreeMap<&str, Tally> = BTreeMap::new();
+/// Thresholds of the evidence the sweep tries.
+const SWEEP: [f32; 8] = [0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4];
+
+fn render(
+    title: &str,
+    references: &[Reference],
+    records: &[Option<Record>],
+    threshold: f32,
+) -> String {
+    let mut by_genre: BTreeMap<&str, Vec<Record>> = BTreeMap::new();
     let mut without_tempo = 0;
-    for (reference, tally) in references.iter().zip(tallies) {
-        match tally {
-            Some(tally) => by_genre.entry(&reference.genre).or_default().add(tally),
+    for (reference, record) in references.iter().zip(records) {
+        match record {
+            Some(record) => by_genre.entry(&reference.genre).or_default().push(*record),
             None => without_tempo += 1,
         }
     }
-    let mut rows: Vec<(String, Tally)> = Vec::new();
-    let mut grouped = Tally::default();
+    let mut rows: Vec<(String, Vec<Record>)> = Vec::new();
+    let mut grouped = Vec::new();
     let mut grouped_count = 0;
-    for (genre, tally) in &by_genre {
-        if tally.tracks >= MINIMUM_GENRE_TRACKS {
-            rows.push((genre.to_string(), *tally));
+    let mut total = Vec::new();
+    for (genre, genre_records) in &by_genre {
+        total.extend_from_slice(genre_records);
+        if genre_records.len() >= MINIMUM_GENRE_TRACKS {
+            rows.push((genre.to_string(), genre_records.clone()));
         } else {
-            grouped.add(tally);
+            grouped.extend_from_slice(genre_records);
             grouped_count += 1;
         }
     }
-    rows.sort_by_key(|(_, tally)| std::cmp::Reverse(tally.tracks));
+    rows.sort_by_key(|(_, genre_records)| std::cmp::Reverse(genre_records.len()));
     if grouped_count > 0 {
         rows.push((format!("{grouped_count} other genres"), grouped));
     }
-    let mut total = Tally::default();
-    for tally in by_genre.values() {
-        total.add(tally);
-    }
-    rows.push(("all".to_string(), total));
+    rows.push(("all".to_string(), total.clone()));
     let mut report = String::new();
-    let _ = writeln!(report, "## {title}\n");
     let _ = writeln!(
         report,
-        "{} tracks with a tempo, {without_tempo} without a tempo or not decodable. Before: listed when the tempo is rated low and has a plausible half or double. After: listed when the onsets back that half or double.\n",
-        total.tracks
+        "## {title}
+"
     );
     let _ = writeln!(
         report,
-        "| Genre | Tracks | Tempo reviews before | After | Octave errors | Of those, the alternative is right | Listed before | Listed after | Right tempos listed before | After |"
+        "{} tracks with a tempo, {without_tempo} without a tempo or not decodable. Rated low: the tempo is rated low and has a plausible half or double. Evidence: the onsets back that half or double by at least {threshold}. Combined: either.\n",
+        total.len()
+    );
+    let _ = writeln!(
+        report,
+        "| Genre | Tracks | Octave errors | Right octave offered | Octave errors listed, rated low | Evidence | Combined | Right tempos listed, rated low | Evidence | Combined |"
     );
     let _ = writeln!(
         report,
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
     );
-    for (genre, tally) in rows {
+    for (genre, genre_records) in rows {
+        let rated_low = Listed::count(&genre_records, |record| record.rated_low);
+        let evidence = Listed::count(&genre_records, |record| {
+            record.listed_by_evidence(threshold)
+        });
+        let combined = Listed::count(&genre_records, |record| record.listed_combined(threshold));
         let _ = writeln!(
             report,
             "| {genre} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
-            tally.tracks,
-            tally.listed_before,
-            tally.listed_after,
-            tally.octave_errors,
-            tally.octave_with_alternative,
-            tally.octave_listed_before,
-            tally.octave_listed_after,
-            tally.right_listed_before,
-            tally.right_listed_after,
+            genre_records.len(),
+            genre_records
+                .iter()
+                .filter(|record| record.octave_error)
+                .count(),
+            genre_records
+                .iter()
+                .filter(|record| record.octave_offered)
+                .count(),
+            rated_low.octave_errors,
+            evidence.octave_errors,
+            combined.octave_errors,
+            rated_low.right,
+            evidence.right,
+            combined.right,
+        );
+    }
+    let _ = writeln!(
+        report,
+        "\nAll tracks, by the evidence threshold: octave errors listed and right tempos listed.\n"
+    );
+    let _ = writeln!(
+        report,
+        "| Threshold | Evidence alone | Combined with rated low |"
+    );
+    let _ = writeln!(report, "| --- | --- | --- |");
+    let rated_low = Listed::count(&total, |record| record.rated_low);
+    let _ = writeln!(
+        report,
+        "| rated low alone | - | {} and {} |",
+        rated_low.octave_errors, rated_low.right
+    );
+    for sweep_threshold in SWEEP {
+        let alone = Listed::count(&total, |record| record.listed_by_evidence(sweep_threshold));
+        let combined = Listed::count(&total, |record| record.listed_combined(sweep_threshold));
+        let _ = writeln!(
+            report,
+            "| {sweep_threshold} | {} and {} | {} and {} |",
+            alone.octave_errors, alone.right, combined.octave_errors, combined.right
         );
     }
     report.push('\n');
@@ -311,14 +275,14 @@ fn render(title: &str, references: &[Reference], tallies: &[Option<Tally>]) -> S
 }
 
 fn evaluate(title: &str, references: &[Reference], range: TempoRange) -> Result<String> {
-    let tallies: Vec<Option<Tally>> = references
+    let records: Vec<Option<Record>> = references
         .par_iter()
         .map(|reference| {
             measure(reference, range)
                 .with_context(|| format!("measuring {}", reference.audio_path.display()))
         })
         .collect::<Result<_>>()?;
-    Ok(render(title, references, &tallies))
+    Ok(render(title, references, &records, OCTAVE_DOUBT_EVIDENCE))
 }
 
 pub fn run(arguments: &Arguments) -> Result<()> {

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="292" viewBox="0 0 800 292" role="img" aria-labelledby="chart-title chart-desc" font-family='system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif'>
 <title id="chart-title">How often the beat grid is right at each confidence</title>
-<desc id="chart-desc">Horizontal bars of how often the beat grid is right on the 100 held out GTZAN disco and hip hop excerpts, by confidence: 97.2% of the 36 rated high, 100% of the 22 rated medium and 64.3% of the 42 rated low, against 84% of all excerpts.</desc>
+<desc id="chart-desc">Horizontal bars of how often the beat grid is right on the 100 held out GTZAN disco and hip hop excerpts, by confidence: 97.3% of the 37 rated high, 96.4% of the 28 rated medium, 71.4% of the 35 rated low, against 88% of all excerpts.</desc>
 <style>
 .surface { fill: #fcfcfb; stroke: rgba(11,11,11,0.10); }
 .title { fill: #0b0b0b; font-size: 16px; font-weight: 600; }
@@ -39,16 +39,16 @@
 <text x="562.5" y="248" class="tick" text-anchor="middle">75%</text>
 <line x1="700" y1="96" x2="700" y2="228" class="grid"/>
 <text x="700" y="248" class="tick" text-anchor="middle">100%</text>
-<line x1="612" y1="88" x2="612" y2="228" class="reference"/>
-<text x="612" y="82" class="tick" text-anchor="middle">All excerpts 84%</text>
+<line x1="634" y1="88" x2="634" y2="228" class="reference"/>
+<text x="634" y="82" class="tick" text-anchor="middle">All excerpts 88%</text>
 <text x="425" y="272" class="label" text-anchor="middle">Share of excerpts whose grid is right</text>
-<text x="136" y="122.5" class="label" text-anchor="end">High, 36</text>
-<path class="series-fill" d="M150,108 H680.6 Q684.6,108 684.6,112 V124 Q684.6,128 680.6,128 H150 Z"/>
-<text x="694.6" y="122.5" class="value" text-anchor="start">97.2%</text>
-<text x="136" y="166.5" class="label" text-anchor="end">Medium, 22</text>
-<path class="series-fill" d="M150,152 H696 Q700,152 700,156 V168 Q700,172 696,172 H150 Z"/>
-<text x="710" y="166.5" class="value" text-anchor="start">100.0%</text>
-<text x="136" y="210.5" class="label" text-anchor="end">Low, 42</text>
-<path class="series-fill" d="M150,196 H499.65 Q503.65,196 503.65,200 V212 Q503.65,216 499.65,216 H150 Z"/>
-<text x="513.65" y="210.5" class="value" text-anchor="start">64.3%</text>
+<text x="136" y="122.5" class="label" text-anchor="end">High, 37</text>
+<path class="series-fill" d="M150,108 H681.15 Q685.15,108 685.15,112 V124 Q685.15,128 681.15,128 H150 Z"/>
+<text x="695.15" y="122.5" class="value" text-anchor="start">97.3%</text>
+<text x="136" y="166.5" class="label" text-anchor="end">Medium, 28</text>
+<path class="series-fill" d="M150,152 H676.2 Q680.2,152 680.2,156 V168 Q680.2,172 676.2,172 H150 Z"/>
+<text x="690.2" y="166.5" class="value" text-anchor="start">96.4%</text>
+<text x="136" y="210.5" class="label" text-anchor="end">Low, 35</text>
+<path class="series-fill" d="M150,196 H538.7 Q542.7,196 542.7,200 V212 Q542.7,216 538.7,216 H150 Z"/>
+<text x="552.7" y="210.5" class="value" text-anchor="start">71.4%</text>
 </svg>

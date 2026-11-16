@@ -177,9 +177,15 @@ cargo run --release -p euphoria-bench -- beats --tracks held-out
 
 It prints the tables in [bench/results/beats.md](https://github.com/lvndry/euphoria/blob/main/bench/results/beats.md): the beat F-measure and how often the grid and the downbeat are right, with the tempo as reported and with its octave taken from the annotation, and how often each confidence level is right. Settings are chosen on the development half and checked on the held out half.
 
+`euphoria-bench grid-tempo` measures the grid per genre on GiantSteps Tempo, and with `--gtzan` on a folder of GTZAN excerpts of any genres laid out like `bench/data/beats`: how many grids are rated high, medium and low, the share of tempos within 0.05 BPM of the reference, Accuracy 1 and 2, and on GTZAN the beat F-measure and the share of grids right. `--dump FILE` writes one line per track with its rating and tempo, to compare two builds:
+
+```
+cargo run --release -p euphoria-bench -- grid-tempo bench/data/tempo --gtzan bench/data/beats --dump grids.tsv
+```
+
 ## Tempo review benchmark
 
-`euphoria-bench tempo-review` measures which tempos **Needs review** lists, per genre: how many octave errors it lists and how many right tempos it asks about, under the [octave evidence rule](../concepts/accuracy.md#which-tempos-are-listed-for-review) and under the low confidence rule it replaced. It reads GiantSteps Tempo, and with `--gtzan` a folder of GTZAN excerpts of any genres laid out like `bench/data/beats` (`audio/<genre>.<number>.wav` and `annotations/gtzan_<genre>_<number>.beats`), whose tempo it takes from the median beat interval. `--range` measures another tempo range:
+`euphoria-bench tempo-review` measures which tempos **Needs review** lists, per genre: how many octave errors it lists and how many right tempos it asks about, under the low confidence rule, the [octave evidence rule](../concepts/accuracy.md#which-tempos-are-listed-for-review) and the two combined, which ships, with a table of the evidence threshold. It reads GiantSteps Tempo, and with `--gtzan` a folder of GTZAN excerpts of any genres laid out like `bench/data/beats` (`audio/<genre>.<number>.wav` and `annotations/gtzan_<genre>_<number>.beats`), whose tempo it takes from the median beat interval. `--range` measures another tempo range:
 
 ```
 cargo run --release -p euphoria-bench -- tempo-review bench/data/tempo --gtzan bench/data/beats
