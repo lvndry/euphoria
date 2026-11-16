@@ -20,7 +20,7 @@ use euphoria_core::live::{
     AudioCapture, CaptureError, ListenSource, LiveEngine, LiveReading,
     LiveSettings as AnalysisSettings, MatcherHandle,
 };
-use gpui::Context;
+use gpui::{AppContext as _, Context};
 
 use crate::favorites::Favorites;
 use crate::library::Library;
@@ -37,6 +37,13 @@ pub(crate) const NEXT_LIMIT: usize = 10;
 /// How often the model looks at what the engine heard, which sets how
 /// smoothly the level meter moves.
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+/// How long only silence must have arrived before the panel says macOS may
+/// not allow the capture.
+pub(crate) const SILENCE_NOTICE_SECONDS: f32 = 10.0;
+
+/// How many sizes the listening dot takes between quiet and loud.
+const LEVEL_STEPS: f32 = 10.0;
 
 pub(crate) type CaptureFactory = Box<dyn Fn() -> Box<dyn AudioCapture>>;
 pub(crate) type LibraryLoader = Box<dyn Fn() -> Library + Send + Sync>;
@@ -95,6 +102,67 @@ pub(crate) struct Earlier {
     pub(crate) title: Option<String>,
 }
 
+/// Where the listening dot sits between quiet (0) and loud (1). It is an
+/// entity of its own so that the level, which changes with every poll,
+/// redraws the dot and nothing else.
+pub(crate) struct LiveLevel {
+    pub(crate) position: f32,
+    moved_at: Option<Instant>,
+    holds_still: bool,
+}
+
+impl LiveLevel {
+    fn new() -> Self {
+        Self {
+            position: 0.0,
+            moved_at: None,
+            holds_still: crate::motion::system_reduces_motion(),
+        }
+    }
+
+    /// Lets the dot move as it does when the system does not reduce motion.
+    #[cfg(test)]
+    pub(crate) fn allow_motion(&mut self) {
+        self.holds_still = false;
+    }
+
+    /// Moves the dot towards `target` in whole steps, at most once per
+    /// [`crate::motion::FAST`], and not at all under Reduce motion. True when
+    /// it moved.
+    pub(crate) fn follow(&mut self, target: f32, now: Instant) -> bool {
+        let stepped = if self.holds_still {
+            0.0
+        } else {
+            (target.clamp(0.0, 1.0) * LEVEL_STEPS).round() / LEVEL_STEPS
+        };
+        if stepped == self.position {
+            return false;
+        }
+        let resting = stepped == 0.0;
+        let too_soon = self
+            .moved_at
+            .is_some_and(|moved| now.saturating_duration_since(moved) < crate::motion::FAST);
+        if too_soon && !resting {
+            return false;
+        }
+        self.position = stepped;
+        self.moved_at = Some(now);
+        true
+    }
+}
+
+/// What the panel shows of the model, besides the level dot, so that a poll
+/// that changed only the level or the running counts of the engine redraws
+/// nothing else.
+#[derive(Debug, Clone, PartialEq)]
+struct Shown {
+    reading: LiveReading,
+    silent_too_long: bool,
+    match_position: Option<u32>,
+    steadiness: Option<Steadiness>,
+    listening_seconds: Option<u64>,
+}
+
 pub(crate) struct LiveModel {
     capture_factory: CaptureFactory,
     engine: Option<LiveEngine>,
@@ -104,6 +172,10 @@ pub(crate) struct LiveModel {
     pub(crate) sources: Vec<ListenSource>,
     pub(crate) state: ListenState,
     pub(crate) reading: LiveReading,
+    pub(crate) level: gpui::Entity<LiveLevel>,
+    /// Whether Euphoria opens at login, read from macOS when the panel opens
+    /// and when it is changed, because asking is slow.
+    pub(crate) opens_at_login: bool,
     pub(crate) library: Option<Library>,
     library_requested: bool,
     library_generation: u64,
@@ -168,6 +240,8 @@ impl LiveModel {
             sources: Vec::new(),
             state: ListenState::Paused,
             reading: LiveReading::listening(),
+            level: cx.new(|_| LiveLevel::new()),
+            opens_at_login: false,
             library: None,
             library_requested: false,
             library_generation: 0,
@@ -258,6 +332,7 @@ impl LiveModel {
             Err(error) => self.state = ListenState::Unavailable(describe(&error)),
         }
         self.clear_rows();
+        self.rest_level(cx);
         cx.notify();
     }
 
@@ -268,7 +343,17 @@ impl LiveModel {
         self.state = ListenState::Paused;
         self.reading = LiveReading::listening();
         self.clear_rows();
+        self.rest_level(cx);
         cx.notify();
+    }
+
+    fn rest_level(&mut self, cx: &mut Context<'_, Self>) {
+        let now = Instant::now();
+        self.level.update(cx, |level, cx| {
+            if level.follow(0.0, now) {
+                cx.notify();
+            }
+        });
     }
 
     pub(crate) fn toggle_listening(&mut self, cx: &mut Context<'_, Self>) {
@@ -309,6 +394,7 @@ impl LiveModel {
         let wanted = !crate::login_item::is_enabled();
         match crate::login_item::set_enabled(wanted) {
             Ok(()) => {
+                self.opens_at_login = wanted;
                 self.settings.open_at_login = wanted;
                 self.save_settings();
                 self.notice = None;
@@ -327,6 +413,7 @@ impl LiveModel {
     /// Reads the app's settings again, for the filters and the theme, and
     /// forgets the library so it is read again when the list is shown.
     pub(crate) fn reload_inputs(&mut self, settings: Settings, cx: &mut Context<'_, Self>) {
+        self.opens_at_login = crate::login_item::is_enabled();
         self.theme = AppTheme::named(settings.theme);
         self.notation = settings.tags.key_notation;
         self.track_filters = settings.track_filters;
@@ -451,13 +538,62 @@ impl LiveModel {
             return;
         };
         let reading = engine.latest();
-        if reading == self.reading {
-            return;
+        self.take_reading(reading, cx);
+    }
+
+    /// Keeps `reading`, moves the level dot, and redraws the rest of the
+    /// panel only when something it shows changed.
+    fn take_reading(&mut self, reading: LiveReading, cx: &mut Context<'_, Self>) {
+        let before = self.shown();
+        if reading != self.reading {
+            self.reading = reading;
+            self.note_signature();
+            self.rank(cx);
         }
-        self.reading = reading;
-        self.note_signature();
-        self.rank(cx);
-        cx.notify();
+        let target = self
+            .reading
+            .level
+            .filter(|_| self.is_listening())
+            .map_or(0.0, |level| level.meter_position());
+        let now = Instant::now();
+        self.level.update(cx, |level, cx| {
+            if level.follow(target, now) {
+                cx.notify();
+            }
+        });
+        if self.shown() != before {
+            cx.notify();
+        }
+    }
+
+    fn shown(&self) -> Shown {
+        Shown {
+            reading: LiveReading {
+                level: None,
+                heard_seconds: 0.0,
+                no_signal_seconds: 0.0,
+                ..self.reading
+            },
+            silent_too_long: self.hears_only_silence(),
+            match_position: self
+                .match_position_seconds()
+                .map(|seconds| seconds.max(0.0) as u32),
+            steadiness: self.steadiness(),
+            listening_seconds: self.listening_for().map(|elapsed| elapsed.as_secs()),
+        }
+    }
+
+    /// True when only silence has arrived for a while, which is what a capture
+    /// that macOS has not allowed delivers.
+    pub(crate) fn hears_only_silence(&self) -> bool {
+        self.is_listening() && self.reading.no_signal_seconds >= SILENCE_NOTICE_SECONDS
+    }
+
+    /// Where in the recognised track the audio heard now is, in seconds.
+    pub(crate) fn match_position_seconds(&self) -> Option<f32> {
+        let found = self.reading.matched?;
+        let heard = self.reading.heard_seconds.min(15.0);
+        Some(found.start_seconds + heard * found.playback.tempo_ratio)
     }
 
     /// Tracks how long the key and the tempo have stayed the same, and keeps
@@ -577,6 +713,12 @@ impl LiveModel {
         self.note_signature();
         self.rank(cx);
         cx.notify();
+    }
+
+    /// Takes `reading` as a poll would, redrawing only what it changed.
+    #[cfg(test)]
+    pub(crate) fn pretend_polled(&mut self, reading: LiveReading, cx: &mut Context<'_, Self>) {
+        self.take_reading(reading, cx);
     }
 
     /// Pretends the audio was recognised as the library track at `index`.
