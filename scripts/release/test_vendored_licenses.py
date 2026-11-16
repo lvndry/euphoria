@@ -43,6 +43,7 @@ class PackagedLicenseTests(unittest.TestCase):
         for name in (
             "webpki-root-certs-CDLA-Permissive-2.0.txt",
             "demucs-NOTICE.txt",
+            "scnet-NOTICE.txt",
             "lame-LGPL-2.0.txt",
             "mp3lame-LGPL-3.0.txt",
         ):
