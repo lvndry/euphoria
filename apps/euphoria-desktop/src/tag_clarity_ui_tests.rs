@@ -20,7 +20,9 @@ use crate::tag_flow::{PreviewKind, TagPanel};
 use crate::tag_settings::{LabelChoice, NotationChoice, ProgramChoice, TagSettings};
 use crate::tag_writing::testing::{self as tag_testing, ScratchFolder};
 use crate::tag_writing::{PreviewRow, WriteTarget};
-use crate::ui_tests::{click, is_shown, open_taggable_files, open_taggable_files_sized};
+use crate::ui_tests::{
+    click, is_shown, open_taggable_files, open_taggable_files_sized, scroll_settings_to,
+};
 use crate::views::library_export_panel::keys_line;
 use crate::views::tag_panel::{rules, write_button_label};
 
@@ -603,7 +605,8 @@ fn the_box_is_pinned_once_scrolled_past_while_writing_options_are_in_view(cx: &m
             .unwrap();
     };
     assert!(!is_shown(window, "label-preview-pinned", cx), "at the top");
-    scroll(-420.0, cx);
+    scroll_settings_to(window, ("program", 0_usize), cx);
+    scroll(0.0, cx);
     assert!(
         is_shown(window, "label-preview-pinned", cx),
         "in the writing options"
