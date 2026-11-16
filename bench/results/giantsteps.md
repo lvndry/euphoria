@@ -258,6 +258,7 @@ The halves are every other preview in name order, 302 each, as `--tracks develop
 | Detector | Accuracy 1 | Accuracy 2 | Below 70 BPM | Above 180 BPM | CPU seconds per track |
 | --- | --- | --- | --- | --- | --- |
 | stratum-dsp 1.0.0, tempo only, best of four candidates by onset repeats, reported between 90 and 180 BPM | 85.8% | 94.3% | 0 | 0 | 0.52 (not comparable with the rows below, measured under heavier load) |
+| The same, made precise by the beat grid when it is rated medium or high and snapped to a whole number when that fits as well (shipped; 16 November 2026) | 85.8% | 94.3% | 0 | 0 | 0.56 (with the grid; 0.43 without it in the same run) |
 | stratum-dsp 1.0.0, tempo only, first candidate, reported between 90 and 180 BPM (not used) | 77.6% | 85.5% | 0 | 0 | 0.38 |
 | stratum-dsp 1.0.0, tempo only, estimate as it comes (not used) | 62.2% | 84.7% | 83 | 0 | 0.39 |
 | stratum-dsp 1.0.0, full analysis with default settings (not used) | 59.9% | 84.9% | 26 | 0 | 3.30 |

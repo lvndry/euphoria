@@ -2912,7 +2912,7 @@ fn track_changing_key() -> DemoTrack {
 }
 
 /// A waveform with an energy curve that dips in the middle.
-fn waveform_with_energy() -> Waveform {
+pub(crate) fn waveform_with_energy() -> Waveform {
     let columns: Vec<crate::peaks::BandPeaks> = (0..200)
         .map(|_| crate::peaks::BandPeaks {
             low: 0.5,
@@ -7417,7 +7417,8 @@ fn the_inspector_box_gives_each_reason_its_line_and_its_quick_actions(cx: &mut T
             ],
             cx
         ),
-        [true; 3]
+        [true, false, true],
+        "174 can be counted at 87, but 348 is no tempo a DJ counts"
     );
 
     select_track(&view, 2, cx);
@@ -7433,6 +7434,80 @@ fn the_inspector_box_gives_each_reason_its_line_and_its_quick_actions(cx: &mut T
     select_track(&view, 4, cx);
     assert_eq!(shown(&lines, cx), [false, false, false, true]);
     assert!(is_shown(window, "review-analyze-again", cx));
+}
+
+fn tracks_with_tempo_doubts() -> Vec<DemoTrack> {
+    let track = |name: &str, outcome| DemoTrack {
+        path: PathBuf::from(format!("/Demo/tempo doubts/{name}.mp3")),
+        outcome,
+    };
+    vec![
+        track("steady house", Ok(rated_analysis(0.02, 119.8, 0.01))),
+        track("half time", Ok(rated_analysis(0.02, 87.0, 0.01))),
+        track("double time", Ok(rated_analysis(0.02, 95.0, 0.01))),
+        track("dubstep", Ok(rated_analysis(0.02, 140.0, 0.01))),
+    ]
+}
+
+#[gpui::test]
+fn a_doubtful_tempo_is_listed_only_with_a_half_or_double_a_dj_could_count(cx: &mut TestAppContext) {
+    let (window, view) = open_folders(
+        &["/Demo/tempo doubts"],
+        tracks_with_tempo_doubts(),
+        Settings::default(),
+        None,
+        cx,
+    );
+    let shown = |ids: &[&'static str], cx: &mut TestAppContext| -> Vec<bool> {
+        ids.iter().map(|id| is_shown(window, *id, cx)).collect()
+    };
+    let buttons = ["review-tempo-half", "review-tempo-double"];
+    let tempo_unsure = [crate::library::ReviewReason::TempoUnsure];
+    cx.update(|cx| assert_eq!(view.read(cx).sidebar_counts().needs_review, 2));
+
+    assert!(
+        reasons_of(&view, 0, cx).is_empty(),
+        "59.9 and 239.6 are implausible"
+    );
+    select_track(&view, 0, cx);
+    assert!(!is_shown(window, "review-box", cx));
+    assert!(!is_shown(window, ("review-chip", 0_usize), cx));
+
+    select_track(&view, 1, cx);
+    assert_eq!(selected_key_and_bpm(&view, cx).1, Some(174.0));
+    assert_eq!(shown(&buttons, cx), [true, false]);
+
+    select_track(&view, 2, cx);
+    assert_eq!(selected_key_and_bpm(&view, cx).1, Some(95.0));
+    assert_eq!(shown(&buttons, cx), [false, true]);
+
+    assert!(
+        reasons_of(&view, 3, cx).is_empty(),
+        "70 is below the default span"
+    );
+    select_track(&view, 3, cx);
+    assert!(!is_shown(window, "review-box", cx));
+
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.session
+                .set_tempo_range(euphoria_core::TempoRange::new(70.0, 140.0).unwrap());
+            app.refresh_visible();
+            cx.notify();
+        })
+    });
+    cx.update(|cx| assert_eq!(view.read(cx).sidebar_counts().needs_review, 3));
+    assert_eq!(
+        reasons_of(&view, 3, cx),
+        tempo_unsure,
+        "70 or 140 in hip hop"
+    );
+    select_track(&view, 3, cx);
+    assert_eq!(selected_key_and_bpm(&view, cx).1, Some(70.0));
+    assert_eq!(shown(&buttons, cx), [false, true]);
+    click(window, "review-tempo-double", cx);
+    assert_eq!(selected_key_and_bpm(&view, cx).1, Some(140.0));
+    assert!(reasons_of(&view, 3, cx).is_empty());
 }
 
 #[gpui::test]
@@ -7518,15 +7593,9 @@ fn a_doubtful_value_is_explained_under_needs_review_without_a_confidence_word(
 }
 
 #[gpui::test]
-fn the_half_and_double_buttons_set_the_tempo_and_leave_needs_review(cx: &mut TestAppContext) {
+fn the_half_button_sets_the_tempo_and_leaves_needs_review(cx: &mut TestAppContext) {
     let (window, view) = open_tracks_with_reasons(cx);
     select_track(&view, 1, cx);
-    click(window, "review-tempo-double", cx);
-    assert_eq!(selected_key_and_bpm(&view, cx).1, Some(348.0));
-    assert_eq!(review_counts(&view, cx), (4, 4));
-
-    cx.update(|cx| view.update(cx, |app, cx| app.reset_bpm(cx)));
-    assert_eq!(review_counts(&view, cx), (5, 5));
     click(window, "review-tempo-half", cx);
     assert_eq!(selected_key_and_bpm(&view, cx).1, Some(87.0));
     assert_eq!(review_counts(&view, cx), (4, 4));

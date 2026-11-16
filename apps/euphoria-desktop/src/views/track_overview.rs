@@ -17,10 +17,11 @@ use gpui::{
 
 use crate::camelot::CamelotPosition;
 use crate::format;
-use crate::stems::StemStatus;
+use crate::separation_fill::SeparationShown;
 use crate::tag_settings::NotationChoice;
 use crate::theme::{AppTheme, Palette};
 use crate::track_overview::{self, EnergyCurve, EnergyStep, KeyStretch, TimeRange, VocalLane};
+use crate::views::separation_progress::{BarIds, separation_bar};
 use crate::views::waveform::SeenBounds;
 use crate::views::{GAP_SMALL, LABEL_TEXT_SIZE, RADIUS_SMALL};
 
@@ -29,6 +30,9 @@ pub(crate) const ENERGY_HEIGHT: f32 = 20.0;
 
 /// Height of the vocals lane.
 pub(crate) const VOCALS_HEIGHT: f32 = 12.0;
+
+/// Where the text in the vocals lane starts, clear of the lane's label.
+const VOCALS_TEXT_INSET: f32 = 48.0;
 
 /// Height of the key timeline.
 pub(crate) const KEY_TIMELINE_HEIGHT: f32 = 14.0;
@@ -98,7 +102,8 @@ impl LaneFrame {
 pub(crate) struct LaneInputs<'a> {
     pub(crate) energy: Option<&'a EnergyCurve>,
     pub(crate) vocals: &'a VocalLane,
-    pub(crate) stems: Option<&'a StemStatus>,
+    /// The separation of the track's stems, while one runs or waits.
+    pub(crate) separation: Option<SeparationShown>,
     pub(crate) frame: LaneFrame,
     pub(crate) palette: Palette,
     pub(crate) on_separate: SeparateHandler,
@@ -286,30 +291,35 @@ fn vocals_lane(inputs: &LaneInputs<'_>) -> AnyElement {
                 .into_any_element()
         }
         VocalLane::NoStems => {
+            if let Some(shown) = &inputs.separation {
+                return lane
+                    .child(separation_bar(
+                        BarIds {
+                            bar: "vocals-separating",
+                            fill: "vocals-separating-fill",
+                        },
+                        shown,
+                        px(VOCALS_TEXT_INSET),
+                        palette,
+                    ))
+                    .child(label)
+                    .test_support()
+                    .into_any_element();
+            }
             let hover_colour = palette.text;
-            let is_separating = matches!(inputs.stems, Some(StemStatus::Separating));
-            let prompt = if is_separating {
-                div()
-                    .id("vocals-separating")
-                    .child("Separating the stems")
-                    .test_support()
-                    .into_any_element()
-            } else {
-                let on_separate = Rc::clone(&inputs.on_separate);
-                div()
-                    .id("vocals-separate")
-                    .cursor_pointer()
-                    .hover(move |style| style.text_color(hover_colour))
-                    .child("Separate the stems to see the vocals")
-                    .on_click(move |event, window, cx| on_separate(event, window, cx))
-                    .test_support()
-                    .into_any_element()
-            };
+            let on_separate = Rc::clone(&inputs.on_separate);
+            let prompt = div()
+                .id("vocals-separate")
+                .cursor_pointer()
+                .hover(move |style| style.text_color(hover_colour))
+                .child("Separate the stems to see the vocals")
+                .on_click(move |event, window, cx| on_separate(event, window, cx))
+                .test_support();
             lane.child(label)
                 .child(
                     div()
                         .absolute()
-                        .left(px(48.0))
+                        .left(px(VOCALS_TEXT_INSET))
                         .top_0()
                         .bottom_0()
                         .flex()
@@ -327,7 +337,7 @@ fn vocals_lane(inputs: &LaneInputs<'_>) -> AnyElement {
                 .child(
                     div()
                         .absolute()
-                        .left(px(48.0))
+                        .left(px(VOCALS_TEXT_INSET))
                         .top_0()
                         .bottom_0()
                         .flex()

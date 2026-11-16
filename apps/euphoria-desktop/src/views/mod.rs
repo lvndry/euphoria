@@ -33,6 +33,7 @@ pub(crate) mod playlists;
 pub(crate) mod prepare_panel;
 pub(crate) mod review;
 pub(crate) mod row_actions;
+pub(crate) mod separation_progress;
 pub(crate) mod set_builder;
 pub(crate) mod settings_panel;
 pub(crate) mod sidebar;

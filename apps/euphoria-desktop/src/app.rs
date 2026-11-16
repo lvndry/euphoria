@@ -64,7 +64,9 @@ const MIX_LIMIT: usize = 8;
 const PLAYHEAD_INTERVAL: Duration = Duration::from_millis(33);
 
 /// How often the app looks at a separation running on its thread.
-const STEM_POLL_INTERVAL: Duration = Duration::from_millis(250);
+/// Often enough for the progress bars to ease smoothly, and no more than
+/// ten redraws a second.
+const STEM_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// The sound of the track that is playing or paused.
 pub(crate) struct ActiveVoice {
@@ -283,6 +285,8 @@ pub(crate) struct EuphoriaApp {
     pub(crate) by_ear: crate::key_by_ear::ByEar,
     /// Separating tracks into stems, and what to hear of the separated ones.
     pub(crate) stems: crate::stems::StemSession,
+    /// What the progress bars of the running separation show.
+    pub(crate) separation_fill: crate::separation_fill::SeparationFill,
     /// The two decks, their mixer and the tracks to play next.
     pub(crate) decks: crate::decks::Decks,
     /// The curve, pool and set of the set builder page.
@@ -653,6 +657,7 @@ impl EuphoriaApp {
                 stems.set_separation_mode(settings.stems.mode());
                 stems
             },
+            separation_fill: crate::separation_fill::SeparationFill::default(),
             decks: crate::decks::Decks::with_filter(settings.suggestion_filter.clone()),
             focus: crate::focus::FocusView::new(settings.focus_lanes),
             planner: crate::transition_plan::Planner::default(),
@@ -2343,7 +2348,10 @@ impl EuphoriaApp {
                     let polled = this
                         .update(cx, |this, cx| {
                             let finished = this.stems.poll();
-                            cx.notify();
+                            let bars_changed = this.separation_fill.follow(this.stems.running());
+                            if finished.is_some() || bars_changed {
+                                cx.notify();
+                            }
                             (finished, this.stems.is_busy())
                         })
                         .ok();
@@ -2377,6 +2385,15 @@ impl EuphoriaApp {
         cx.notify();
     }
 
+    /// What the progress bars show for the track at `path` while its stems
+    /// are separated or wait their turn.
+    pub(crate) fn separation_shown(
+        &self,
+        path: &Path,
+    ) -> Option<crate::separation_fill::SeparationShown> {
+        crate::separation_fill::shown(&self.stems, &self.separation_fill, path)
+    }
+
     /// Stops waiting for the stems of the track at `path`.
     pub(crate) fn cancel_stems_of(&mut self, path: &Path, cx: &mut Context<'_, Self>) {
         if self.stems.cancel(path) {
@@ -2394,7 +2411,7 @@ impl EuphoriaApp {
             .progress()
             .filter(|_| self.player.track() == Some(path))
         {
-            self.report(format!("Separating the stems: {}", phase.description()));
+            self.report(phase.caption());
         }
     }
 

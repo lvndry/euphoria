@@ -140,6 +140,9 @@ mod row_actions_ui_tests;
 mod scan_status;
 #[cfg(test)]
 mod scan_status_ui_tests;
+mod separation_fill;
+#[cfg(test)]
+mod separation_progress_ui_tests;
 mod set_builder;
 #[cfg(test)]
 mod set_builder_ui_tests;

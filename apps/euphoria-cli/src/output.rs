@@ -2286,6 +2286,62 @@ hint: euphoria quality lists the files worth replacing, worst first, with why.
         assert_eq!(json[0]["needs_review"], false);
     }
 
+    fn with_doubtful_tempo(estimate: f32) -> Vec<FileResult> {
+        let mut results = confident_results();
+        if let Ok(analysis) = &mut results[0].outcome {
+            analysis.bpm = Some(TempoRange::DEFAULT.fold(estimate));
+            analysis.tempo_estimate = Some(estimate);
+            analysis.tempo_score_margin = Some(0.01);
+        }
+        results
+    }
+
+    #[test]
+    fn a_doubtful_tempo_with_no_plausible_half_or_double_is_not_sent_to_review() {
+        let results = with_doubtful_tempo(119.8);
+        let json = json_with(&results, &TagKeys::default());
+        assert_eq!(json[0]["bpm_confidence"], "low");
+        assert!(json[0]["bpm_alternative"].is_null());
+        assert_eq!(json[0]["needs_review"], false);
+        assert_eq!(json[0]["review_reasons"], serde_json::json!([]));
+        let text = summary_with(&results, &TagKeys::default());
+        assert!(
+            text.starts_with("Key and tempo: no track is in doubt."),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_doubtful_tempo_with_a_plausible_octave_is_sent_to_review_with_it() {
+        let json = json_with(&with_doubtful_tempo(87.0), &TagKeys::default());
+        assert_eq!(json[0]["bpm"], 174.0);
+        assert_eq!(json[0]["bpm_alternative"], 87.0);
+        assert_eq!(
+            json[0]["review_reasons"],
+            serde_json::json!(["tempo_unsure"])
+        );
+    }
+
+    #[test]
+    fn the_tempo_range_decides_whether_a_doubtful_tempo_is_sent_to_review() {
+        let path = Path::new("music/low tide.flac");
+        let results = with_doubtful_tempo(140.0);
+        let Ok(analysis) = &results[0].outcome else {
+            panic!("an analysis")
+        };
+        assert!(TagKeys::default().review_reasons(path, analysis).is_empty());
+
+        let hip_hop: TempoRange = "70-140".parse().unwrap();
+        let in_hip_hop = analysis.clone().with_tempo_range(hip_hop);
+        assert_eq!(in_hip_hop.bpm, Some(70.0));
+        assert_eq!(
+            TagKeys::default()
+                .with_tempo_range(hip_hop)
+                .review_reasons(path, &in_hip_hop),
+            [euphoria_core::ReviewReason::TempoUnsure]
+        );
+    }
+
     fn summary_with(results: &[FileResult], tag_keys: &TagKeys) -> String {
         let mut buffer = Vec::new();
         write_analysis_summary(

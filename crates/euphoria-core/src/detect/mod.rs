@@ -67,6 +67,25 @@ pub fn read_key(audio: &AudioBuffer) -> Result<KeyReading, EuphoriaError> {
     }
 }
 
+/// The tempo Euphoria reports: the estimate of [`StratumDetector`] made
+/// precise by the beat grid, as [`TempoReading::refined_by`] describes, in
+/// the default range.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct GridTempoDetector;
+
+impl TempoDetector for GridTempoDetector {
+    fn name(&self) -> &'static str {
+        "stratum-dsp with the beat grid"
+    }
+
+    fn detect_tempo(&self, audio: &AudioBuffer) -> Result<Option<f32>, EuphoriaError> {
+        Ok(StratumDetector.read_tempo(audio)?.map(|reading| {
+            let grid = detect_beat_grid(audio, f64::from(reading.tempo_in(TempoRange::DEFAULT)));
+            TempoRange::DEFAULT.fold(reading.refined_by(grid.as_ref()))
+        }))
+    }
+}
+
 /// Estimates the musical key of a track.
 pub trait KeyDetector: Sync {
     /// Short name of the implementation, used in reports.
@@ -158,6 +177,29 @@ impl TempoReading {
         range.fold(self.estimate)
     }
 
+    /// The tempo of the track before it is placed in a range, once `grid`,
+    /// fitted to the tempo of this reading, has made it precise: the tempo
+    /// of the grid when it fits the beats well (see
+    /// [`BeatGrid::sets_tempo`]), which is whole when a grid at the whole
+    /// number fits as well, and otherwise the estimate. Either way in the
+    /// octave of the estimate, which the detector chose. A grid tempo that
+    /// would be shown in another octave of the default range than the
+    /// estimate, as when 179.8 refines to 180.0, which is shown at 90, also
+    /// leaves the estimate.
+    pub fn refined_by(&self, grid: Option<&BeatGrid>) -> f32 {
+        let Some(grid) = grid.filter(|grid| grid.sets_tempo()) else {
+            return self.estimate;
+        };
+        let octaves = (f64::from(self.estimate) / grid.bpm).log2().round() as i32;
+        let refined = (grid.bpm * 2.0_f64.powi(octaves)) as f32;
+        let shown_factor = |tempo: f32| TempoRange::DEFAULT.fold(tempo) / tempo;
+        if shown_factor(refined) == shown_factor(self.estimate) {
+            refined
+        } else {
+            self.estimate
+        }
+    }
+
     /// How far to trust the beat period, whatever octave it is counted in.
     pub fn confidence(&self) -> Confidence {
         tempo_confidence(self.score_margin)
@@ -171,5 +213,53 @@ impl KeyReading {
         self.key
             .and(self.score_margin)
             .map(|margin| key_confidence(self.source, margin))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn reading(estimate: f32) -> TempoReading {
+        TempoReading {
+            estimate,
+            score_margin: Some(1.0),
+        }
+    }
+
+    fn grid(bpm: f64, salience: f32, drift_seconds: Option<f32>) -> BeatGrid {
+        BeatGrid {
+            first_downbeat_seconds: 0.1,
+            bpm,
+            salience,
+            drift_seconds,
+        }
+    }
+
+    #[test]
+    fn a_grid_that_fits_well_gives_the_tempo_in_the_detectors_octave() {
+        let snapped = grid(100.0, 12.0, Some(0.005));
+        assert_eq!(reading(99.9).refined_by(Some(&snapped)), 100.0);
+        assert_eq!(reading(49.95).refined_by(Some(&snapped)), 50.0);
+        assert_eq!(reading(199.8).refined_by(Some(&snapped)), 200.0);
+        let fitted = grid(98.6, 8.0, None);
+        assert_eq!(reading(98.9).refined_by(Some(&fitted)), 98.6);
+    }
+
+    #[test]
+    fn a_drifting_or_weak_grid_keeps_the_detectors_tempo() {
+        let drifting = grid(100.0, 12.0, Some(0.06));
+        assert_eq!(reading(99.9).refined_by(Some(&drifting)), 99.9);
+        let weak = grid(100.0, 3.0, Some(0.005));
+        assert_eq!(reading(99.9).refined_by(Some(&weak)), 99.9);
+        assert_eq!(reading(99.9).refined_by(None), 99.9);
+    }
+
+    #[test]
+    fn a_grid_tempo_shown_in_another_octave_keeps_the_detectors_tempo() {
+        let at_the_edge = grid(180.0, 12.0, Some(0.005));
+        assert_eq!(reading(179.8).refined_by(Some(&at_the_edge)), 179.8);
+        let below_the_edge = grid(89.9, 12.0, Some(0.005));
+        assert_eq!(reading(90.0).refined_by(Some(&below_the_edge)), 90.0);
     }
 }

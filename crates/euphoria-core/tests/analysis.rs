@@ -83,13 +83,72 @@ fn an_analysis_rates_its_tempo_and_keeps_the_estimate_behind_it() {
     assert!(analysis.tempo_confidence().is_some());
 }
 
+/// A minute and a half of a kick every beat at 100 BPM and a clap on the
+/// second and fourth beats, in a mono WAV.
+fn click_track_at_100_bpm() -> PathBuf {
+    let sample_rate = 44_100_u32;
+    let seconds = 90.0;
+    let mut samples = vec![0.0_f32; (seconds * f64::from(sample_rate)) as usize];
+    let beat_seconds = 0.6;
+    let mut beat = 0;
+    loop {
+        let start = 0.25 + f64::from(beat) * beat_seconds;
+        if start + beat_seconds >= seconds {
+            break;
+        }
+        let first = (start * f64::from(sample_rate)) as usize;
+        for (offset, sample) in samples[first..].iter_mut().take(8_000).enumerate() {
+            let time = offset as f64 / f64::from(sample_rate);
+            let kick = (std::f64::consts::TAU * 60.0 * time).sin() * (-time / 0.06).exp();
+            let clap = if beat % 2 == 1 {
+                (std::f64::consts::TAU * 1_900.0 * time).sin() * (-time / 0.02).exp()
+            } else {
+                0.0
+            };
+            *sample += (0.7 * kick + 0.3 * clap) as f32;
+        }
+        beat += 1;
+    }
+    let data_bytes = samples.len() as u32 * 2;
+    let mut bytes = Vec::new();
+    bytes.extend(b"RIFF");
+    bytes.extend((36 + data_bytes).to_le_bytes());
+    bytes.extend(b"WAVEfmt ");
+    bytes.extend(16_u32.to_le_bytes());
+    bytes.extend(1_u16.to_le_bytes());
+    bytes.extend(1_u16.to_le_bytes());
+    bytes.extend(sample_rate.to_le_bytes());
+    bytes.extend((sample_rate * 2).to_le_bytes());
+    bytes.extend(2_u16.to_le_bytes());
+    bytes.extend(16_u16.to_le_bytes());
+    bytes.extend(b"data");
+    bytes.extend(data_bytes.to_le_bytes());
+    for sample in samples {
+        bytes.extend(((sample.clamp(-1.0, 1.0) * 32_000.0) as i16).to_le_bytes());
+    }
+    let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("clicks-100-bpm.wav");
+    std::fs::write(&path, bytes).expect("cannot write the scratch file");
+    path
+}
+
+#[test]
+fn the_tempo_of_a_steady_track_is_its_beat_grids_whole_number() {
+    let analysis = analyze_file(&click_track_at_100_bpm()).unwrap();
+
+    let grid = analysis.beat_grid.expect("clicks have a beat grid");
+    assert!(grid.sets_tempo(), "{grid:?}");
+    assert_eq!(analysis.bpm, Some(100.0));
+    assert_eq!(grid.bpm, 100.0);
+    assert_eq!(analysis.tempo_in(TempoRange::DEFAULT), Some(100.0));
+}
+
 #[test]
 fn silence_has_no_confidence_and_nothing_to_review() {
     let analysis = analyze_file(&silent_file("confidence")).unwrap();
     assert_eq!(analysis.key_confidence(), None);
     assert_eq!(analysis.tempo_confidence(), None);
     assert_eq!(analysis.key_runner_up, None);
-    assert!(!analysis.needs_review());
+    assert!(!analysis.needs_review(TempoRange::DEFAULT));
 }
 
 #[cfg(feature = "drone")]
@@ -197,24 +256,29 @@ fn a_tempo_that_is_not_a_positive_number_has_no_place_in_a_range() {
 }
 
 #[test]
-fn a_track_needs_review_when_its_key_or_its_tempo_is_rated_low() {
+fn a_track_needs_review_when_its_key_is_rated_low_or_its_tempo_low_with_a_plausible_octave() {
+    let range = TempoRange::DEFAULT;
     let confident = rated(0.02, 124.0, 0.5);
     assert_eq!(confident.key_confidence(), Some(Confidence::High));
     assert_eq!(confident.tempo_confidence(), Some(Confidence::High));
-    assert!(!confident.needs_review());
+    assert!(!confident.needs_review(range));
 
-    assert!(rated(0.001, 124.0, 0.5).needs_review());
-    assert!(rated(0.02, 124.0, 0.01).needs_review());
-    assert!(!rated(0.005, 124.0, 0.2).needs_review());
+    assert!(rated(0.001, 124.0, 0.5).needs_review(range));
+    assert!(rated(0.02, 174.0, 0.01).needs_review(range));
+    assert!(
+        !rated(0.02, 124.0, 0.01).needs_review(range),
+        "neither 62 nor 248 is a tempo a DJ counts"
+    );
+    assert!(!rated(0.005, 124.0, 0.2).needs_review(range));
 
     let fallback_tempo = TrackAnalysis {
         tempo_score_margin: None,
         beat_grid: None,
         cues: Vec::new(),
-        ..confident
+        ..rated(0.02, 87.0, 0.5)
     };
     assert_eq!(fallback_tempo.tempo_confidence(), Some(Confidence::Low));
-    assert!(fallback_tempo.needs_review());
+    assert!(fallback_tempo.needs_review(range));
 }
 
 #[test]

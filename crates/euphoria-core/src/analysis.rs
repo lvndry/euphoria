@@ -9,6 +9,7 @@ use rayon::prelude::*;
 use crate::audio::AudioBuffer;
 use crate::audio_budget::{budgeted_seconds, global_audio_budget};
 use crate::confidence::{Confidence, key_confidence, tempo_confidence};
+use crate::correction::Correction;
 use crate::detect::{
     BeatGrid, KeyReading, KeySection, SectionCue, StratumDetector, detect_beat_grid_and_cues,
     read_key,
@@ -34,9 +35,9 @@ use crate::tempo_range::TempoRange;
 /// [`ENERGY_MODEL_VERSION`](crate::ENERGY_MODEL_VERSION), which the cache
 /// checks as well, so recalibrating energy needs no change here.
 pub const ANALYZER_VERSION: &str = if cfg!(feature = "drone") {
-    "18+drone"
+    "19+drone"
 } else {
-    "18+stratum"
+    "19+stratum"
 };
 
 /// The version the analysis cache records for analyses made now.
@@ -90,8 +91,12 @@ pub struct TrackAnalysis {
     /// in analyses stored before it was recorded, which are rated as the
     /// libkeyfinder keys earlier versions found.
     pub key_source: Option<KeySource>,
-    /// The tempo as the detector estimated it, before it is reported in a
-    /// range, so that the range can change without analyzing again.
+    /// The tempo of the track before it is reported in a range, so that the
+    /// range can change without analyzing again. The tempo detector chooses
+    /// the octave and a rough tempo; when the beat grid fits the beats well
+    /// (see [`BeatGrid::sets_tempo`]) this is the grid's tempo in that
+    /// octave, which is whole when a grid at the whole number fits as well,
+    /// and otherwise the detector's estimate.
     pub tempo_estimate: Option<f32>,
     /// How far the tempogram scored the tempo above the best tempo that is
     /// not an octave of it, the basis of [`TrackAnalysis::tempo_confidence`].
@@ -195,11 +200,10 @@ impl TrackAnalysis {
             .and_then(|tempo| range.alternative(tempo))
     }
 
-    /// Whether the key or the tempo is rated low, so the track is worth
-    /// checking by ear.
-    pub fn needs_review(&self) -> bool {
-        self.key_confidence() == Some(Confidence::Low)
-            || self.tempo_confidence() == Some(Confidence::Low)
+    /// Whether the key or the tempo, reported in `range`, is in doubt, so
+    /// the track is worth checking by ear. See [`crate::review_reasons`].
+    pub fn needs_review(&self, range: TempoRange) -> bool {
+        !crate::review::review_reasons(self, &Correction::default(), None, range).is_empty()
     }
 }
 
@@ -337,6 +341,12 @@ pub fn analyze_file_observed(
         _ => (None, Vec::new()),
     };
     let cues = with_section_energy(cues, &audio, tempo)?;
+    let tempo_estimate = tempo_reading.map(|reading| reading.refined_by(beat_grid.as_ref()));
+    let bpm = tempo_estimate.map(|estimate| TempoRange::DEFAULT.fold(estimate));
+    let beat_grid = match (beat_grid, bpm) {
+        (Some(grid), Some(bpm)) => Some(grid.near_tempo(f64::from(bpm))),
+        (grid, _) => grid,
+    };
     let energy = energy_rating.map(|rating| rating.rating);
     let loudness = energy_rating.map(|rating| rating.features.integrated_loudness_lufs);
     let loudness_range_lu = energy_rating.map(|rating| rating.features.loudness_range_lu);
@@ -346,7 +356,7 @@ pub fn analyze_file_observed(
     Ok(TrackAnalysis {
         duration_seconds: audio.duration_seconds(),
         key,
-        bpm: tempo,
+        bpm,
         energy,
         tuning_cents,
         key_timeline: timeline,
@@ -354,7 +364,7 @@ pub fn analyze_file_observed(
         key_runner_up: runner_up,
         key_score_margin: score_margin,
         key_source,
-        tempo_estimate: tempo_reading.map(|reading| reading.estimate),
+        tempo_estimate,
         tempo_score_margin: tempo_reading.and_then(|reading| reading.score_margin),
         beat_grid,
         cues,

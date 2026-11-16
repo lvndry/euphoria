@@ -23,7 +23,7 @@ mod tempo_errors;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
-use euphoria_core::detect::{DroneDetector, KeyDetector, StratumDetector};
+use euphoria_core::detect::{DroneDetector, GridTempoDetector, KeyDetector, StratumDetector};
 
 use evaluate::{Report, evaluate_keys, evaluate_tempo};
 
@@ -189,7 +189,7 @@ fn main() -> Result<()> {
         .map(|dataset| evaluate_keys(dataset, &KEY_DETECTORS));
     let tempo = tempo_tracks
         .as_ref()
-        .map(|dataset| evaluate_tempo(dataset, &[&StratumDetector]));
+        .map(|dataset| evaluate_tempo(dataset, &[&StratumDetector, &GridTempoDetector]));
     print!("{}", render::render_report(&Report { key, tempo }));
 
     if let Some(dataset) = &key_tracks {

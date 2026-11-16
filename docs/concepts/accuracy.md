@@ -76,27 +76,29 @@ With 20 to 90 previews per genre, the 95% interval on each exact score is 15 to 
 
 ### Tempo
 
-Accuracy 1 is within 4% of the labelled tempo. Accuracy 2 also accepts half, double, a third or triple; on these previews no tempo came out at a third or triple, so the gap between the two columns is tempos reported at half or double.
+Accuracy 1 is within 4% of the labelled tempo. Accuracy 2 also accepts half, double, a third or triple; on these previews no tempo came out at a third or triple, so the gap between the two columns is tempos reported at half or double. Within 0.05 BPM is the share whose tempo is the labelled tempo to the decimal shown, before and after the [beat grid sets the tempo](#the-grid-sets-the-tempo); the labels are whole numbers, and many are a beat per minute off the track (see there), so this share is low for every method.
 
-| Genre | Previews | Accuracy 1 | Accuracy 2 |
-| --- | --- | --- | --- |
-| Tech house | 22 | 100.0% | 100.0% |
-| Breaks | 26 | 96.2% | 96.2% |
-| Deep house | 24 | 95.8% | 100.0% |
-| House | 23 | 95.7% | 100.0% |
-| Psy-trance | 34 | 94.1% | 100.0% |
-| Techno | 61 | 91.8% | 91.8% |
-| Electro house | 22 | 90.9% | 95.5% |
-| Trance | 74 | 89.2% | 89.2% |
-| Drum and bass | 139 | 85.6% | 97.8% |
-| Dubstep | 76 | 81.6% | 89.5% |
-| Electronica | 52 | 76.9% | 92.3% |
-| 10 other genres | 108 | 74.1% | 92.6% |
-| All | 661 | 85.8% | 94.3% |
+| Genre | Previews | Accuracy 1 | Accuracy 2 | Within 0.05 BPM before | Within 0.05 BPM after |
+| --- | --- | --- | --- | --- | --- |
+| Tech house | 22 | 100.0% | 100.0% | 0.0% | 9.1% |
+| Breaks | 26 | 96.2% | 96.2% | 0.0% | 7.7% |
+| Deep house | 24 | 95.8% | 100.0% | 0.0% | 4.2% |
+| House | 23 | 95.7% | 100.0% | 0.0% | 4.3% |
+| Psy-trance | 34 | 94.1% | 100.0% | 5.9% | 11.8% |
+| Techno | 61 | 91.8% | 91.8% | 1.6% | 6.6% |
+| Electro house | 22 | 90.9% | 95.5% | 13.6% | 18.2% |
+| Trance | 74 | 89.2% | 89.2% | 2.7% | 2.7% |
+| Drum and bass | 139 | 85.6% | 97.8% | 13.7% | 33.1% |
+| Dubstep | 76 | 81.6% | 89.5% | 6.6% | 14.5% |
+| Electronica | 52 | 76.9% | 92.3% | 9.6% | 17.3% |
+| 10 other genres | 108 | 74.1% | 92.6% | 5.6% | 18.5% |
+| All | 661 | 85.8% | 94.3% | 6.5% | 16.0% |
+
+Letting the grid set the tempo changed Accuracy 1 and Accuracy 2 in no genre, on GiantSteps or on GTZAN: it moves a tempo by at most 2%, within the octave the detector chose.
 
 ![Tempo accuracy by genre on the GiantSteps Tempo previews. Accuracy 1 runs from 100% for tech house and about 96% for breaks, deep house and house down to 81.6% for dubstep, 76.9% for electronica and 74.1% for the smaller genres, against 85.8% for all. Accuracy 2 is above 89% in every genre.](../images/accuracy/tempo-genres.svg)
 
-Outside dance music, on GTZAN, Accuracy 1 is 93.0% for disco and 88.0% for hip hop, but 41.4% for jazz, 48.0% for classical and 50.0% for country. Jazz and classical often have no steady beat, and much country sits below 90 BPM, which the default range reports at double (country's Accuracy 2 is 95.0%). The [full GTZAN table](#choosing-among-the-best-candidates) has every genre.
+Outside dance music, on GTZAN, Accuracy 1 is 93.0% for disco and 88.0% for hip hop, but 41.4% for jazz, 48.0% for classical and 50.0% for country. Jazz and classical often have no steady beat, and much country sits below 90 BPM, which the default range reports at double (country's Accuracy 2 is 95.0%). The [full GTZAN table](#choosing-among-the-best-candidates) has every genre, and [the grid sets the tempo](#the-grid-sets-the-tempo) how precise the tempo is in each.
 
 ### Where Euphoria is weak, and what to do
 
@@ -106,7 +108,7 @@ Outside dance music, on GTZAN, Accuracy 1 is 93.0% for disco and 88.0% for hip h
 - **Slow or loose music.** With the default range a tempo below 90 BPM comes out at double, and jazz or classical without a steady beat is often wrong. Set a lower range for slow music, such as `70-140` for hip hop, and treat the tempo of music without a steady beat as a guess.
 - **Melodic house.** GiantSteps has no melodic house genre, so its key and tempo are not measured; progressive house and deep house are the nearest genres scored. One measure that has been checked is weak there: telling warm up, build and peak tracks apart within the genre (see [set stage](set-stage.md)).
 
-In every genre, a low [confidence](#confidence) rating, which puts the track under **Needs review**, is the best single hint that a track needs checking.
+In every genre, a low [confidence](#confidence) rating, which puts the track under **Needs review**, is the best single hint that a track needs checking. A tempo rated low is listed only when half or double it is a tempo a DJ could count; see [which tempos are listed for review](#which-tempos-are-listed-for-review).
 
 ## Key detection with drone-v2
 
@@ -273,7 +275,7 @@ The benchmark measures only the default. Other ranges move tempos by whole octav
 
 Every key and every tempo is rated high, medium or low, for how far to trust it, and comes with a second answer: the runner up key, and for some tempos half or double the tempo. The point is to tell a DJ which tracks are worth checking by ear before a set, and what the likely alternative is.
 
-The ratings are not shown next to the key or the tempo, in the desktop app or in the terminal; they are in the command line's `--json` output. In the desktop app a low rating puts the track under Needs review, where each track says why in words, such as that the key may be its relative or a fifth away or the BPM half or double, and offers the likely alternative as one click, or a **Looks right** button that keeps the value and ends the doubt without changing it. See [Settle a track under Needs review](../guides/desktop-app.md#settle-a-track-under-needs-review).
+The ratings are not shown next to the key or the tempo, in the desktop app or in the terminal; they are in the command line's `--json` output. In the desktop app a low rating puts the track under Needs review, a tempo only when it has a plausible half or double, where each track says why in words, such as that the key may be its relative or a fifth away or the BPM half or double, and offers the likely alternative as one click, or a **Looks right** button that keeps the value and ends the doubt without changing it. See [Settle a track under Needs review](../guides/desktop-app.md#settle-a-track-under-needs-review).
 
 ### Key confidence
 
@@ -328,6 +330,32 @@ On the first half the bands are right modulo octaves 98.5%, 81.2% and 58.8% of t
 For the octave errors, Euphoria offers half or double the reported tempo as an alternative when that is a tempo a DJ could count, between 75 and 200 BPM, or the ends of the chosen range when those are further out. With the default range that means half of a tempo from 150 up, and double of one up to 100. The tempogram scores could not pick out octave errors (they back the other octave about as strongly whether or not it is right), but where the reported tempo sits does: on the first half, octave errors are reported at a median of 170 BPM.
 
 The span was chosen on the first half, where it resolves 24 of its 26 octave errors while offering an alternative for 39% of tracks; widening it to 60 to 200 resolves all 26 but offers one for 89% of tracks, which says little. On the held out half it resolves 22 of 26 and is offered for 42% of tracks.
+
+### Which tempos are listed for review
+
+A tempo rated low puts the track under **Needs review** only when it has a half or double as above: a tempo a DJ could count, between 75 and 200 BPM or the ends of the chosen range. The review then says which one, and the desktop app offers a single **½ ×** or **2 ×** button for it. A track at 119.8 BPM is not listed: 59.9 and 239.6 are not tempos a DJ counts. One at 174 is, since it may be 87, and so is one at 140 in the hip hop range, 70 to 140, where it is reported at 70 and may be 140.
+
+A low rating on its own says another tempo, not an octave of this one, scored nearly as well in the tempogram; it says nothing about the octave. The tempogram's score at the other octave was checked as a further condition and dropped: it is at least 30% of the reported tempo's score for all but one of the 253 previews with a plausible half or double, so it rules nothing out. Without a plausible half or double, a tempo rated low is right 78 times out of 82 on the GiantSteps previews (95%), more often than tempos rated medium, so listing it would mostly ask about tempos that are right, and no half or double button could fix the four that are wrong (they are 3:2 or other subdivisions).
+
+On the 661 GiantSteps Tempo previews in the default range, before and after this rule (genres with fewer than 20 previews grouped):
+
+| Genre | Previews | Tempo reviews before | After | Octave errors | Of those, listed before | Listed after | Right tempos no longer listed |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Breaks | 26 | 9 | 2 | 0 | 0 | 0 | 7 |
+| Deep house | 24 | 5 | 0 | 1 | 0 | 0 | 5 |
+| Drum and bass | 139 | 22 | 21 | 17 | 3 | 3 | 0 |
+| Dubstep | 76 | 9 | 2 | 6 | 0 | 0 | 5 |
+| Electro house | 22 | 5 | 0 | 1 | 0 | 0 | 5 |
+| Electronica | 52 | 17 | 8 | 8 | 1 | 1 | 9 |
+| House | 23 | 4 | 0 | 1 | 0 | 0 | 4 |
+| Psy-trance | 34 | 2 | 1 | 2 | 1 | 1 | 1 |
+| Tech house | 22 | 2 | 0 | 0 | 0 | 0 | 2 |
+| Techno | 61 | 18 | 2 | 0 | 0 | 0 | 15 |
+| Trance | 74 | 12 | 3 | 0 | 0 | 0 | 9 |
+| Other genres | 108 | 27 | 11 | 20 | 4 | 4 | 16 |
+| All | 661 | 132 | 50 | 56 | 9 | 9 | 78 |
+
+Every octave error that was listed is still listed, now with the right button. In the hip hop range, 70 to 140, reviews fall from 132 to 58 and all 39 listed octave errors stay listed; in the drum and bass range, 120 to 200, from 132 to 50 with all 8 kept. The low rating catches few octave errors in the first place, 9 of 56, because it does not rate the octave; the "or 87.0" note beside the tempo, offered whatever the rating, names the right tempo for 50 of the 56.
 
 ### What the confidence does and does not show
 
@@ -457,6 +485,57 @@ Euphoria fits one constant tempo to the whole track, which is how dance music is
 The grid's tempo is searched within 2% of the detected tempo, by trying periods and phases and scoring how strongly the onsets fall on the beats. That score is nearly flat within a few thousandths of a beat of the best period, while over a long track such a small error adds up: on a synthesized four minute click track at 127.537 BPM the search alone ended 0.008 BPM off, which puts the last beats 15 ms late. So the period and phase are then fitted to the track itself: the beats of every 8 second stretch are lined up with the grid, and a line through how far each stretch sits from it gives the correction. On the click track that brings the last beats within 5 ms.
 
 On the 604 GiantSteps Key previews, the share of grids rated medium or high with a tempo within 0.01 BPM of a whole number rose from 73% to 92%, and 35 grids were rated higher, one lower. On the GTZAN excerpts, 30 seconds long, it changed no rate on the held out half. No grid of the previews ends within 0.1% of the edge of the 2% window, and the five that end more than 1.5% from the detected tempo are all rated low: they are previews with no steady beat, where every tempo scores alike.
+
+### The grid sets the tempo
+
+The tempo shown for a track, written to its tags and exported is the beat grid's whenever the grid fits the beats well, so the table, the inspector, the metronome locked to the track, the tags and every export show one tempo. Before, they showed the tempo detector's estimate, rounded to a tenth, while the grid and the metronome used the grid's own tempo, so a track could read 99.9 in the table and 100.0 on the metronome.
+
+1. **Rough tempo.** The tempo detector chooses the tempo and its octave, as [above](#how-the-tempo-is-chosen).
+2. **Grid.** The grid is fitted within 2% of it, as described under [how the tempo is made precise](#how-the-tempo-is-made-precise).
+3. **Whole number.** When the grid is rated medium or high, a grid at the nearest whole number of beats per minute, counted in the default range of 90 to 180, is tried with its phase fitted again. When its beats score at least 99% of the fitted grid's comb score, it replaces the fitted grid, so 99.996 becomes 100.0 and the beats stay on the music. Half numbers are not tried: of the 285 GiantSteps grids rated medium or high, 254 are within 0.01 BPM of a whole number and 1 of a half.
+4. **Tempo.** A grid rated medium or high gives the track its tempo, in the octave the detector chose. A grid rated low, because its beats are weak or drift as in a live recording, leaves the detector's estimate, and so does a grid tempo that would be shown in another octave, as when 179.8 refines to 180.0, which the default range shows at 90.
+
+The 99% was chosen on all 661 GiantSteps previews and 998 GTZAN excerpts, trying 95%, 97% and 99% with and without a limit on how far a snap may move. 99% snaps 242 previews against 252 at 97%, and leaves out the two at 97% that moved to a whole number other than the labelled one and other than where the grid already was. On GTZAN it snaps 51 excerpts against 78. A limit on the move changed nothing on GiantSteps, so none is used.
+
+On GiantSteps the grid sets the tempo of 285 previews (43.1%) and 242 are snapped. The snaps move the tempo by 0.0013 BPM at the median and 0.015 at most: the grid was already at the whole number to the hundredth. 78 snaps land on the labelled tempo, 137 on a whole number the grid was already within 0.01 BPM of while the label is a beat per minute or more away, which is a disagreement with the label rather than a snap gone wrong, none move off the label, and 27 are previews whose tempo is not within 4% of the label in either case.
+
+| GiantSteps genre | Previews | Grid sets the tempo | Snapped | To the labelled tempo | Label 1 BPM or more away, grid already there | Not within 4% |
+| --- | --- | --- | --- | --- | --- | --- |
+| Drum and bass | 139 | 62.6% | 80 | 34 | 36 | 10 |
+| Dubstep | 76 | 38.2% | 26 | 9 | 13 | 4 |
+| Trance | 74 | 16.2% | 9 | 0 | 8 | 1 |
+| Techno | 61 | 36.1% | 14 | 3 | 11 | 0 |
+| Electronica | 52 | 46.2% | 20 | 7 | 10 | 3 |
+| Psy-trance | 34 | 52.9% | 16 | 4 | 12 | 0 |
+| Breaks | 26 | 53.8% | 14 | 2 | 12 | 0 |
+| Deep house | 24 | 45.8% | 8 | 1 | 7 | 0 |
+| House | 23 | 43.5% | 7 | 1 | 5 | 1 |
+| Tech house | 22 | 54.5% | 10 | 2 | 8 | 0 |
+| Electro house | 22 | 18.2% | 4 | 1 | 2 | 1 |
+| 10 other genres | 108 | 38.9% | 34 | 14 | 13 | 7 |
+| All | 661 | 43.1% | 242 | 78 | 137 | 27 |
+
+On GTZAN, 30 second excerpts of mostly live music whose reference tempo is the median of annotated beat intervals and not a whole number, the grid sets the tempo of 35.0% of the excerpts, and of only 7 blues, 4 jazz and no classical excerpts, where the detector's estimate stays. Accuracy 1 and 2 do not move in any genre. A snap moves the tempo by 0.009 BPM at the median and 0.14 at most, below what the reference can tell: of the 51 snaps, 14 moved closer to the reference, 23 further and 14 are excerpts not within 4% of it. The beats of the snapped grids fit the annotated beats as well as before (beat F-measure 0.736 for all excerpts either way; one excerpt more counts as right).
+
+| GTZAN genre | Excerpts | Within 0.05 BPM before | Within 0.05 BPM after | Grid sets the tempo | Snapped | Closer / further / not within 4% |
+| --- | --- | --- | --- | --- | --- | --- |
+| blues | 100 | 4.0% | 4.0% | 7.0% | 0 | 0 / 0 / 0 |
+| classical | 100 | 2.0% | 2.0% | 0.0% | 0 | 0 / 0 / 0 |
+| country | 100 | 2.0% | 3.0% | 38.0% | 5 | 0 / 1 / 4 |
+| disco | 100 | 5.0% | 8.0% | 64.0% | 3 | 2 / 1 / 0 |
+| hip hop | 100 | 4.0% | 7.0% | 67.0% | 7 | 2 / 3 / 2 |
+| jazz | 99 | 4.0% | 5.1% | 4.0% | 1 | 0 / 1 / 0 |
+| metal | 100 | 4.0% | 6.0% | 15.0% | 2 | 1 / 1 / 0 |
+| pop | 100 | 2.0% | 6.0% | 80.0% | 24 | 5 / 11 / 8 |
+| reggae | 99 | 3.0% | 5.1% | 49.5% | 5 | 2 / 3 / 0 |
+| rock | 100 | 5.0% | 7.0% | 25.0% | 4 | 2 / 2 / 0 |
+| all | 998 | 3.5% | 5.3% | 35.0% | 51 | 14 / 23 / 14 |
+
+On the 200 disco and hip hop excerpts of the beat benchmark, the beat F-measure (0.919) and the share of grids right (82.0%) are the same with and without snapping, and one excerpt's downbeat moved, from 49.0% right to 48.5%.
+
+A grid rated low is often closer to the labelled tempo than the detector's estimate too: on GiantSteps, using every grid would put 173 previews within 0.05 BPM against 106. Most of those grids are rated low for drift, which on two minute previews of tracks made at one tempo is more often the measure than the music. They are left out until drift is measured in a way that holds on such previews, since on GTZAN using every grid puts fewer blues excerpts within 0.05 BPM (1 against 4).
+
+Analyses made before this change are analyzed again, since the stored tempo now means the grid's.
 
 ### What the benchmark does and does not show
 

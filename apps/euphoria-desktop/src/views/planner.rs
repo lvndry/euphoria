@@ -679,7 +679,7 @@ fn stems_line(
                     .flex()
                     .items_center()
                     .gap(GAP_SMALL)
-                    .child(format!("{letter}: {}", phase.description()))
+                    .child(format!("{letter}: {}", phase.caption()))
                     .child(
                         secondary_button("Cancel", &palette)
                             .id(cancel_id)
