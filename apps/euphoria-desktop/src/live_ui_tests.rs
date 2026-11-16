@@ -32,8 +32,9 @@ use crate::next_rail::EnergyChoice;
 use crate::settings::Settings;
 use crate::ui_tests::{click, is_shown};
 use crate::views::live::{
-    BPM_ID, EARLIER_ID, HEADING_ID, KEY_ID, LEARNING_ID, LISTENING_ID, LiveView, MATCH_ID, MenuRow,
-    PAUSE_ID, SOURCE_ID, STATE_ID, WAITING_ID, energy_id, more_menu, row_id, source_option_id,
+    BPM_ID, EARLIER_ID, ENERGY_ID, HEADING_ID, KEY_BLOCK_ID, KEY_ID, LEARNING_ID, LISTENING_ID,
+    LiveView, MATCH_ID, MenuRow, PAUSE_ID, SOURCE_ID, STATE_ID, WAITING_ID, energy_id, more_menu,
+    row_id, source_option_id,
 };
 
 const SAMPLE_RATE: u32 = 44_100;
@@ -994,4 +995,30 @@ fn the_panel_ignores_small_changes_of_the_same_content_and_follows_new_parts() {
         sizing.decide(345.0, fewer, 700.0, later),
         Sizing::Resize(345.0)
     );
+}
+
+#[gpui::test]
+fn the_tempo_and_energy_sit_centred_against_the_key(cx: &mut TestAppContext) {
+    let (model, _) = model(Setup::music(), cx);
+    start(&model, cx);
+    let window = open_panel(&model, cx);
+    poll_until(&model, cx, hears_a_key);
+    hear_c_major(&model, cx);
+    let (key, tempo, energy) = cx
+        .update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            (
+                window.find(KEY_BLOCK_ID).bounds(),
+                window.find(BPM_ID).bounds(),
+                window.find(ENERGY_ID).bounds(),
+            )
+        })
+        .unwrap();
+    let key_centre = key.top() + key.size.height / 2.0;
+    let figures_centre = tempo.top() + (energy.bottom() - tempo.top()) / 2.0;
+    assert!(
+        (key_centre - figures_centre).abs() <= px(1.0),
+        "key centre {key_centre:?}, tempo and energy centre {figures_centre:?}"
+    );
+    assert!(tempo.bottom() < energy.top(), "tempo above energy");
 }

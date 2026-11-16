@@ -66,6 +66,7 @@ pub(crate) const LISTENING_ID: &str = "live-listening";
 pub(crate) const PAUSE_ID: &str = "live-pause";
 pub(crate) const MORE_ID: &str = "live-more";
 pub(crate) const SOURCE_ID: &str = "live-source";
+pub(crate) const KEY_BLOCK_ID: &str = "live-key-block";
 pub(crate) const KEY_ID: &str = "live-key";
 pub(crate) const BPM_ID: &str = "live-bpm";
 pub(crate) const ENERGY_ID: &str = "live-energy-value";
@@ -881,6 +882,7 @@ fn readout(model: &LiveModel) -> AnyElement {
                 .gap(GAP_MEDIUM)
                 .child(
                     div()
+                        .id(KEY_BLOCK_ID)
                         .flex()
                         .flex_col()
                         .child(
@@ -899,14 +901,16 @@ fn readout(model: &LiveModel) -> AnyElement {
                                 .text_size(TEXT_SIZE)
                                 .text_color(palette.text_secondary)
                                 .child(key.key.to_string()),
-                        ),
+                        )
+                        .test_support(),
                 )
                 .child(
                     div()
                         .flex()
                         .flex_col()
                         .items_end()
-                        .justify_between()
+                        .justify_center()
+                        .gap(GAP_SMALL)
                         .child(
                             div()
                                 .id(BPM_ID)
