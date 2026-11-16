@@ -280,6 +280,28 @@ mod tests {
     }
 
     #[test]
+    fn the_advanced_graph_is_an_onnx_model_without_weights() {
+        assert!(
+            ADVANCED_GRAPH.len() < 8 * 1024 * 1024,
+            "{} bytes",
+            ADVANCED_GRAPH.len()
+        );
+        assert!(
+            ADVANCED_GRAPH
+                .windows(b"scnet-xl.weights".len())
+                .any(|window| window == b"scnet-xl.weights"),
+            "the weights are external initializers"
+        );
+    }
+
+    #[test]
+    fn the_advanced_graph_is_the_recorded_export() {
+        const ADVANCED_GRAPH_SHA256: &str =
+            "44989b3f92a8db183e2ab9ca29340c0d578963fa4f4ce203765c4eb582e5ad18";
+        assert_eq!(sha256_hex(ADVANCED_GRAPH), ADVANCED_GRAPH_SHA256);
+    }
+
+    #[test]
     fn hashes_are_written_in_lowercase_hex() {
         assert_eq!(
             sha256_hex(b"abc"),
