@@ -3,6 +3,8 @@
 runner = "scripts/run-macos.py"
 
 [alias]
-# `cargo app` runs the desktop app with the fast profile; `cargo cli -- analyze …` the command line tool.
+# `cargo app` runs the desktop app with the fast profile, `cargo live` only its Live menu bar
+# item, and `cargo cli -- analyze …` the command line tool.
 app = "run --profile fast -p euphoria-desktop"
+live = "run --profile fast -p euphoria-desktop -- --live"
 cli = "run --profile fast -p euphoria-cli --"
