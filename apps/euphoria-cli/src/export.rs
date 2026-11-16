@@ -110,8 +110,9 @@ pub struct RekordboxArguments {
     #[arg(long)]
     beat_grid: bool,
     /// Write cues where each track's sections start, as memory cues and hot
-    /// cues A to H, on tracks whose beat grid is written. Needs
-    /// --beat-grid, and --collection so that no track loses its own cues.
+    /// cues A to H, on tracks whose beat grid is written, and the loops you
+    /// saved in the app as memory loops. Needs --beat-grid, and
+    /// --collection so that no track loses its own cues.
     #[arg(long, requires_all = ["beat_grid", "collection"])]
     cues: bool,
     /// How the cues are coloured: by the energy of the section each one
@@ -169,8 +170,9 @@ pub struct TraktorArguments {
     #[arg(long)]
     beat_grid: bool,
     /// Write cues where each track's sections start, as hot cues 1 to 8,
-    /// on tracks whose beat grid is written. Needs --beat-grid, and
-    /// --collection so that no track loses its own cues.
+    /// on tracks whose beat grid is written, and the loops you saved in the
+    /// app as loops. Needs --beat-grid, and --collection so that no track
+    /// loses its own cues.
     #[arg(long, requires_all = ["beat_grid", "collection"])]
     cues: bool,
     /// Your Traktor collection.nml, in Documents/Native Instruments/Traktor
@@ -631,6 +633,7 @@ fn export_library(
             beat_grid: request.beat_grid,
             cues: request.cues,
             edited_cues: batch::edited_cues(&user_edits),
+            saved_loops: batch::saved_loops(&user_edits),
             cue_colours: request.cue_colours,
         },
     );
@@ -796,6 +799,7 @@ fn export_to_virtualdj(arguments: &VirtualDjArguments) -> Result<ExitCode> {
             beat_grid: arguments.beat_grid,
             cues: arguments.cues,
             edited_cues: batch::edited_cues(&user_edits),
+            saved_loops: batch::saved_loops(&user_edits),
             cue_colours: arguments.cue_colors.into(),
         },
     );
@@ -1028,6 +1032,7 @@ fn export_to_engine(arguments: &EngineArguments) -> Result<ExitCode> {
             beat_grid: arguments.beat_grid,
             cues: arguments.cues,
             edited_cues: batch::edited_cues(&user_edits),
+            saved_loops: batch::saved_loops(&user_edits),
             cue_colours: arguments.cue_colors.into(),
         },
     );

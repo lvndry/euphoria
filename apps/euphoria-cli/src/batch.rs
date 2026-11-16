@@ -14,8 +14,8 @@ use anyhow::{Context, Result};
 use clap::Args;
 use euphoria_core::{
     AnalysisObserver, Cache, CachePolicy, CachedBatch, Correction, Cue, EuphoriaError, Progress,
-    TempoRange, TrackCues, Unobserved, analyze_files_cached_observed, analyze_files_observed,
-    default_cache_path,
+    SavedLoop, TempoRange, TrackCues, Unobserved, analyze_files_cached_observed,
+    analyze_files_observed, default_cache_path,
 };
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressState, ProgressStyle};
 
@@ -299,13 +299,17 @@ pub fn user_edits(
                         .flatten()
                         .unwrap_or_default(),
                     cues: cache.edited_cues_for(path).ok().flatten(),
+                    loops: cache.saved_loops_for(path).unwrap_or_default(),
                 }),
                 CorrectionCheck::ReadFile => {
                     cache
                         .verified_user_edits_for(path)
-                        .map(|(correction, cues)| UserEdits {
-                            correction: correction.unwrap_or_default(),
-                            cues,
+                        .and_then(|(correction, cues)| {
+                            Ok(UserEdits {
+                                correction: correction.unwrap_or_default(),
+                                cues,
+                                loops: cache.verified_saved_loops_for(path)?,
+                            })
                         })
                 }
             };
@@ -371,12 +375,14 @@ pub struct UserEdits {
     pub correction: Correction,
     /// The user's cues, which replace those analysis placed, or `None`.
     pub cues: Option<Vec<Cue>>,
+    /// The loops the user saved, in order of their start.
+    pub loops: Vec<SavedLoop>,
 }
 
 impl UserEdits {
     /// True when the user set nothing.
     pub fn is_empty(&self) -> bool {
-        self.correction.is_empty() && self.cues.is_none()
+        self.correction.is_empty() && self.cues.is_none() && self.loops.is_empty()
     }
 
     /// The cues of the file: the user's when set, or those analysis placed
@@ -400,6 +406,17 @@ pub fn edited_cues(edits: &UserEditsByFile) -> HashMap<PathBuf, Vec<Cue>> {
         .filter_map(|(path, edits)| {
             let cues = edits.as_ref().ok()?.cues.clone()?;
             Some((path.clone(), cues))
+        })
+        .collect()
+}
+
+/// The loops users saved in `edits`, by file, as an export takes them.
+pub fn saved_loops(edits: &UserEditsByFile) -> HashMap<PathBuf, Vec<SavedLoop>> {
+    edits
+        .iter()
+        .filter_map(|(path, edits)| {
+            let loops = &edits.as_ref().ok()?.loops;
+            (!loops.is_empty()).then(|| (path.clone(), loops.clone()))
         })
         .collect()
 }

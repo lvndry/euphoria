@@ -90,9 +90,10 @@ pub struct WriteArguments {
     /// The DJ program whose tag fields are written.
     #[arg(long, value_enum, default_value_t, value_name = "PROGRAM")]
     preset: PresetChoice,
-    /// Also write each track's cue points and beat grid where Serato DJ
-    /// reads them, in MP3, AIFF, M4A and FLAC files. Cue points and grids
-    /// already in the files are kept. Mixxx and VirtualDJ read them too.
+    /// Also write each track's cue points, beat grid and the loops you saved
+    /// in the app where Serato DJ reads them, in MP3, AIFF, M4A and FLAC
+    /// files. Cue points, loops and grids already in the files are kept.
+    /// Mixxx and VirtualDJ read them too.
     #[arg(long)]
     serato_markers: bool,
     /// How the cue points written with --serato-markers are coloured: by
@@ -280,7 +281,8 @@ fn write(arguments: &WriteArguments) -> Result<ExitCode> {
                         &written,
                         edits.cues.clone(),
                         arguments.cue_colors.into(),
-                    ),
+                    )
+                    .with_loops(&edits.loops, f64::from(written.duration_seconds)),
                 )?;
                 serato_reports.push((result.path.clone(), report));
             }

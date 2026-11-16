@@ -440,6 +440,7 @@ impl PreviewInput {
                 analysis: Some(example_analysis()),
                 correction: Default::default(),
                 edited_cues: None,
+                saved_loops: Vec::new(),
             },
         })
     }
@@ -548,6 +549,7 @@ impl crate::app::EuphoriaApp {
                                 analysis: track.analysis().cloned(),
                                 correction: track.correction,
                                 edited_cues: track.edited_cues.clone(),
+                                saved_loops: track.saved_loops.clone(),
                             })
                             .collect();
                         (
@@ -611,6 +613,7 @@ impl crate::app::EuphoriaApp {
             analysis: track.analysis().cloned(),
             correction: track.correction,
             edited_cues: track.edited_cues.clone(),
+            saved_loops: track.saved_loops.clone(),
         });
         let settings = self.tag_settings;
         let cache = self.session.cache();
@@ -708,6 +711,7 @@ mod tests {
             analysis: Some(analysis()),
             correction: Default::default(),
             edited_cues: None,
+            saved_loops: Vec::new(),
         }))
         .unwrap()
     }
@@ -814,6 +818,7 @@ mod tests {
             analysis: None,
             correction: Default::default(),
             edited_cues: None,
+            saved_loops: Vec::new(),
         }))
         .unwrap();
         assert_eq!(input.source, PreviewSource::Example);
@@ -885,6 +890,7 @@ mod tests {
             }),
             correction: Default::default(),
             edited_cues: None,
+            saved_loops: Vec::new(),
         }))
         .unwrap();
         let kept = preview_of(other.clone(), &settings_with(LabelChoice::CommentStart));

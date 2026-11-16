@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use euphoria_core::export::rekordbox::{
-    CueKind, CuePoint, ExportOptions, Folder, HOT_CUE_PADS, KeyNotation, Library, MAX_FOLDER_DEPTH,
-    Playlist, PlaylistNode, Track, write_xml,
+    CueKind, CuePoint, ExportOptions, Folder, HOT_CUE_PADS, KeyNotation, Library, LoopPoint,
+    MAX_FOLDER_DEPTH, Playlist, PlaylistNode, Track, write_xml,
 };
 use euphoria_core::{EuphoriaError, ExportProblem, Key, Mode};
 
@@ -346,6 +346,31 @@ fn cue_points_are_written_as_memory_cues_and_numbered_hot_cues() {
     for mark in &marks {
         assert_eq!(mark.attribute("Red"), None);
     }
+}
+
+#[test]
+fn saved_loops_are_written_as_memory_loops_with_an_end() {
+    let track = Track {
+        loops: vec![LoopPoint {
+            name: "Intro loop".to_string(),
+            start: Duration::from_millis(8_000),
+            end: Duration::from_millis(15_500),
+        }],
+        ..untagged_track("/Music/loops.mp3")
+    };
+    let xml = export(&single_track_library(track));
+    let document = roxmltree::Document::parse(&xml).expect("the export is well formed");
+    let marks: Vec<_> = collection_tracks(&document)[0]
+        .children()
+        .filter(|node| node.has_tag_name("POSITION_MARK"))
+        .collect();
+
+    assert_eq!(marks.len(), 1);
+    assert_eq!(marks[0].attribute("Name"), Some("Intro loop"));
+    assert_eq!(marks[0].attribute("Type"), Some("4"));
+    assert_eq!(marks[0].attribute("Start"), Some("8.000"));
+    assert_eq!(marks[0].attribute("End"), Some("15.500"));
+    assert_eq!(marks[0].attribute("Num"), Some("-1"));
 }
 
 #[test]

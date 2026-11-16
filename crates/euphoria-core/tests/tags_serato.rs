@@ -69,6 +69,7 @@ fn cue(name: &str, milliseconds: u64) -> SeratoCue {
 
 fn euphoria_markers() -> SeratoMarkers {
     SeratoMarkers {
+        loops: Vec::new(),
         cues: vec![
             cue("Start", 146),
             cue("Drop", 63_500),
@@ -153,6 +154,7 @@ fn your_cues_and_grid_are_kept_and_the_conflicts_reported() {
     for fixture in FORMATS {
         let path = copy_fixture(&folder, fixture);
         let yours = SeratoMarkers {
+            loops: Vec::new(),
             cues: vec![cue("Mine", 5_000)],
             beat_grid: Some(SeratoGrid {
                 first_beat: Duration::from_millis(20),
@@ -200,6 +202,7 @@ fn a_cue_that_finds_no_free_pad_is_left_out() {
     let folder = scratch("full");
     let path = copy_fixture(&folder, "sine-440hz-mono.mp3");
     let full = SeratoMarkers {
+        loops: Vec::new(),
         cues: (0..8).map(|pad| cue("Mine", 1_000 * (pad + 1))).collect(),
         beat_grid: None,
     };
@@ -342,6 +345,39 @@ fn an_m4a_file_gets_the_older_copy_serato_reads_its_first_cues_from() {
         .find(|change| change.field == "----:com.serato.dj:markers")
         .and_then(|change| describe_serato_value(&change.field, change.new.as_deref()?));
     assert_eq!(older.as_deref(), Some("3 of the first 5 cue points"));
+}
+
+#[test]
+fn saved_loops_go_into_free_slots_and_are_not_added_twice() {
+    let folder = scratch("saved-loops");
+    for fixture in FORMATS {
+        let path = copy_fixture(&folder, fixture);
+        let markers = SeratoMarkers {
+            cues: Vec::new(),
+            beat_grid: None,
+            loops: Vec::new(),
+        }
+        .with_loops(
+            &[euphoria_core::SavedLoop {
+                start_seconds: 0.25,
+                end_seconds: 0.75,
+                name: "Loop 1".to_string(),
+            }],
+            1.0,
+        );
+        let (plan, report) = write(&path, &markers);
+        assert_eq!(report.placed_loops, 1, "{fixture}");
+        let description = &described(&plan)[0];
+        assert!(
+            description.ends_with("saved loops 1 from 0:00.250 to 0:00.750"),
+            "{fixture}: {description}"
+        );
+        apply_plan(&plan).expect("the loop is written");
+        let (again, report) = write(&path, &markers);
+        assert_eq!(report.placed_loops, 0, "{fixture}");
+        assert_eq!(report.loops_already_there, 1, "{fixture}");
+        assert!(again.is_empty(), "{fixture}");
+    }
 }
 
 fn analysis_with_grid() -> TrackAnalysis {
@@ -577,6 +613,7 @@ fn more_cues_than_pads_place_eight_without_panicking() {
     let folder = scratch("nine-cues");
     let path = copy_fixture(&folder, FORMATS[0]);
     let markers = SeratoMarkers {
+        loops: Vec::new(),
         cues: (0..9)
             .map(|index| cue(&format!("Cue {index}"), 1_000 * (index + 1)))
             .collect(),

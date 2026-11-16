@@ -2096,6 +2096,7 @@ fn the_app_undoes_a_write_the_command_line_made(cx: &mut TestAppContext) {
             analysis: Some(tag_testing::analysis()),
             correction: euphoria_core::Correction::default(),
             edited_cues: None,
+            saved_loops: Vec::new(),
         })
         .collect();
     let planned = tag_writing::plan_writes(&targets, &TagSettings::default());
@@ -4817,6 +4818,7 @@ fn a_correction_wins_in_the_mixes_and_the_tags_to_write(cx: &mut TestAppContext)
             analysis: track.analysis().cloned(),
             correction: track.correction,
             edited_cues: track.edited_cues.clone(),
+            saved_loops: track.saved_loops.clone(),
         }
     });
     let written = target.correction.apply(target.analysis.clone().unwrap());

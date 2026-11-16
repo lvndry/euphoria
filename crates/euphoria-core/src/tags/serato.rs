@@ -29,6 +29,7 @@ use crate::confidence::Confidence;
 use crate::cue_colours::{CueColours, ENERGY_COLOUR_STEPS, energy_step};
 use crate::error::EuphoriaError;
 use crate::track_cues::{Cue, TrackCues};
+use crate::track_loops::{SavedLoop, loops_within};
 
 /// The number of hot cue pads Serato DJ shows by default.
 pub const SERATO_HOT_CUES: u8 = 8;
@@ -58,6 +59,12 @@ const MINIMUM_MARKERS2_LENGTH: usize = 470;
 /// Serato breaks base64 text into lines of 72 characters, 54 bytes.
 const BYTES_PER_LINE: usize = 54;
 const MARKERS_CUE_SLOTS: usize = 5;
+
+/// The saved loop slots Serato has.
+pub const SERATO_SAVED_LOOPS: u8 = 8;
+
+/// The colour Serato gives a saved loop.
+const SERATO_LOOP_COLOUR: [u8; 4] = [0x00, 0x27, 0xAA, 0xE1];
 const MARKERS_ENTRIES: u32 = 14;
 const MARKERS_LOOP_TYPE: u8 = 3;
 const MARKERS_CUE_TYPE: u8 = 1;
@@ -96,6 +103,8 @@ pub struct SeratoMarkers {
     pub cues: Vec<SeratoCue>,
     /// A beat grid with one tempo, or `None` to leave the grid alone.
     pub beat_grid: Option<SeratoGrid>,
+    /// Saved loops, in order. At most [`SERATO_SAVED_LOOPS`] are placed.
+    pub loops: Vec<SeratoLoop>,
 }
 
 impl SeratoMarkers {
@@ -157,6 +166,7 @@ impl SeratoMarkers {
         };
         Self {
             cues,
+            loops: Vec::new(),
             beat_grid: grid.and_then(|grid| {
                 Duration::try_from_secs_f64(grid.first_downbeat_seconds)
                     .ok()
@@ -167,6 +177,35 @@ impl SeratoMarkers {
             }),
         }
     }
+}
+
+impl SeratoMarkers {
+    /// These markers with the loops the user saved on a track
+    /// `duration_seconds` long; a loop past its end is left out.
+    pub fn with_loops(self, loops: &[SavedLoop], duration_seconds: f64) -> Self {
+        let loops = loops_within(loops.to_vec(), duration_seconds)
+            .into_iter()
+            .filter_map(|saved| {
+                Some(SeratoLoop {
+                    start: Duration::try_from_secs_f64(saved.start_seconds).ok()?,
+                    end: Duration::try_from_secs_f64(saved.end_seconds).ok()?,
+                    name: saved.name,
+                })
+            })
+            .collect();
+        Self { loops, ..self }
+    }
+}
+
+/// A saved loop to place.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SeratoLoop {
+    /// The loop's label.
+    pub name: String,
+    /// Where it starts, from the start of the track.
+    pub start: Duration,
+    /// Where it ends.
+    pub end: Duration,
 }
 
 /// A hot cue to place.
@@ -296,6 +335,12 @@ pub struct SeratoReport {
     pub grid: GridOutcome,
     /// Set when nothing was written for Serato, and why.
     pub skipped: Option<SeratoSkip>,
+    /// How many of Euphoria's saved loops were added.
+    pub placed_loops: usize,
+    /// Euphoria's saved loops the file already had.
+    pub loops_already_there: usize,
+    /// Euphoria's saved loops left out because every loop slot is taken.
+    pub no_free_loop_slot: Vec<String>,
 }
 
 impl SeratoReport {
@@ -307,6 +352,9 @@ impl SeratoReport {
             kept: 0,
             grid,
             skipped: None,
+            placed_loops: 0,
+            loops_already_there: 0,
+            no_free_loop_slot: Vec::new(),
         }
     }
 
@@ -315,6 +363,7 @@ impl SeratoReport {
     pub fn has_conflicts(&self) -> bool {
         self.placed.iter().any(|cue| cue.pad != cue.wanted_pad)
             || !self.no_free_pad.is_empty()
+            || !self.no_free_loop_slot.is_empty()
             || matches!(self.grid, GridOutcome::KeptYours { .. })
     }
 
@@ -354,6 +403,12 @@ impl SeratoReport {
             notes.push(format!(
                 "{} left out: every pad holds a cue of yours",
                 self.no_free_pad.join(", ")
+            ));
+        }
+        if !self.no_free_loop_slot.is_empty() {
+            notes.push(format!(
+                "{} left out: every Serato loop slot holds a loop of yours",
+                self.no_free_loop_slot.join(", ")
             ));
         }
         if let GridOutcome::KeptYours { position, bpm } = self.grid {
@@ -446,10 +501,27 @@ pub fn describe_serato_value(field: &str, value: &str) -> Option<String> {
                 )
             })
             .collect();
-        return Some(if cues.is_empty() {
+        let cue_text = if cues.is_empty() {
             "no cue points".to_string()
         } else {
             format!("cue points {}", cues.join(", "))
+        };
+        let loops: Vec<String> = markers
+            .loops()
+            .iter()
+            .map(|(slot, (start, end))| {
+                format!(
+                    "{} from {} to {}",
+                    slot + 1,
+                    clock(Duration::from_millis(u64::from(*start))),
+                    clock(Duration::from_millis(u64::from(*end)))
+                )
+            })
+            .collect();
+        return Some(if loops.is_empty() {
+            cue_text
+        } else {
+            format!("{cue_text}; saved loops {}", loops.join(", "))
         });
     }
     if field == container.beat_grid_field() {
@@ -473,7 +545,16 @@ pub fn describe_serato_value(field: &str, value: &str) -> Option<String> {
         .iter()
         .filter(|slot| slot.is_some())
         .count();
-    Some(format!("{set} of the first 5 cue points"))
+    let loops = markers
+        .loop_slots()
+        .iter()
+        .filter(|slot| slot.is_some())
+        .count();
+    Some(if loops == 0 {
+        format!("{set} of the first 5 cue points")
+    } else {
+        format!("{set} of the first 5 cue points and {loops} saved loops")
+    })
 }
 
 fn clock(position: Duration) -> String {
@@ -679,8 +760,47 @@ fn add_markers_from_file(
         });
     }
 
+    let mut loop_taken = [false; SERATO_SAVED_LOOPS as usize];
+    let mut loop_spans: Vec<(u32, u32)> = Vec::new();
+    for (slot, span) in markers2.loops() {
+        if let Some(taken) = loop_taken.get_mut(usize::from(slot)) {
+            *taken = true;
+        }
+        loop_spans.push(span);
+    }
+    if let Some(old_markers) = &old_markers {
+        for (slot, span) in old_markers.loop_slots().into_iter().enumerate() {
+            if let (Some(span), Some(taken)) = (span, loop_taken.get_mut(slot)) {
+                *taken = true;
+                loop_spans.push(span);
+            }
+        }
+    }
+    for saved in &markers.loops {
+        let start = u32::try_from(saved.start.as_millis()).unwrap_or(u32::MAX);
+        let end = u32::try_from(saved.end.as_millis()).unwrap_or(u32::MAX);
+        if loop_spans.contains(&(start, end)) {
+            report.loops_already_there += 1;
+            continue;
+        }
+        let Some(slot) = loop_taken.iter().position(|taken| !taken) else {
+            report.no_free_loop_slot.push(saved.name.clone());
+            continue;
+        };
+        loop_taken[slot] = true;
+        loop_spans.push((start, end));
+        markers2.add_loop(slot as u8, start, end, &saved.name);
+        if old_markers.is_none() && container == Container::Mp4 {
+            old_markers = Some(OldMarkers::empty(container));
+        }
+        if let Some(old_markers) = &mut old_markers {
+            old_markers.set_loop(slot, start, end);
+        }
+        report.placed_loops += 1;
+    }
+
     let mut changes: Vec<(String, Option<String>, String)> = Vec::new();
-    if !report.placed.is_empty() {
+    if !report.placed.is_empty() || report.placed_loops > 0 {
         changes.push((
             markers2_field.to_string(),
             current_markers2,
@@ -860,6 +980,53 @@ impl Markers2 {
             allocated: payload.len(),
             flac_last_digit: FILLER_DIGIT,
         })
+    }
+
+    /// The slot and the start and end, in milliseconds, of each saved loop
+    /// the entries hold.
+    fn loops(&self) -> Vec<(u8, (u32, u32))> {
+        self.entries
+            .iter()
+            .filter(|entry| entry.kind == b"LOOP" && entry.data.len() >= 10)
+            .map(|entry| {
+                let data = &entry.data;
+                let start = u32::from_be_bytes([data[2], data[3], data[4], data[5]]);
+                let end = u32::from_be_bytes([data[6], data[7], data[8], data[9]]);
+                (data[1], (start, end))
+            })
+            .collect()
+    }
+
+    /// Adds a saved loop in `slot` after the last cue or loop the entries
+    /// hold, laid out as Serato writes one: its slot, start and end in
+    /// milliseconds, four bytes Serato always sets, its colour, whether it
+    /// is locked, and its name.
+    fn add_loop(&mut self, slot: u8, start: u32, end: u32, name: &str) {
+        let mut data = vec![0x00, slot];
+        data.extend(start.to_be_bytes());
+        data.extend(end.to_be_bytes());
+        data.extend([0xFF, 0xFF, 0xFF, 0xFF]);
+        data.extend(SERATO_LOOP_COLOUR);
+        data.extend([0x00, 0x00]);
+        data.extend(name.as_bytes());
+        data.push(0x00);
+        let at = self
+            .entries
+            .iter()
+            .rposition(|entry| {
+                entry.kind == b"LOOP"
+                    || entry.kind == b"CUE"
+                    || entry.kind == b"COLOR"
+                    || entry.kind == b"BPMLOCK"
+            })
+            .map_or(self.entries.len(), |index| index + 1);
+        self.entries.insert(
+            at,
+            Entry {
+                kind: b"LOOP".to_vec(),
+                data,
+            },
+        );
     }
 
     fn cues(&self) -> Vec<Markers2Cue> {
@@ -1183,6 +1350,55 @@ impl OldMarkers {
             .collect()
     }
 
+    /// The start and end in milliseconds of each saved loop slot that is
+    /// set.
+    fn loop_slots(&self) -> Vec<Option<(u32, u32)>> {
+        self.entries[MARKERS_CUE_SLOTS..]
+            .iter()
+            .map(|entry| match self.container {
+                Container::Mp4 => {
+                    let start = u32::from_be_bytes([entry[0], entry[1], entry[2], entry[3]]);
+                    let end = u32::from_be_bytes([entry[4], entry[5], entry[6], entry[7]]);
+                    (start != u32::MAX).then_some((start, end))
+                }
+                _ => (entry[0] == 0x00).then(|| {
+                    (
+                        from_serato32([entry[1], entry[2], entry[3], entry[4]]),
+                        from_serato32([entry[6], entry[7], entry[8], entry[9]]),
+                    )
+                }),
+            })
+            .collect()
+    }
+
+    /// Sets saved loop `slot`, laid out as Serato writes one in this copy.
+    fn set_loop(&mut self, slot: usize, start: u32, end: u32) {
+        let [_, red, green, blue] = SERATO_LOOP_COLOUR;
+        let entry = match self.container {
+            Container::Mp4 => {
+                let mut entry = start.to_be_bytes().to_vec();
+                entry.extend(end.to_be_bytes());
+                entry.extend([0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x00]);
+                entry.extend([red, green, blue]);
+                entry.extend([MARKERS_LOOP_TYPE, 0x00]);
+                entry
+            }
+            _ => {
+                let mut entry = vec![0x00];
+                entry.extend(serato32(start & 0x00FF_FFFF));
+                entry.push(0x00);
+                entry.extend(serato32(end & 0x00FF_FFFF));
+                entry.extend([0x00, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F]);
+                entry.extend(serato32(u32::from_be_bytes([0, red, green, blue])));
+                entry.extend([MARKERS_LOOP_TYPE, 0x00]);
+                entry
+            }
+        };
+        if let Some(target) = self.entries.get_mut(MARKERS_CUE_SLOTS + slot) {
+            *target = entry;
+        }
+    }
+
     fn set_cue(&mut self, slot: usize, position: u32, colour: [u8; 3]) {
         let entry = match self.container {
             Container::Mp4 => {
@@ -1477,6 +1693,89 @@ mod tests {
         assert_eq!(serato32(0x00FF_FFFF), [0x07, 0x7F, 0x7F, 0x7F]);
         for value in [0, 1, 127, 128, 0x0012_3456, 0x00FF_FFFF] {
             assert_eq!(from_serato32(serato32(value)), value);
+        }
+    }
+
+    #[test]
+    fn a_saved_loop_goes_after_the_cues_and_reads_back_with_its_slot_and_span() {
+        let mut markers2 = Markers2::new();
+        markers2.add_cue(0, 1_500, SERATO_CUE_COLOURS[0], "Start");
+        markers2.add_loop(0, 8_000, 16_000, "Intro loop");
+        let kinds: Vec<&[u8]> = markers2
+            .entries
+            .iter()
+            .map(|entry| entry.kind.as_slice())
+            .collect();
+        assert_eq!(kinds, [&b"COLOR"[..], b"BPMLOCK", b"CUE", b"LOOP"]);
+        let loop_entry = &markers2.entries[3].data;
+        assert_eq!(loop_entry.len(), 20 + "Intro loop".len() + 1);
+        assert_eq!(&loop_entry[10..14], &[0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(&loop_entry[14..18], &SERATO_LOOP_COLOUR);
+        let read = Markers2::from_payload(&markers2.payload()).unwrap();
+        assert_eq!(read.loops(), vec![(0, (8_000, 16_000))]);
+        assert_eq!(read.entries, markers2.entries);
+    }
+
+    #[test]
+    fn a_saved_loop_is_laid_out_byte_for_byte_as_serato_writes_one() {
+        let (_, payload) = fixtures("mp3/markers2")
+            .into_iter()
+            .find(|(name, _)| name.starts_with("saved-loops"))
+            .unwrap();
+        let value = base64::encode(&payload, true);
+        let serato = Markers2::from_value(Container::Id3, &value).unwrap();
+        let named = serato
+            .entries
+            .iter()
+            .find(|entry| entry.kind == b"LOOP" && entry.data[1] == 3)
+            .unwrap();
+        let mut ours = Markers2::new();
+        ours.add_loop(3, 0, 2_086, "Test");
+        let added = ours
+            .entries
+            .iter()
+            .find(|entry| entry.kind == b"LOOP")
+            .unwrap();
+        assert_eq!(added.data, named.data);
+        assert_eq!(serato.loops().len(), 4);
+        assert_eq!(serato.loops()[3], (3, (0, 2_086)));
+    }
+
+    #[test]
+    fn a_loop_in_the_older_copy_is_laid_out_byte_for_byte_as_serato_writes_one() {
+        let (_, payload) = fixtures("mp3/markers_")
+            .into_iter()
+            .find(|(name, _)| name.starts_with("saved-loops"))
+            .unwrap();
+        let serato =
+            OldMarkers::from_value(Container::Id3, &base64::encode(&payload, true)).unwrap();
+        let mut ours = OldMarkers::empty(Container::Id3);
+        ours.set_loop(0, 0, 2_086);
+        assert_eq!(
+            ours.entries[MARKERS_CUE_SLOTS],
+            serato.entries[MARKERS_CUE_SLOTS]
+        );
+        assert_eq!(serato.loop_slots()[0], Some((0, 2_086)));
+        assert_eq!(serato.loop_slots()[5], None);
+
+        let (_, bytes) = fixtures("mp4/markers_")
+            .into_iter()
+            .find(|(name, _)| name.starts_with("hotcues-and-loops"))
+            .unwrap();
+        let serato = OldMarkers::from_value(Container::Mp4, &text(&bytes)).unwrap();
+        let mut ours = OldMarkers::empty(Container::Mp4);
+        assert!(serato.loop_slots().iter().any(Option::is_some));
+        for (slot, span) in serato.loop_slots().into_iter().enumerate() {
+            if let Some((start, end)) = span {
+                ours.set_loop(slot, start, end);
+                let at = MARKERS_CUE_SLOTS + slot;
+                let length = ours.entries[at].len();
+                assert_eq!(
+                    ours.entries[at][..length - 1],
+                    serato.entries[at][..length - 1],
+                    "loop slot {slot}"
+                );
+            }
         }
     }
 
