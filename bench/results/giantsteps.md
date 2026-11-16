@@ -321,6 +321,186 @@ Half or double the tempo is offered as an alternative for 267 previews (40.4%), 
 
 Rating confidence costs no measurable time: the tempogram already scores the candidate tempos the margin is taken from, and the key margin is the difference of two scores libkeyfinder already computed. On the same machine, under heavy load from other work, `euphoria analyze --no-cache` took 1.10 CPU seconds on one preview before and 1.06 after, 4.92 and 4.69 on an eight minute file, and 42.8 and 42.4 on 40 previews with 4 workers, with the same peak memory.
 
+## Tempo review
+
+Measured on 16 November 2026 on an Apple M5, macOS 27.2, with three worker threads, in one run of `euphoria-bench tempo-review bench/data/tempo --gtzan <all ten GTZAN genres> --range <range>` for each range, analyzer version 21. Rated low: the rule on main, a tempo rated low with a plausible half or double. Evidence: a plausible half or double whose onsets repeat after one beat and one bar at least 0.15 more strongly than after one beat and one bar of the tempo shown. Combined, which ships: either. GTZAN tempos are the median beat interval of the Marchand and Peeters annotations; one of its 999 annotated excerpts does not decode.
+
+Default range, 90 to 180, GiantSteps Tempo:
+
+| Genre | Tracks | Octave errors | Right octave offered | Octave errors listed, rated low | Evidence | Combined | Right tempos listed, rated low | Evidence | Combined |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| drum-and-bass | 139 | 17 | 17 | 3 | 8 | 10 | 17 | 30 | 44 |
+| dubstep | 76 | 6 | 4 | 0 | 1 | 1 | 1 | 1 | 2 |
+| trance | 74 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| techno | 61 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 1 |
+| electronica | 52 | 8 | 7 | 1 | 2 | 3 | 5 | 0 | 5 |
+| psy-trance | 34 | 2 | 2 | 1 | 2 | 2 | 0 | 0 | 0 |
+| breaks | 26 | 0 | 0 | 0 | 0 | 0 | 1 | 1 | 2 |
+| deep-house | 24 | 1 | 1 | 0 | 1 | 1 | 0 | 0 | 0 |
+| house | 23 | 1 | 1 | 0 | 0 | 0 | 0 | 1 | 1 |
+| electro-house | 22 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| tech-house | 22 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 12 other genres | 108 | 20 | 18 | 4 | 5 | 8 | 5 | 1 | 6 |
+| all | 661 | 56 | 50 | 9 | 19 | 25 | 30 | 34 | 61 |
+
+| Threshold | Evidence alone | Combined with rated low |
+| --- | --- | --- |
+| rated low alone | - | 9 and 30 |
+| 0 | 40 and 96 | 42 and 116 |
+| 0.05 | 32 and 77 | 34 and 99 |
+| 0.1 | 28 and 52 | 31 and 76 |
+| 0.15 | 19 and 34 | 25 and 61 |
+| 0.2 | 11 and 20 | 18 and 48 |
+| 0.25 | 7 and 14 | 14 and 44 |
+| 0.3 | 4 and 5 | 12 and 35 |
+| 0.4 | 1 and 3 | 10 and 33 |
+
+Default range, GTZAN:
+
+| Genre | Tracks | Octave errors | Right octave offered | Octave errors listed, rated low | Evidence | Combined | Right tempos listed, rated low | Evidence | Combined |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| blues | 100 | 19 | 10 | 3 | 5 | 7 | 8 | 3 | 9 |
+| classical | 100 | 14 | 6 | 3 | 0 | 3 | 9 | 3 | 9 |
+| country | 100 | 43 | 19 | 2 | 3 | 5 | 0 | 0 | 0 |
+| disco | 100 | 5 | 3 | 0 | 1 | 1 | 1 | 0 | 1 |
+| hiphop | 100 | 9 | 7 | 2 | 3 | 4 | 14 | 2 | 15 |
+| metal | 100 | 32 | 13 | 4 | 2 | 6 | 5 | 0 | 5 |
+| pop | 100 | 32 | 17 | 1 | 9 | 10 | 10 | 1 | 10 |
+| rock | 100 | 16 | 10 | 1 | 2 | 3 | 8 | 2 | 9 |
+| jazz | 99 | 32 | 10 | 8 | 2 | 9 | 1 | 0 | 1 |
+| reggae | 99 | 19 | 15 | 5 | 3 | 7 | 0 | 3 | 3 |
+| all | 998 | 221 | 110 | 29 | 30 | 55 | 56 | 14 | 62 |
+
+| Threshold | Evidence alone | Combined with rated low |
+| --- | --- | --- |
+| rated low alone | - | 29 and 56 |
+| 0 | 72 and 70 | 80 and 107 |
+| 0.05 | 47 and 45 | 65 and 87 |
+| 0.1 | 36 and 23 | 59 and 68 |
+| 0.15 | 30 and 14 | 55 and 62 |
+| 0.2 | 19 and 9 | 47 and 60 |
+| 0.25 | 10 and 5 | 39 and 58 |
+| 0.3 | 6 and 2 | 35 and 57 |
+| 0.4 | 0 and 0 | 29 and 56 |
+
+Hip hop range, 70 to 140, GiantSteps Tempo:
+
+| Genre | Tracks | Octave errors | Right octave offered | Octave errors listed, rated low | Evidence | Combined | Right tempos listed, rated low | Evidence | Combined |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| drum-and-bass | 139 | 119 | 119 | 17 | 13 | 26 | 3 | 3 | 5 |
+| dubstep | 76 | 53 | 52 | 4 | 5 | 8 | 1 | 1 | 2 |
+| trance | 74 | 46 | 46 | 5 | 5 | 8 | 0 | 0 | 0 |
+| techno | 61 | 6 | 6 | 3 | 0 | 3 | 0 | 0 | 0 |
+| electronica | 52 | 24 | 23 | 8 | 5 | 9 | 1 | 0 | 1 |
+| psy-trance | 34 | 28 | 28 | 2 | 4 | 4 | 0 | 0 | 0 |
+| breaks | 26 | 22 | 22 | 8 | 4 | 8 | 0 | 0 | 0 |
+| deep-house | 24 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| house | 23 | 7 | 7 | 2 | 1 | 2 | 0 | 0 | 0 |
+| electro-house | 22 | 5 | 4 | 0 | 0 | 0 | 0 | 0 | 0 |
+| tech-house | 22 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 12 other genres | 108 | 35 | 35 | 10 | 3 | 12 | 3 | 1 | 4 |
+| all | 661 | 345 | 342 | 59 | 40 | 80 | 8 | 5 | 12 |
+
+| Threshold | Evidence alone | Combined with rated low |
+| --- | --- | --- |
+| rated low alone | - | 59 and 8 |
+| 0 | 158 and 12 | 179 and 17 |
+| 0.05 | 105 and 8 | 134 and 14 |
+| 0.1 | 71 and 7 | 104 and 13 |
+| 0.15 | 40 and 5 | 80 and 12 |
+| 0.2 | 23 and 3 | 69 and 10 |
+| 0.25 | 19 and 2 | 67 and 10 |
+| 0.3 | 12 and 2 | 64 and 10 |
+| 0.4 | 7 and 1 | 63 and 9 |
+
+Hip hop range, GTZAN:
+
+| Genre | Tracks | Octave errors | Right octave offered | Octave errors listed, rated low | Evidence | Combined | Right tempos listed, rated low | Evidence | Combined |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| blues | 100 | 30 | 22 | 3 | 2 | 5 | 9 | 2 | 9 |
+| classical | 100 | 23 | 16 | 2 | 3 | 4 | 11 | 4 | 12 |
+| country | 100 | 41 | 22 | 2 | 2 | 4 | 0 | 1 | 1 |
+| disco | 100 | 2 | 0 | 0 | 0 | 0 | 1 | 0 | 1 |
+| hiphop | 100 | 2 | 2 | 1 | 0 | 1 | 15 | 2 | 16 |
+| metal | 100 | 44 | 27 | 5 | 2 | 7 | 4 | 2 | 5 |
+| pop | 100 | 12 | 0 | 0 | 0 | 0 | 11 | 1 | 11 |
+| rock | 100 | 15 | 11 | 2 | 2 | 3 | 7 | 5 | 11 |
+| jazz | 99 | 36 | 19 | 8 | 2 | 9 | 3 | 0 | 3 |
+| reggae | 99 | 58 | 54 | 5 | 8 | 12 | 0 | 1 | 1 |
+| all | 998 | 263 | 173 | 28 | 21 | 45 | 61 | 18 | 70 |
+
+| Threshold | Evidence alone | Combined with rated low |
+| --- | --- | --- |
+| rated low alone | - | 28 and 61 |
+| 0 | 110 and 68 | 115 and 105 |
+| 0.05 | 74 and 45 | 91 and 89 |
+| 0.1 | 48 and 26 | 70 and 75 |
+| 0.15 | 21 and 18 | 45 and 70 |
+| 0.2 | 10 and 9 | 37 and 65 |
+| 0.25 | 7 and 4 | 34 and 62 |
+| 0.3 | 3 and 1 | 30 and 61 |
+| 0.4 | 0 and 0 | 28 and 61 |
+
+Drum and bass range, 120 to 200, GiantSteps Tempo:
+
+| Genre | Tracks | Octave errors | Right octave offered | Octave errors listed, rated low | Evidence | Combined | Right tempos listed, rated low | Evidence | Combined |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| drum-and-bass | 139 | 16 | 16 | 3 | 7 | 9 | 17 | 30 | 44 |
+| dubstep | 76 | 7 | 5 | 1 | 1 | 2 | 0 | 1 | 1 |
+| trance | 74 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| techno | 61 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 1 |
+| electronica | 52 | 13 | 12 | 2 | 6 | 7 | 5 | 1 | 6 |
+| psy-trance | 34 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 1 |
+| breaks | 26 | 0 | 0 | 0 | 0 | 0 | 1 | 1 | 2 |
+| deep-house | 24 | 1 | 1 | 0 | 1 | 1 | 0 | 0 | 0 |
+| house | 23 | 1 | 1 | 0 | 0 | 0 | 0 | 1 | 1 |
+| electro-house | 22 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| tech-house | 22 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 12 other genres | 108 | 24 | 22 | 4 | 10 | 11 | 6 | 1 | 7 |
+| all | 661 | 63 | 57 | 10 | 25 | 30 | 31 | 35 | 63 |
+
+| Threshold | Evidence alone | Combined with rated low |
+| --- | --- | --- |
+| rated low alone | - | 10 and 31 |
+| 0 | 45 and 94 | 48 and 116 |
+| 0.05 | 36 and 77 | 39 and 100 |
+| 0.1 | 31 and 53 | 35 and 78 |
+| 0.15 | 25 and 35 | 30 and 63 |
+| 0.2 | 17 and 21 | 22 and 50 |
+| 0.25 | 10 and 15 | 18 and 46 |
+| 0.3 | 8 and 6 | 16 and 37 |
+| 0.4 | 5 and 3 | 14 and 34 |
+
+Drum and bass range, GTZAN:
+
+| Genre | Tracks | Octave errors | Right octave offered | Octave errors listed, rated low | Evidence | Combined | Right tempos listed, rated low | Evidence | Combined |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| blues | 100 | 33 | 26 | 14 | 13 | 24 | 3 | 2 | 5 |
+| classical | 100 | 29 | 22 | 13 | 2 | 15 | 3 | 0 | 3 |
+| country | 100 | 46 | 26 | 1 | 5 | 6 | 4 | 1 | 5 |
+| disco | 100 | 20 | 18 | 4 | 9 | 11 | 0 | 0 | 0 |
+| hiphop | 100 | 78 | 76 | 28 | 30 | 47 | 1 | 1 | 1 |
+| metal | 100 | 33 | 18 | 4 | 7 | 11 | 7 | 1 | 8 |
+| pop | 100 | 73 | 59 | 23 | 36 | 45 | 0 | 0 | 0 |
+| rock | 100 | 37 | 31 | 10 | 10 | 17 | 2 | 1 | 3 |
+| jazz | 99 | 26 | 14 | 5 | 4 | 9 | 16 | 0 | 16 |
+| reggae | 99 | 20 | 17 | 4 | 4 | 8 | 5 | 3 | 8 |
+| all | 998 | 395 | 307 | 106 | 120 | 193 | 41 | 9 | 49 |
+
+| Threshold | Evidence alone | Combined with rated low |
+| --- | --- | --- |
+| rated low alone | - | 106 and 41 |
+| 0 | 212 and 55 | 253 and 85 |
+| 0.05 | 178 and 36 | 233 and 70 |
+| 0.1 | 148 and 18 | 213 and 57 |
+| 0.15 | 120 and 9 | 193 and 49 |
+| 0.2 | 87 and 8 | 169 and 48 |
+| 0.25 | 56 and 5 | 148 and 45 |
+| 0.3 | 42 and 3 | 138 and 43 |
+| 0.4 | 9 and 2 | 112 and 42 |
+
+How well single measures tell the octave errors offered the right octave from right tempos with a plausible half or double, as AUC, in the default range: tempogram score at the other octave 0.54 on GiantSteps and 0.54 on GTZAN, confidence margin 0.55 and 0.56, onset density 0.55 and 0.34, the beat grid's comb at the other octave 0.58 and 0.68, onset repeat after one beat 0.62 and 0.65, after one beat and one bar 0.64 and 0.71 (used).
+
 ## Beat grid drift
 
 Measured on 16 November 2026 on an Apple M5, macOS 27.2, with three worker threads, by `euphoria-bench grid-tempo bench/data/tempo --gtzan <all ten GTZAN genres>` built from main and from the change that measures drift at the beat nearest the grid, analyzer version 19 against 20. The tempo is the one Euphoria reports in the default range; within 0.05 BPM compares it with the label.

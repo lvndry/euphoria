@@ -305,6 +305,7 @@ mod tests {
             pitch_class_profile: None,
             tempo_estimate: None,
             tempo_score_margin: None,
+            tempo_octave_evidence: None,
             beat_grid: None,
             cues: vec![SectionCue {
                 seconds: 0.5,

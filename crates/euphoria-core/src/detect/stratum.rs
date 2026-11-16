@@ -123,6 +123,7 @@ fn tempo_of_middle(
             Ok(estimate.map(|estimate| TempoReading {
                 estimate,
                 score_margin: None,
+                octave_evidence: None,
             }))
         }
     }
@@ -246,6 +247,7 @@ fn tempogram_tempo(
     Some(TempoReading {
         estimate,
         score_margin: Some(score_margin),
+        octave_evidence: Some(pulse.octave_evidence(estimate)),
     })
 }
 
@@ -362,6 +364,7 @@ mod tests {
             let reading = TempoReading {
                 estimate: tempo,
                 score_margin: None,
+                octave_evidence: None,
             };
             assert_eq!(reading.tempo_in(TempoRange::DEFAULT), folded, "{tempo}");
         }
@@ -465,6 +468,7 @@ mod tests {
             valid_tempo(fallback).map(|estimate| TempoReading {
                 estimate,
                 score_margin: None,
+                octave_evidence: None,
             }),
             "a fallback estimate has no margin to base its confidence on"
         );

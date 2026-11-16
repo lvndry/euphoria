@@ -56,6 +56,7 @@ fn low_confidence() -> TrackAnalysis {
         key_score_margin: Some(0.0),
         tempo_estimate: Some(75.0),
         tempo_score_margin: Some(0.01),
+        tempo_octave_evidence: None,
         ..tag_testing::analysis()
     }
 }

@@ -79,7 +79,7 @@ pub use location::{DATA_DIRECTORY_VARIABLE, default_cache_path};
 pub use single::{CachedAnalysis, CachedAnalyzer};
 
 use crate::analysis::{TrackAnalysis, analyzer_version};
-use crate::detect::{BeatGrid, CueSection, KeySection, SectionCue};
+use crate::detect::{BeatGrid, CueSection, KeySection, OctaveEvidence, SectionCue};
 use crate::energy::ENERGY_MODEL_VERSION;
 use crate::error::{ErrorSource, EuphoriaError};
 use crate::key::Key;
@@ -90,7 +90,7 @@ use identity::FileStamp;
 /// One entry per schema version, each bringing a database from the version
 /// before it. `PRAGMA user_version` holds how many have been applied, so a
 /// schema change is a new entry at the end and never an edit to an old one.
-const MIGRATIONS: [&str; 17] = [
+const MIGRATIONS: [&str; 18] = [
     "
     CREATE TABLE analyses (
         content_hash     BLOB    NOT NULL PRIMARY KEY,
@@ -180,6 +180,10 @@ const MIGRATIONS: [&str; 17] = [
         saved_at     INTEGER NOT NULL
     ) WITHOUT ROWID;
 ",
+    "
+    ALTER TABLE analyses ADD COLUMN tempo_half_evidence REAL;
+    ALTER TABLE analyses ADD COLUMN tempo_double_evidence REAL;
+",
 ];
 
 const SCHEMA_VERSION: u32 = MIGRATIONS.len() as u32;
@@ -211,7 +215,9 @@ enum Schema {
 /// tabs. Rows stored before those two existed, and tracks without them, hold
 /// null. `key_runner_up` is a key name and `key_score_margin` how far the
 /// key scored above it; `tempo_estimate` is the tempo before it is placed
-/// in a range and `tempo_score_margin` what its confidence is based on.
+/// in a range and `tempo_score_margin` what its confidence is based on;
+/// `tempo_half_evidence` and `tempo_double_evidence` are its
+/// [`OctaveEvidence`], both null for a tempo without it.
 /// Confidence levels and the reported tempo are worked out from these when
 /// they are read, so neither the band edges nor the tempo range are stored.
 /// `quality` holds the quality report as JSON, with the field names of
@@ -329,7 +335,8 @@ impl Cache {
                     tuning_cents, key_timeline, key_runner_up, key_score_margin,
                     tempo_estimate, tempo_score_margin, quality,
                     grid_first_downbeat, grid_bpm, grid_salience, grid_drift, cues,
-                    key_source, loudness_range_lu, pitch_class_profile, cue_energies
+                    key_source, loudness_range_lu, pitch_class_profile, cue_energies,
+                    tempo_half_evidence, tempo_double_evidence
              FROM analyses
              WHERE analyzer_version = ?1 AND energy_model_version = ?2",
         )?;
@@ -355,6 +362,7 @@ impl Cache {
                         .and_then(KeySource::from_stored),
                     tempo_estimate: tempo_in_column(row, 12)?,
                     tempo_score_margin: row.get(13)?,
+                    tempo_octave_evidence: octave_evidence_in_columns(row, 24)?,
                     quality: quality_in_column(row, 14)?,
                     beat_grid: beat_grid_in_columns(row, 15)?,
                     cues: cues_with_energies_in_columns(row, 19, 23)?,
@@ -425,9 +433,11 @@ impl Cache {
                      energy, energy_model_version, tuning_cents, key_timeline,
                      key_runner_up, key_score_margin, tempo_estimate, tempo_score_margin, quality,
                      grid_first_downbeat, grid_bpm, grid_salience, grid_drift, cues,
-                     key_source, loudness_range_lu, pitch_class_profile, cue_energies
+                     key_source, loudness_range_lu, pitch_class_profile, cue_energies,
+                     tempo_half_evidence, tempo_double_evidence
                  ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-                           ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)",
+                           ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27,
+                           ?28, ?29)",
                 params![
                     content_hash.as_bytes(),
                     analysis.duration_seconds,
@@ -456,6 +466,10 @@ impl Cache {
                     analysis.loudness_range_lu,
                     analysis.pitch_class_profile.map(pitch_class_profile_text),
                     cue_energies_text(&analysis.cues),
+                    analysis.tempo_octave_evidence.map(|evidence| evidence.half),
+                    analysis
+                        .tempo_octave_evidence
+                        .map(|evidence| evidence.double),
                 ],
             )?,
             CacheWrite::Relocate { .. } => transaction.execute(
@@ -614,9 +628,28 @@ fn tempo_in_column(row: &Row<'_>, column: usize) -> rusqlite::Result<Option<f32>
     ))
 }
 
-/// A stored beat grid, from four columns starting at `first_column`: the
-/// first downbeat, the tempo, the salience and the drift. `None` when the
-/// tempo is null, as for a track without a grid.
+/// The octave evidence stored in two columns from `first_column`: for half
+/// and for double the tempo. Both are null for a tempo without it. Only one
+/// of them, or a value that is not finite, is a corrupted row.
+fn octave_evidence_in_columns(
+    row: &Row<'_>,
+    first_column: usize,
+) -> rusqlite::Result<Option<OctaveEvidence>> {
+    let half = row.get::<_, Option<f32>>(first_column)?;
+    let double = row.get::<_, Option<f32>>(first_column + 1)?;
+    match (half, double) {
+        (None, None) => Ok(None),
+        (Some(half), Some(double)) if half.is_finite() && double.is_finite() => {
+            Ok(Some(OctaveEvidence { half, double }))
+        }
+        _ => Err(rusqlite::Error::FromSqlConversionFailure(
+            first_column,
+            Type::Real,
+            "the octave evidence needs two finite numbers".into(),
+        )),
+    }
+}
+
 /// The beat grid stored in four columns from `first_column`: the first
 /// downbeat, the tempo, the salience and the drift. All four are null for a
 /// track without a grid. A grid has the first three; the drift is null when
@@ -1096,6 +1129,10 @@ mod tests {
             ]),
             tempo_estimate: Some(63.99),
             tempo_score_margin: Some(0.47),
+            tempo_octave_evidence: Some(OctaveEvidence {
+                half: 0.187_5,
+                double: -0.25,
+            }),
             beat_grid: Some(BeatGrid {
                 first_downbeat_seconds: 0.371_25,
                 bpm: 127.993_75,
@@ -1197,7 +1234,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, 'H dorian', NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1216,7 +1253,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, 11, ?3, NULL, NULL,
-                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1373,6 +1410,7 @@ mod tests {
         assert_eq!(stored.key_score_margin, Some(0.25));
         assert_eq!(stored.tempo_estimate, Some(124.0));
         assert_eq!(stored.tempo_score_margin, Some(0.4));
+        assert_eq!(stored.tempo_octave_evidence, None);
         assert_eq!(stored.quality, None);
     }
 
@@ -1421,7 +1459,7 @@ mod tests {
                 .execute(
                     "INSERT INTO analyses
                      VALUES (?1, 1.0, NULL, 120.0, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                             NULL, NULL, ?4, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                             NULL, NULL, ?4, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                     params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION, damaged],
                 )
                 .unwrap();
@@ -1444,7 +1482,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, 'A minor', NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                         'H lydian', 0.01, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                         'H lydian', 0.01, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1470,7 +1508,7 @@ mod tests {
                 .execute(
                     "INSERT INTO analyses
                      VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, ?4,
-                             NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                             NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                     params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION, damaged],
                 )
                 .unwrap();
@@ -1502,7 +1540,7 @@ mod tests {
                         "INSERT INTO analyses
                          VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
                                  NULL, NULL, NULL, NULL, NULL,
-                                 {first_downbeat}, {bpm}, {salience}, {drift}, NULL, NULL, NULL, NULL, NULL)"
+                                 {first_downbeat}, {bpm}, {salience}, {drift}, NULL, NULL, NULL, NULL, NULL, NULL, NULL)"
                     ),
                     params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
                 )
@@ -1527,7 +1565,7 @@ mod tests {
             .execute(
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1560,7 +1598,7 @@ mod tests {
         let cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 17);
+        assert_eq!(SCHEMA_VERSION, 18);
         let snapshot = cache.snapshot().unwrap();
         assert_eq!(
             snapshot.analyses.len(),
@@ -1671,7 +1709,7 @@ mod tests {
         let mut cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 17);
+        assert_eq!(SCHEMA_VERSION, 18);
         assert_ne!(ANALYZER_VERSION, version_7_analyzer);
         assert!(
             cache.snapshot().unwrap().analyses.is_empty(),
@@ -1725,7 +1763,7 @@ mod tests {
         let mut cache = Cache::open(&database).unwrap();
 
         assert_eq!(schema_version(&cache.connection).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 17);
+        assert_eq!(SCHEMA_VERSION, 18);
         let snapshot = cache.snapshot().unwrap();
         assert_eq!(
             snapshot.analyses.len(),
@@ -1790,7 +1828,7 @@ mod tests {
                     &format!(
                         "INSERT INTO analyses
                          VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
-                                 NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, {cues}, NULL, NULL, NULL, NULL)"
+                                 NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, {cues}, NULL, NULL, NULL, NULL, NULL, NULL)"
                     ),
                     params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
                 )
@@ -1817,7 +1855,7 @@ mod tests {
                         "INSERT INTO analyses
                          VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
                                  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-                                 '0.5\tStart\n30\tDrop', NULL, NULL, NULL, {energies})"
+                                 '0.5\tStart\n30\tDrop', NULL, NULL, NULL, {energies}, NULL, NULL)"
                     ),
                     params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
                 )
@@ -1837,7 +1875,7 @@ mod tests {
                 "INSERT INTO analyses
                  VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL,
                          NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-                         '0.5\tStart\n30\tDrop', NULL, NULL, NULL, NULL)",
+                         '0.5\tStart\n30\tDrop', NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1856,7 +1894,7 @@ mod tests {
             .connection
             .execute(
                 "INSERT INTO analyses
-                 VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL, NULL, NULL, NULL, NULL, '{\"codec\": 7}', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                 VALUES (?1, 1.0, NULL, NULL, ?2, 0, NULL, 1, 1, NULL, ?3, NULL, NULL, NULL, NULL, NULL, NULL, '{\"codec\": 7}', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
                 params![[7u8; 32], analyzer_version(), ENERGY_MODEL_VERSION],
             )
             .unwrap();
@@ -1981,6 +2019,7 @@ mod tests {
                     pitch_class_profile: None,
                     tempo_estimate: None,
                     tempo_score_margin: None,
+                    tempo_octave_evidence: None,
                     beat_grid: None,
                     cues: Vec::new(),
                     key_timeline: Vec::new(),

@@ -169,6 +169,41 @@ pub struct TempoReading {
     /// is not an octave of it, the basis of [`TempoReading::confidence`].
     /// `None` when the tempogram gave no estimate and a fallback did.
     pub score_margin: Option<f32>,
+    /// How strongly the onsets back half and double the estimate instead,
+    /// the basis of the octave doubt under Needs review. `None` when the
+    /// tempogram gave no estimate and a fallback did.
+    pub octave_evidence: Option<OctaveEvidence>,
+}
+
+/// How much more strongly the onsets of a track's mid band, where snares,
+/// claps and chords sound, repeat after one beat and after one bar of four
+/// beats at half and at double a tempo than at the tempo itself. Above zero,
+/// the other octave's beat and bar fit the music better than the tempo's
+/// own, a sign that the track may be counted in the wrong octave.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OctaveEvidence {
+    /// The evidence for half the tempo.
+    pub half: f32,
+    /// The evidence for double the tempo.
+    pub double: f32,
+}
+
+impl OctaveEvidence {
+    /// How much more strongly the onsets back `other` than `tempo`, where
+    /// both are octaves of `measured`, the tempo this evidence was measured
+    /// at, and `other` is half or double `tempo`. `None` when either is
+    /// further than one octave from `measured`, which was not measured.
+    pub fn for_octave(&self, measured: f32, tempo: f32, other: f32) -> Option<f32> {
+        let level = |octave: f32| -> Option<f32> {
+            match (octave / measured).log2().round() as i32 {
+                -1 => Some(self.half),
+                0 => Some(0.0),
+                1 => Some(self.double),
+                _ => None,
+            }
+        };
+        Some(level(other)? - level(tempo)?)
+    }
 }
 
 impl TempoReading {
@@ -224,7 +259,21 @@ mod tests {
         TempoReading {
             estimate,
             score_margin: Some(1.0),
+            octave_evidence: None,
         }
+    }
+
+    #[test]
+    fn octave_evidence_compares_the_two_octaves_it_is_asked_about() {
+        let evidence = OctaveEvidence {
+            half: 0.2,
+            double: -0.3,
+        };
+        assert_eq!(evidence.for_octave(174.0, 174.0, 87.0), Some(0.2));
+        assert_eq!(evidence.for_octave(174.0, 87.0, 174.0), Some(-0.2));
+        assert_eq!(evidence.for_octave(95.0, 95.0, 190.0), Some(-0.3));
+        assert_eq!(evidence.for_octave(95.0, 190.0, 95.0), Some(0.3));
+        assert_eq!(evidence.for_octave(174.0, 87.0, 43.5), None);
     }
 
     fn grid(bpm: f64, salience: f32, drift_seconds: Option<f32>) -> BeatGrid {

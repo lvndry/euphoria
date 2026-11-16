@@ -49,6 +49,7 @@ fn plan_track(name: &str, key: &str, bpm: f32) -> DemoTrack {
             pitch_class_profile: None,
             tempo_estimate: Some(bpm),
             tempo_score_margin: None,
+            tempo_octave_evidence: None,
             beat_grid: Some(BeatGrid {
                 first_downbeat_seconds: 0.0,
                 bpm: f64::from(bpm),

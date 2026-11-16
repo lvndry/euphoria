@@ -95,8 +95,8 @@ impl TagKeys {
     }
 
     /// Why the file at `path` is worth checking by ear, as the desktop app
-    /// lists it: a key rated low, or a tempo rated low with a plausible half
-    /// or double, that the user has not set or confirmed, or tags that name
+    /// lists it: a key rated low, or a tempo with a plausible half or double
+    /// that is rated low or that the onsets back more strongly, that the user has not set or confirmed, or tags that name
     /// another key.
     pub fn review_reasons(&self, path: &Path, analysis: &TrackAnalysis) -> Vec<ReviewReason> {
         euphoria_core::review_reasons(

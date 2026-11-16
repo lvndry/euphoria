@@ -18,9 +18,9 @@ pub enum ReviewReason {
     Failed(String),
     /// The key is rated low confidence.
     KeyUnsure,
-    /// The tempo is rated low confidence and half or double it is a tempo
-    /// a DJ could count, so the track may be counted in the wrong octave.
-    /// See [`TrackAnalysis::tempo_alternative_in`].
+    /// Half or double the tempo is a tempo a DJ could count, and the tempo
+    /// is rated low or the onsets back that octave more strongly, so the
+    /// track may be counted in the wrong octave. See [`TrackAnalysis::tempo_octave_in_doubt`].
     TempoUnsure,
     /// The key field of the file's tags names another key.
     KeyConflict {
@@ -42,17 +42,15 @@ impl ReviewReason {
     }
 }
 
-/// Why an analyzed track is worth checking: the core rates its key low, it
-/// rates its tempo low and half or double that tempo, reported in `range`,
-/// is one a DJ could count, or its tags name another key. A value the user
-/// set or confirmed with "Looks right" is no longer in doubt. `analysis`
-/// may carry the correction already, or not: the checks give the same
-/// answer.
+/// Why an analyzed track is worth checking: the core rates its key low,
+/// the octave of its tempo, reported in `range`, is in doubt, or its tags
+/// name another key. A value the user set or confirmed with "Looks right"
+/// is no longer in doubt. `analysis` may carry the correction already, or
+/// not: the checks give the same answer.
 ///
-/// A tempo rated low with no plausible half or double is not listed. The
-/// rating measures how close the best tempo that is not an octave of it
-/// came, not the octave, and on GiantSteps Tempo such tempos are right as
-/// often as tempos rated medium.
+/// A tempo is in doubt when it has a plausible half or double and either
+/// it is rated low or the onsets back that octave more strongly; see
+/// [`TrackAnalysis::tempo_octave_in_doubt`].
 pub fn review_reasons(
     analysis: &TrackAnalysis,
     correction: &Correction,
@@ -68,8 +66,7 @@ pub fn review_reasons(
     }
     if correction.bpm.is_none()
         && !correction.bpm_confirmed
-        && analysis.tempo_confidence() == Some(Confidence::Low)
-        && analysis.tempo_alternative_in(range).is_some()
+        && analysis.tempo_octave_in_doubt(range)
     {
         reasons.push(ReviewReason::TempoUnsure);
     }
@@ -102,6 +99,7 @@ pub fn is_reviewed(correction: &Correction) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::detect::OctaveEvidence;
     use crate::key::Mode;
 
     fn rated(key_margin: f32, bpm: f32, tempo_margin: f32) -> TrackAnalysis {
@@ -120,6 +118,7 @@ mod tests {
             pitch_class_profile: None,
             tempo_estimate: Some(bpm),
             tempo_score_margin: Some(tempo_margin),
+            tempo_octave_evidence: None,
             beat_grid: None,
             cues: Vec::new(),
         }
@@ -273,6 +272,70 @@ mod tests {
             tempo_reasons(140.0, 0.01, hip_hop),
             [ReviewReason::TempoUnsure]
         );
+    }
+
+    fn with_evidence(estimate: f32, tempo_margin: f32, half: f32, double: f32) -> TrackAnalysis {
+        TrackAnalysis {
+            tempo_octave_evidence: Some(OctaveEvidence { half, double }),
+            ..rated(0.02, estimate, tempo_margin)
+        }
+    }
+
+    fn reasons_in(analysis: TrackAnalysis, range: TempoRange) -> Vec<ReviewReason> {
+        review_reasons(
+            &analysis.with_tempo_range(range),
+            &Correction::default(),
+            None,
+            range,
+        )
+    }
+
+    #[test]
+    fn a_tempo_is_listed_when_the_onsets_back_its_plausible_octave() {
+        let backed_half = with_evidence(170.0, 0.6, 0.2, -0.4);
+        assert_eq!(
+            reasons_in(backed_half.clone(), TempoRange::DEFAULT),
+            [ReviewReason::TempoUnsure]
+        );
+        let backed_double = with_evidence(95.0, 0.6, -0.4, 0.15);
+        assert_eq!(
+            reasons_in(backed_double, TempoRange::DEFAULT),
+            [ReviewReason::TempoUnsure]
+        );
+        let backed_only_double = with_evidence(170.0, 0.6, -0.1, 0.5);
+        assert!(reasons_in(backed_only_double, TempoRange::DEFAULT).is_empty());
+    }
+
+    #[test]
+    fn a_doubtful_rating_with_a_plausible_octave_is_listed_whatever_the_onsets_say() {
+        assert_eq!(
+            reasons_in(with_evidence(174.0, 0.01, -0.2, -0.3), TempoRange::DEFAULT),
+            [ReviewReason::TempoUnsure]
+        );
+        assert!(reasons_in(with_evidence(174.0, 0.2, -0.2, -0.3), TempoRange::DEFAULT).is_empty());
+    }
+
+    #[test]
+    fn evidence_without_a_plausible_octave_lists_nothing() {
+        assert!(reasons_in(with_evidence(119.8, 0.01, 0.9, 0.9), TempoRange::DEFAULT).is_empty());
+    }
+
+    #[test]
+    fn the_evidence_follows_the_tempo_into_another_range() {
+        let drum_and_bass: TempoRange = "120-200".parse().unwrap();
+        let hip_hop: TempoRange = "70-140".parse().unwrap();
+        // Shown at 190 in the drum and bass range, the alternative is 95,
+        // the tempo the evidence was measured at, which it backs over 190.
+        let doubled = with_evidence(95.0, 0.6, -0.4, -0.3);
+        assert_eq!(
+            reasons_in(doubled.clone(), drum_and_bass),
+            [ReviewReason::TempoUnsure]
+        );
+        assert!(reasons_in(doubled, TempoRange::DEFAULT).is_empty());
+        // Shown at 70 in the hip hop range, the alternative is 140, which
+        // the evidence backs over 70 when half of 140 scored low.
+        let halved = with_evidence(140.0, 0.6, -0.3, 0.0);
+        assert_eq!(reasons_in(halved, hip_hop), [ReviewReason::TempoUnsure]);
     }
 
     #[test]

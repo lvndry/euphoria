@@ -260,8 +260,8 @@ struct AnalyzeArguments {
     /// every track in detail.
     #[arg(long, conflicts_with = "json")]
     notes: bool,
-    /// List only the tracks whose key or tempo is rated low confidence or
-    /// whose tags name another key, and the files that could not be
+    /// List only the tracks whose key is rated low confidence, whose tempo
+    /// may be counted in the wrong octave, or whose tags name another key, and the files that could not be
     /// analyzed. A key or tempo you set or confirmed with "Looks right" in
     /// the desktop app is no longer in doubt.
     #[arg(long)]

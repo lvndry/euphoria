@@ -545,6 +545,7 @@ pub(crate) mod testing {
             pitch_class_profile: None,
             tempo_estimate: None,
             tempo_score_margin: None,
+            tempo_octave_evidence: None,
             beat_grid: None,
             cues: Vec::new(),
             key_timeline: Vec::new(),
@@ -690,6 +691,7 @@ mod tests {
             key_score_margin: Some(0.0),
             tempo_estimate: Some(75.0),
             tempo_score_margin: Some(0.01),
+            tempo_octave_evidence: None,
             ..analysis()
         }
     }

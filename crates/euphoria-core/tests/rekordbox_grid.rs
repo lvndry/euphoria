@@ -210,6 +210,7 @@ fn detected_analysis() -> TrackAnalysis {
         pitch_class_profile: None,
         tempo_estimate: Some(119.0),
         tempo_score_margin: Some(0.001),
+        tempo_octave_evidence: None,
         beat_grid: None,
         cues: Vec::new(),
     }

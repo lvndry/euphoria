@@ -82,6 +82,7 @@ pub(crate) fn fixture_tracks() -> Vec<DemoTrack> {
             pitch_class_profile: None,
             tempo_estimate: None,
             tempo_score_margin: None,
+            tempo_octave_evidence: None,
             beat_grid: None,
             cues: Vec::new(),
             key_timeline: Vec::new(),
@@ -1354,6 +1355,7 @@ fn dj_tracks() -> Vec<DemoTrack> {
                 pitch_class_profile: None,
                 tempo_estimate: None,
                 tempo_score_margin: None,
+                tempo_octave_evidence: None,
                 beat_grid: None,
                 cues: Vec::new(),
                 key_timeline: Vec::new(),
@@ -2893,6 +2895,7 @@ fn track_changing_key() -> DemoTrack {
             pitch_class_profile: None,
             tempo_estimate: None,
             tempo_score_margin: None,
+            tempo_octave_evidence: None,
             beat_grid: None,
             cues: Vec::new(),
             key_timeline: vec![
@@ -3519,6 +3522,7 @@ fn rated_analysis(key_margin: f32, tempo_estimate: f32, tempo_margin: f32) -> Tr
         pitch_class_profile: None,
         tempo_estimate: Some(tempo_estimate),
         tempo_score_margin: Some(tempo_margin),
+        tempo_octave_evidence: None,
         beat_grid: None,
         cues: Vec::new(),
     }
@@ -3795,6 +3799,7 @@ fn set_tracks() -> Vec<DemoTrack> {
             pitch_class_profile: None,
             tempo_estimate: None,
             tempo_score_margin: None,
+            tempo_octave_evidence: None,
             key_timeline: Vec::new(),
             quality: None,
             beat_grid: None,
@@ -5328,6 +5333,7 @@ pub(crate) fn deck_tracks() -> Vec<DemoTrack> {
             pitch_class_profile: None,
             tempo_estimate: None,
             tempo_score_margin: None,
+            tempo_octave_evidence: None,
             beat_grid: Some(euphoria_core::BeatGrid {
                 first_downbeat_seconds: 0.2,
                 bpm,
@@ -6057,6 +6063,7 @@ fn cued_track(name: &str, has_grid: bool) -> DemoTrack {
             pitch_class_profile: None,
             tempo_estimate: Some(120.0),
             tempo_score_margin: None,
+            tempo_octave_evidence: None,
             beat_grid: has_grid.then_some(euphoria_core::BeatGrid {
                 first_downbeat_seconds: 0.0,
                 bpm: 120.0,
