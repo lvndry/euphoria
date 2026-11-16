@@ -178,59 +178,83 @@ impl StemMode {
         }
     }
 
-    /// Whether it is played from the stems. The full track is played from
-    /// the file itself, which is what the stems were separated from.
-    pub(crate) fn plays_stems(self) -> bool {
-        self != StemMode::Full
-    }
-
     /// Which stems it is made of.
-    pub(crate) fn audible_stems(self) -> [bool; 4] {
+    pub(crate) fn stems(self) -> StemSet {
         match self {
-            StemMode::Full => [true; 4],
-            StemMode::Acapella => [false, false, false, true],
-            StemMode::Instrumental => [true, true, true, false],
+            StemMode::Full => StemSet::ALL,
+            StemMode::Acapella => StemSet::only(Stem::Vocals),
+            StemMode::Instrumental => StemSet::ALL.toggled(Stem::Vocals),
         }
     }
 }
 
-/// A stem picked out from the lanes: heard alone, or left out of the full
-/// track.
+/// The stems that play, out of the four. Never empty: a choice that would
+/// leave nothing plays every stem again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum StemFocus {
-    Solo(Stem),
-    Mute(Stem),
+pub(crate) struct StemSet {
+    audible: [bool; 4],
 }
 
-impl StemFocus {
-    pub(crate) fn is_audible(self, stem: Stem) -> bool {
-        match self {
-            StemFocus::Solo(only) => stem == only,
-            StemFocus::Mute(left_out) => stem != left_out,
-        }
+impl StemSet {
+    pub(crate) const ALL: StemSet = StemSet { audible: [true; 4] };
+
+    pub(crate) fn only(stem: Stem) -> StemSet {
+        let mut audible = [false; 4];
+        audible[stem as usize] = true;
+        StemSet { audible }
     }
 
-    /// What the control near the lanes says.
-    pub(crate) fn summary(self) -> String {
-        match self {
-            StemFocus::Solo(stem) => format!("Solo: {}", stem.label()),
-            StemFocus::Mute(stem) => format!("Muted: {}", stem.label()),
-        }
-    }
-
-    /// The focus a click on the label of `stem` leads to from `current`: a
-    /// second click of the same kind returns to the full track.
-    pub(crate) fn after_click(
-        current: Option<StemFocus>,
-        stem: Stem,
-        mutes: bool,
-    ) -> Option<StemFocus> {
-        let wanted = if mutes {
-            StemFocus::Mute(stem)
+    fn from_audible(audible: [bool; 4]) -> StemSet {
+        if audible.contains(&true) {
+            StemSet { audible }
         } else {
-            StemFocus::Solo(stem)
+            StemSet::ALL
+        }
+    }
+
+    pub(crate) fn contains(self, stem: Stem) -> bool {
+        self.audible[stem as usize]
+    }
+
+    pub(crate) fn is_all(self) -> bool {
+        self == StemSet::ALL
+    }
+
+    /// The set with `stem` added, or taken out.
+    pub(crate) fn toggled(self, stem: Stem) -> StemSet {
+        let mut audible = self.audible;
+        audible[stem as usize] = !audible[stem as usize];
+        StemSet::from_audible(audible)
+    }
+
+    /// The set a click on the name of `stem` leads to. A plain click plays
+    /// only `stem`, or every stem when only `stem` plays already. With
+    /// `toggles`, `stem` is added or taken out.
+    pub(crate) fn after_click(self, stem: Stem, toggles: bool) -> StemSet {
+        if toggles {
+            self.toggled(stem)
+        } else if self == StemSet::only(stem) {
+            StemSet::ALL
+        } else {
+            StemSet::only(stem)
+        }
+    }
+
+    /// What the control near the lanes says, naming the stems in `order`.
+    pub(crate) fn summary(self, order: &[Stem]) -> Option<String> {
+        let names = |audible: bool| {
+            order
+                .iter()
+                .filter(|stem| self.contains(**stem) == audible)
+                .map(|stem| stem.label())
+                .collect::<Vec<_>>()
+                .join(" + ")
         };
-        (current != Some(wanted)).then_some(wanted)
+        match self.audible.iter().filter(|audible| **audible).count() {
+            4 => None,
+            3 => Some(format!("Muted: {}", names(false))),
+            _ => Some(format!("Solo: {}", names(true))),
+        }
     }
 }
 
@@ -355,7 +379,7 @@ pub(crate) struct StemSession {
     factory: SeparationFactory,
     separation_mode: SeparationMode,
     mode: StemMode,
-    focus: Option<StemFocus>,
+    picked: Option<StemSet>,
     mix: Arc<StemMix>,
 }
 
@@ -374,7 +398,7 @@ impl StemSession {
             factory: Arc::new(factory),
             separation_mode: SeparationMode::default(),
             mode: StemMode::default(),
-            focus: None,
+            picked: None,
             mix: Arc::new(StemMix::default()),
         }
     }
@@ -395,8 +419,7 @@ impl StemSession {
     /// The stem files to play in place of the track at `path`: its stems
     /// once they are separated, unless the full track is to be heard.
     pub(crate) fn files_to_play(&self, path: &Path) -> Option<StemFiles> {
-        self.ready_files(path)
-            .filter(|_| self.mode.plays_stems() || self.focus.is_some())
+        self.ready_files(path).filter(|_| !self.audible().is_all())
     }
 
     /// Deletes the separated stems of the track at `path`, so that it can
@@ -594,6 +617,7 @@ impl StemSession {
     }
 
     /// What the user hears of the separated tracks.
+    #[cfg(test)]
     pub(crate) fn mode(&self) -> StemMode {
         self.mode
     }
@@ -601,28 +625,47 @@ impl StemSession {
     /// What the user hears of the separated tracks, with the sound told to
     /// follow. Returns true when the mix changed.
     pub(crate) fn set_mode(&mut self, mode: StemMode) -> bool {
-        if self.mode == mode && self.focus.is_none() {
+        if self.mode == mode && self.picked.is_none() {
             return false;
         }
         self.mode = mode;
-        self.focus = None;
+        self.picked = None;
         self.update_mix();
         true
     }
 
-    /// The stem picked out from the lanes, if one is.
-    pub(crate) fn focus(&self) -> Option<StemFocus> {
-        self.focus
+    /// The stems picked from the lanes, if any are.
+    #[cfg(test)]
+    pub(crate) fn picked(&self) -> Option<StemSet> {
+        self.picked
     }
 
-    /// Picks a stem out from the lanes, or returns to the full track with
-    /// `None`. Returns true when the mix changed.
-    pub(crate) fn set_focus(&mut self, focus: Option<StemFocus>) -> bool {
-        if self.focus == focus {
+    /// The stems that play: the ones picked from the lanes, or else the
+    /// ones of the mode.
+    pub(crate) fn audible(&self) -> StemSet {
+        self.picked.unwrap_or(self.mode.stems())
+    }
+
+    /// Plays `stems`, picked from the lanes. Every stem is the full track,
+    /// played from its file. Returns true when the mix changed.
+    pub(crate) fn pick(&mut self, stems: StemSet) -> bool {
+        let picked = (!stems.is_all()).then_some(stems);
+        if self.picked == picked && self.mode == StemMode::Full {
             return false;
         }
-        self.focus = focus;
+        let was_audible = self.audible();
+        self.picked = picked;
         self.mode = StemMode::Full;
+        self.update_mix();
+        was_audible != self.audible()
+    }
+
+    /// Returns to what the mode plays, forgetting the stems picked from the
+    /// lanes. Returns true when the mix changed.
+    pub(crate) fn clear_picked(&mut self) -> bool {
+        if self.picked.take().is_none() {
+            return false;
+        }
         self.update_mix();
         true
     }
@@ -633,10 +676,8 @@ impl StemSession {
     }
 
     fn update_mix(&self) {
-        self.mix.set_audible(|stem| match self.focus {
-            Some(focus) => focus.is_audible(stem),
-            None => self.mode.audible_stems()[stem as usize],
-        });
+        let audible = self.audible();
+        self.mix.set_audible(|stem| audible.contains(stem));
     }
 }
 
@@ -767,15 +808,18 @@ mod tests {
         );
     }
 
+    fn audible_of(mix: &StemMix) -> [bool; 4] {
+        Stem::ALL.map(|stem| mix.gain(stem as usize) > 0.99)
+    }
+
     #[test]
-    fn soloing_a_stem_lets_only_it_through_and_a_second_click_restores_the_full_track() {
+    fn a_click_solos_a_stem_and_a_second_click_restores_the_full_track() {
         let mut session = StemSession::new(failing);
         let mix = session.mix();
-        let gains = |mix: &StemMix| Stem::ALL.map(|stem| mix.gain(stem as usize));
 
-        let solo = StemFocus::after_click(session.focus(), Stem::Bass, false);
-        assert_eq!(solo, Some(StemFocus::Solo(Stem::Bass)));
-        assert!(session.set_focus(solo));
+        let solo = session.audible().after_click(Stem::Bass, false);
+        assert_eq!(solo, StemSet::only(Stem::Bass));
+        assert!(session.pick(solo));
         for stem in Stem::ALL {
             assert_eq!(
                 mix.gain(stem as usize) > 0.99,
@@ -784,19 +828,57 @@ mod tests {
             );
         }
         assert_eq!(
-            StemFocus::after_click(session.focus(), Stem::Drums, false),
-            Some(StemFocus::Solo(Stem::Drums))
+            session.audible().after_click(Stem::Drums, false),
+            StemSet::only(Stem::Drums)
         );
 
-        let restored = StemFocus::after_click(session.focus(), Stem::Bass, false);
-        assert_eq!(restored, None);
-        assert!(session.set_focus(restored));
-        assert!(gains(&mix).iter().all(|gain| *gain > 0.99));
-        assert!(!session.set_focus(None));
+        let restored = session.audible().after_click(Stem::Bass, false);
+        assert_eq!(restored, StemSet::ALL);
+        assert!(session.pick(restored));
+        assert_eq!(session.picked(), None);
+        assert_eq!(audible_of(&mix), [true; 4]);
+        assert!(!session.pick(StemSet::ALL));
     }
 
     #[test]
-    fn muting_a_stem_keeps_the_others_and_choosing_a_mode_clears_it() {
+    fn a_toggle_adds_and_removes_stems_and_never_leaves_none() {
+        let mut session = StemSession::new(failing);
+        let mix = session.mix();
+
+        let without_drums = session.audible().after_click(Stem::Drums, true);
+        assert!(session.pick(without_drums));
+        assert_eq!(
+            session.audible().summary(&Stem::ALL).as_deref(),
+            Some("Muted: Drums")
+        );
+        assert_eq!(audible_of(&mix), Stem::ALL.map(|stem| stem != Stem::Drums));
+
+        assert!(session.pick(StemSet::only(Stem::Vocals)));
+        let pair = session.audible().after_click(Stem::Bass, true);
+        assert!(session.pick(pair));
+        assert_eq!(
+            audible_of(&mix),
+            Stem::ALL.map(|stem| matches!(stem, Stem::Vocals | Stem::Bass))
+        );
+        assert_eq!(
+            pair.summary(&[Stem::Vocals, Stem::Drums, Stem::Bass, Stem::Other])
+                .as_deref(),
+            Some("Solo: Vocals + Bass")
+        );
+
+        let vocals = session.audible().after_click(Stem::Bass, true);
+        assert_eq!(vocals, StemSet::only(Stem::Vocals));
+        assert!(session.pick(vocals));
+
+        let emptied = session.audible().after_click(Stem::Vocals, true);
+        assert_eq!(emptied, StemSet::ALL);
+        assert!(session.pick(emptied));
+        assert_eq!(audible_of(&mix), [true; 4]);
+        assert_eq!(StemSet::ALL.summary(&Stem::ALL), None);
+    }
+
+    #[test]
+    fn picked_stems_match_the_quick_choices_and_choosing_one_clears_them() {
         let mut session = StemSession::new(failing);
         let mix = session.mix();
         let track = Path::new("/music/track.mp3");
@@ -806,26 +888,30 @@ mod tests {
         );
         assert_eq!(session.files_to_play(track), None);
 
-        let muted = StemFocus::after_click(session.focus(), Stem::Drums, true);
-        assert_eq!(muted, Some(StemFocus::Mute(Stem::Drums)));
-        assert!(session.set_focus(muted));
-        assert!(session.files_to_play(track).is_some());
-        for stem in Stem::ALL {
-            assert_eq!(
-                mix.gain(stem as usize) > 0.99,
-                stem != Stem::Drums,
-                "{stem:?}"
-            );
-        }
+        assert!(session.set_mode(StemMode::Acapella));
+        assert_eq!(session.audible(), StemSet::only(Stem::Vocals));
+        let with_drums = session.audible().after_click(Stem::Drums, true);
+        assert!(session.pick(with_drums));
         assert_eq!(
-            StemFocus::after_click(session.focus(), Stem::Drums, true),
-            None
+            audible_of(&mix),
+            Stem::ALL.map(|stem| matches!(stem, Stem::Vocals | Stem::Drums))
         );
+        assert!(session.files_to_play(track).is_some());
 
-        assert!(session.set_mode(StemMode::Full));
-        assert_eq!(session.focus(), None);
+        let instrumental = StemSet::ALL.toggled(Stem::Vocals);
+        assert!(session.pick(instrumental));
+        assert_eq!(session.audible(), StemMode::Instrumental.stems());
+
+        let full = session.audible().after_click(Stem::Vocals, true);
+        assert!(session.pick(full));
+        assert_eq!(session.mode(), StemMode::Full);
         assert_eq!(session.files_to_play(track), None);
-        assert!(Stem::ALL.iter().all(|stem| mix.gain(*stem as usize) > 0.99));
+
+        assert!(session.pick(StemSet::only(Stem::Other)));
+        assert!(session.set_mode(StemMode::Full));
+        assert_eq!(session.picked(), None);
+        assert_eq!(audible_of(&mix), [true; 4]);
+        assert!(!session.clear_picked());
     }
 
     #[test]

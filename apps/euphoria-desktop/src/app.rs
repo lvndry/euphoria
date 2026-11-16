@@ -1946,7 +1946,9 @@ impl EuphoriaApp {
         self.key_shift = 0;
         let selected_path = self.selected_track().map(|track| track.path.clone());
         self.tempo.forget_unless_for(selected_path.as_deref());
-        self.set_stem_focus(None, cx);
+        if self.stems.clear_picked() {
+            self.stems_changed(cx);
+        }
         self.cue_editor.forget_selection();
         self.refresh_mixes();
         self.load_selected_waveform(cx);
@@ -2263,26 +2265,22 @@ impl EuphoriaApp {
         self.stems_changed(cx);
     }
 
-    /// A click on a stem's label in the focus lanes: solo it, or with
-    /// `mutes` leave it out, or return to the full track when it already is.
-    /// The stem gains follow within milliseconds while the track plays.
+    /// A click on a stem's name in the focus lanes: play only it, or with
+    /// `toggles` add it to or take it out of the stems that play. The stem
+    /// gains follow within milliseconds while the track plays.
     pub(crate) fn click_stem_lane(
         &mut self,
         stem: euphoria_core::stems::Stem,
-        mutes: bool,
+        toggles: bool,
         cx: &mut Context<'_, Self>,
     ) {
-        let focus = crate::stems::StemFocus::after_click(self.stems.focus(), stem, mutes);
-        self.set_stem_focus(focus, cx);
+        let stems = self.stems.audible().after_click(stem, toggles);
+        self.pick_stems(stems, cx);
     }
 
-    /// Picks a stem out from the lanes, or returns to the full track.
-    pub(crate) fn set_stem_focus(
-        &mut self,
-        focus: Option<crate::stems::StemFocus>,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if self.stems.set_focus(focus) {
+    /// Plays `stems`, picked from the lanes; every stem is the full track.
+    pub(crate) fn pick_stems(&mut self, stems: crate::stems::StemSet, cx: &mut Context<'_, Self>) {
+        if self.stems.pick(stems) {
             self.stems_changed(cx);
         }
     }
