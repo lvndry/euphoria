@@ -5,7 +5,49 @@ description: Install Euphoria on macOS or Linux.
 
 # Installation
 
-On a Mac with Apple Silicon, install the app or the command line tool with [Homebrew](#install-with-homebrew), or download them from the [releases page](https://github.com/lvndry/euphoria/releases). On a 64-bit Intel or AMD PC running Linux, download the app and the command line tool from the releases page. To build the newest code, build from source, which takes a few minutes.
+On a Mac with Apple Silicon, install the app and the command line tool with [the install script](#install-with-the-install-script) or [Homebrew](#install-with-homebrew), or download them from the [releases page](https://github.com/lvndry/euphoria/releases). On a 64-bit Intel or AMD PC running Linux, use the install script or download the app and the command line tool from the releases page. To build the newest code, build from source, which takes a few minutes.
+
+## Install with the install script
+
+One command installs the newest release, both the command line tool and the app, for your user only, without `sudo`:
+
+```
+curl -fsSL https://github.com/lvndry/euphoria/releases/latest/download/install.sh | sh
+```
+
+The script is attached to every release, so this URL gives the script of the newest release, which passed CI with it. The same script is also at `https://raw.githubusercontent.com/lvndry/euphoria/main/scripts/install.sh`, which follows main. To read it before running it, download it first:
+
+```
+curl -fsSLO https://github.com/lvndry/euphoria/releases/latest/download/install.sh
+sh install.sh --help
+sh install.sh
+```
+
+It works on a Mac with Apple Silicon and on Linux on x86_64, and stops with a message on anything else. It checks every file it downloads against the release's `SHA256SUMS` and installs nothing if one does not match. It puts:
+
+| What | macOS | Linux |
+| --- | --- | --- |
+| The command line tool | `~/.local/bin/euphoria`, its libraries in `~/.local/lib` | the same |
+| The app | `Euphoria.app` in `/Applications` when you can write there without `sudo`, otherwise in `~/Applications`, copied from the notarized disk image | the AppImage as `~/.local/bin/euphoria-desktop`, with a launcher entry in `~/.local/share/applications` and its icon in `~/.local/share/icons` |
+| The list of installed files | `~/.local/share/euphoria/install-manifest.txt` | the same |
+
+If `~/.local/bin` is not on your `PATH`, the script prints the line to add to your shell's startup file. It does not edit that file itself.
+
+Options:
+
+- `--cli-only` installs only the command line tool, `--app-only` only the app. Without either, it installs both.
+- `EUPHORIA_VERSION=2026.11.5` installs that version instead of the newest: `curl -fsSL <url> | EUPHORIA_VERSION=2026.11.5 sh`.
+- `EUPHORIA_INSTALL_DIR` installs the command line tool somewhere else than `~/.local`, such as `EUPHORIA_INSTALL_DIR=/opt/euphoria`.
+
+Running it again upgrades what it installed to the newest release. It refuses to overwrite a file in those folders that it did not install, such as a tool you unpacked there by hand, and tells you which.
+
+To uninstall, run it with `--uninstall`. It removes exactly the files listed in its manifest and nothing else, and needs the same `EUPHORIA_INSTALL_DIR` if you set one:
+
+```
+curl -fsSL https://github.com/lvndry/euphoria/releases/latest/download/install.sh | sh -s -- --uninstall
+```
+
+Your library, analysis cache and settings are not touched.
 
 ## Install with Homebrew
 
