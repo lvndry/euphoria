@@ -1,6 +1,6 @@
 ---
 title: Stems
-description: What stem separation is, how Euphoria separates a track into vocals, drums, bass and the rest, how close it comes to the reference model, what it costs in time and memory, and where it falls short.
+description: What stem separation is, how Euphoria separates a track into vocals, drums, bass and the rest in its Default and Advanced modes, how close it comes to the reference model, what each costs in time and memory, and where it falls short.
 ---
 
 # Stems
@@ -25,6 +25,28 @@ Euphoria runs [Demucs](https://github.com/adefossez/demucs) htdemucs, the hybrid
 The model's weights, 84 MB, are downloaded once from the Demucs author's published files, pinned to one revision and checked against their SHA-256. Their origin and licence are recorded in [the model's provenance notes](https://github.com/lvndry/euphoria/blob/main/crates/euphoria-core/models/README.md).
 
 Stems are saved by the content of the file, so separating the same track again is instant, even after it is renamed or moved. The saved stems take at most 5 GB by default, after which the stems used longest ago are removed first.
+
+## Default mode and Advanced mode
+
+Euphoria has two ways to separate a track. **Default mode**, the one above, is the faster. **Advanced mode** runs a larger network, [SCNet](https://arxiv.org/abs/2401.13276) in its XL size, that separates more cleanly, most of all in the vocals, and takes about seven times as long and about 4.5 GB of memory. Default mode is what runs unless you ask for the other: `euphoria stems track.mp3 --output stems --mode advanced`.
+
+The two modes keep their stems apart. Stems the Advanced mode made are used whenever the same track is separated again in either mode, since they are the better ones; stems the Default mode made are not used by the Advanced mode, which separates the track again.
+
+Advanced mode works like Default mode: the track is decoded to stereo at 44.1 kHz, cut into segments, here of 5.5 seconds overlapping by a quarter, blended with triangular weights, and written to disk as it goes. The network is not given a normalised track, which is how its weights were trained. Its weights, 214 MB, are downloaded once, pinned to one release and checked against their SHA-256; their origin and licence are in [the model's provenance notes](https://github.com/lvndry/euphoria/blob/main/crates/euphoria-core/models/README.md).
+
+How much better? On the 50 test songs of MUSDB18-HQ, scored by the signal to distortion ratio of each stem against the studio stem over the whole song, averaged over the songs, Euphoria's own segmentation gives:
+
+| Stem | Default mode | Advanced mode | Difference |
+| --- | --- | --- | --- |
+| Vocals | 8.70 dB | 11.01 dB | +2.31 dB |
+| Drums | 9.93 dB | 11.16 dB | +1.23 dB |
+| Bass | 8.63 dB | 8.57 dB | -0.06 dB |
+| Other | 6.18 dB | 7.38 dB | +1.20 dB |
+| Average | 8.36 dB | 9.53 dB | +1.17 dB |
+
+These scores were computed with the PyTorch versions of the two networks and the same segmentation as Euphoria's, not with Euphoria's own code, which reproduces the PyTorch stems to 41 dB or better on a 25 second excerpt. They use a different definition from the median based figures in the Demucs paper, so compare them with each other and not with published numbers. MUSDB18-HQ is not distributed with Euphoria: its audio is licensed for research only.
+
+A higher score is not always something you hear. The gain is biggest in the vocals, level in the bass, and uneven between songs, and the Advanced mode has not been compared with the Default mode by ear.
 
 ## How the app plays stems
 
@@ -87,6 +109,17 @@ The stems are the same either way: against Demucs both graphs score the SDR show
 - **One separation at a time.** A second separation, from another window or command, waits for the first instead of loading the model twice.
 - **Disk:** the model is 84 MB; stems take about 42 MB per minute of audio (four 16 bit stereo WAV files at 44.1 kHz), so the 5 GB cache holds about two hours of separated music.
 
+### Advanced mode
+
+Measured on the same MacBook with `euphoria stems --mode advanced` on the 7 minute track, 4 threads (`EUPHORIA_STEMS_THREADS=4`), the Default mode's cost with the same threads on the same track beside it. Other processes were running while the Advanced mode ran, so its time is an upper bound.
+
+| Mode | Time per minute of audio | Peak memory |
+| --- | --- | --- |
+| Default | 16.7 s | 2.50 GB |
+| Advanced | 114.5 s | 4.22 GB |
+
+A 4 minute track takes about 7.6 minutes in the Advanced mode on this machine, so it is for preparing tracks, not for a set in progress. Memory does not grow with the track here either. Disk: the weights are 214 MB, and the stems take the same room as the Default mode's.
+
 ### On an 8 GB laptop
 
 Separation needs about 2.5 GB of free memory on top of what is already open. On an 8 GB Mac with a browser and DJ software open it will still finish, but macOS will compress or swap other apps' memory while it runs, so close what you can, separate tracks while preparing rather than during a set, and let it run one track at a time. Expect roughly 20 to 30 seconds per minute of audio on a recent Apple Silicon laptop; this estimate is not measured on such a machine.
@@ -103,4 +136,4 @@ Separation needs about 2.5 GB of free memory on top of what is already open. On 
 - **The stems add up to the track only approximately.** Played together they sound like the original, with small differences where the model was unsure.
 - **44.1 kHz, 16 bit.** Stems are written at the model's rate, whatever the rate of the file. A sample beyond full scale, which is rare, is clipped.
 - **No random shifts.** The Demucs command line can average several separations of the track shifted in time, which gains a little quality for several times the work. Euphoria separates once.
-- **The weights' licence is not settled.** The Demucs code is MIT licensed. Its author notes that the licence of the trained weights is unclear, because part of the training data was published for research only. Euphoria downloads them from the author's own repository rather than shipping them.
+- **The weights' licence is not settled.** The Demucs code is MIT licensed. Its author notes that the licence of the trained weights is unclear, because part of the training data was published for research only. Euphoria downloads them from the author's own repository rather than shipping them. The Advanced mode's weights are in the same position: the SCNet code is MIT licensed, the weights' publisher states no licence, and the SCNet authors say their checkpoint was trained on MUSDB, whose audio is licensed for research. They are downloaded from the release their publisher hosts.
