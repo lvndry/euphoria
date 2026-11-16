@@ -620,7 +620,7 @@ fn the_box_is_pinned_once_scrolled_past_while_writing_options_are_in_view(cx: &m
     );
 }
 
-const HINTS: [&str; 12] = [
+const HINTS: [&str; 13] = [
     "key-notation",
     "tempo-range",
     "dj-program",
@@ -633,9 +633,10 @@ const HINTS: [&str; 12] = [
     "metronome-sound",
     "metronome-volume",
     "metronome-accent",
+    "separation-mode",
 ];
 
-const WITH_INFO: [&str; 2] = ["tempo-range", "energy-label"];
+const WITH_INFO: [&str; 3] = ["tempo-range", "energy-label", "separation-mode"];
 
 #[gpui::test]
 fn every_helper_is_one_line_at_the_default_settings_width(cx: &mut TestAppContext) {

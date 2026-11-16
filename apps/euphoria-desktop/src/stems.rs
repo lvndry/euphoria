@@ -462,6 +462,7 @@ impl StemSession {
     }
 
     /// The mode new separations are made in.
+    #[cfg(test)]
     pub(crate) fn separation_mode(&self) -> SeparationMode {
         self.separation_mode
     }

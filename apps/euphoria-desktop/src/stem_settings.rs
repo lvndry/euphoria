@@ -38,6 +38,9 @@ impl StemSettings {
     }
 }
 
+/// The choices, in the order the settings list them.
+pub(crate) const MODES: [SeparationMode; 2] = [SeparationMode::Default, SeparationMode::Advanced];
+
 /// What the choice is called in the interface.
 pub(crate) fn mode_label(mode: SeparationMode) -> &'static str {
     match mode {

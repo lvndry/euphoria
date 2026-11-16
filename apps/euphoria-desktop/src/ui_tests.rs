@@ -58,7 +58,7 @@ pub(crate) fn open_fixture_library(
     open_window_on(fixture_tracks(), Box::new(SilentOutput), cx)
 }
 
-fn fixture_tracks() -> Vec<DemoTrack> {
+pub(crate) fn fixture_tracks() -> Vec<DemoTrack> {
     let fixtures =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/euphoria-core/tests/fixtures");
     [
