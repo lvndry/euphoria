@@ -621,6 +621,47 @@ fn revert_removes_only_what_the_run_wrote_and_checks_the_checksum() {
 }
 
 #[test]
+fn an_unsaved_manifest_can_put_back_tag_only_changes() {
+    let folder = tempfile::tempdir().unwrap();
+    let input = folder.path().join("track.mp3");
+    std::fs::copy(fixture("sine-440hz-mono.mp3"), &input).unwrap();
+    let settings = PrepareSettings::default();
+    let plan = plan_track(&input, &settings, None, LossyOutput::Flac).unwrap();
+    let fields = ReplayGainFields::from_plan(&plan).unwrap();
+    let mut manifest = Manifest::new(RunMode::TagOnly, &settings);
+    tag_track(&mut manifest, &input, &fields).unwrap();
+
+    let report = revert_unrecorded(&manifest);
+
+    assert_eq!(report.restored.as_slice(), std::slice::from_ref(&input));
+    assert!(report.kept.is_empty());
+    assert_eq!(
+        read_replaygain(&input).unwrap(),
+        ReplayGainFields::default()
+    );
+}
+
+#[test]
+fn a_prepare_plan_refuses_new_audio_with_the_same_format() {
+    let folder = tempfile::tempdir().unwrap();
+    let input = folder.path().join("track.wav");
+    let output = folder.path().join("prepared.wav");
+    write_wav(&input, 2, &sine(440.0, 0.1, 1.0));
+    let settings = PrepareSettings::default();
+    let plan = plan_track(&input, &settings, None, LossyOutput::Flac).unwrap();
+    write_wav(&input, 2, &sine(440.0, 0.8, 1.0));
+
+    let error = prepare_track(&input, &plan, &output, &settings, &mut |_| {}).unwrap_err();
+
+    assert!(error.chain().contains("changed since it was measured"));
+    assert!(!output.exists());
+    assert!(
+        plan.verify_source(&input).is_err(),
+        "tag-only must also refuse it"
+    );
+}
+
+#[test]
 fn the_comparison_clip_is_level_matched_and_the_same_length() {
     let folder = tempfile::tempdir().unwrap();
     let input = folder.path().join("peaky.wav");

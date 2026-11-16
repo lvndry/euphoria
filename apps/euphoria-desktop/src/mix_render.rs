@@ -7,6 +7,7 @@
 //! beside the mix.
 
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -94,6 +95,9 @@ pub(crate) struct MixPlanJob {
 struct MixRenderJob {
     plan: MixPlanJob,
     output: PathBuf,
+    /// True when the save dialog approved replacing an existing mix, whose
+    /// cue sheet, tracklist and chapters are then replaced with it.
+    replaces_mix: bool,
 }
 
 /// What a finished render wrote.
@@ -215,7 +219,17 @@ impl MixRenderJob {
             (chapters_path, chapters(&plan.tracks, &rendered.timeline)),
         ];
         for (path, text) in texts {
-            std::fs::write(&path, text)
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(!self.replaces_mix)
+                .create(self.replaces_mix)
+                .truncate(self.replaces_mix)
+                .open(&path)
+                .map_err(|source| EuphoriaError::ExportFile {
+                    path: path.clone(),
+                    source,
+                })?;
+            file.write_all(text.as_bytes())
                 .map_err(|source| EuphoriaError::ExportFile { path, source })?;
         }
         Ok(MixRenderDone {
@@ -309,12 +323,26 @@ impl EuphoriaApp {
         if self.set_builder.render.is_some() {
             return;
         }
+        let (mix_path, _) = mix_output(output.clone());
+        let replaces_mix = mix_path.symlink_metadata().is_ok();
+        if let Some(existing) = side_files(&mix_path)
+            .into_iter()
+            .find(|path| !replaces_mix && path.symlink_metadata().is_ok())
+        {
+            self.notice = Some(format!(
+                "Could not render the mix: {} already exists. Choose another mix name or move its side files first.",
+                existing.display()
+            ));
+            cx.notify();
+            return;
+        }
         let Some(plan) = self.mix_plan_job(cx) else {
             return;
         };
         let job = MixRenderJob {
             plan,
             output: output.clone(),
+            replaces_mix,
         };
         let shared = Arc::new(RenderShared::default());
         self.set_builder.render = Some(MixRenderRun {

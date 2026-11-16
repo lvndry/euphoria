@@ -316,6 +316,27 @@ fn open_panel(model: &Entity<LiveModel>, cx: &mut TestAppContext) -> AnyWindowHa
     })
 }
 
+#[gpui::test]
+fn reopening_live_keeps_completed_learning_when_folders_are_unchanged(cx: &mut TestAppContext) {
+    let (model, _) = model(Setup::music(), cx);
+    start(&model, cx);
+    cx.update(|cx| {
+        model.update(cx, |model, cx| model.reload_inputs(Settings::default(), cx));
+        assert!(matches!(
+            model.read(cx).learning,
+            crate::live_model::Learning::Ready { .. }
+        ));
+        model.update(cx, |model, cx| model.ensure_library(cx));
+    });
+    cx.run_until_parked();
+    cx.update(|cx| {
+        assert!(matches!(
+            model.read(cx).learning,
+            crate::live_model::Learning::Ready { .. }
+        ));
+    });
+}
+
 fn rows(model: &Entity<LiveModel>, cx: &mut TestAppContext) -> Vec<String> {
     cx.update(|cx| {
         let model = model.read(cx);

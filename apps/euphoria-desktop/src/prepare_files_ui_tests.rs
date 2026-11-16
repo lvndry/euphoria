@@ -332,6 +332,34 @@ fn reverting_a_copy_run_removes_the_copies_and_nothing_else(cx: &mut TestAppCont
 }
 
 #[gpui::test]
+fn a_partial_revert_can_be_retried_after_the_file_is_restored(cx: &mut TestAppContext) {
+    let (scratch, _copies, window, view) = scratch_library("prepare-revert-retry", cx);
+    open_sheet(&view, cx);
+    click(window, "prepare-confirm", cx);
+    let prepared = std::fs::read_dir(&scratch.0)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| path.to_string_lossy().contains("(prepared)"))
+        .unwrap();
+    let original = std::fs::read(&prepared).unwrap();
+    std::fs::write(&prepared, b"changed after preparing").unwrap();
+
+    open_sheet(&view, cx);
+    click(window, "prepare-revert", cx);
+    assert_eq!(
+        std::fs::read(&prepared).unwrap(),
+        b"changed after preparing"
+    );
+    cx.update(|cx| assert!(!view.read(cx).last_prepare_manifests.is_empty()));
+
+    std::fs::write(&prepared, original).unwrap();
+    assert!(is_shown(window, "prepare-revert", cx));
+    click(window, "prepare-revert", cx);
+    assert!(!prepared.exists());
+    cx.update(|cx| assert!(view.read(cx).last_prepare_manifests.is_empty()));
+}
+
+#[gpui::test]
 fn the_comparison_plays_both_versions_in_place_and_writes_nothing(cx: &mut TestAppContext) {
     let (scratch, _copies, window, view) = scratch_library("prepare-ab", cx);
     open_sheet(&view, cx);

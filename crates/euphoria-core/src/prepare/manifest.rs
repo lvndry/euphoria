@@ -203,10 +203,33 @@ pub struct RevertReport {
 /// otherwise.
 pub fn revert(manifest_path: &Path) -> Result<RevertReport, EuphoriaError> {
     let mut manifest = Manifest::load(manifest_path)?;
+    let (report, remaining) = revert_entries(std::mem::take(&mut manifest.entries));
+    if remaining.is_empty() {
+        let _ = std::fs::remove_file(manifest_path);
+    } else {
+        manifest.entries = remaining;
+        let text = serde_json::to_string_pretty(&manifest)
+            .map_err(|error| failure(manifest_path, error.to_string()))?;
+        std::fs::write(manifest_path, text).map_err(|source| EuphoriaError::ExportFile {
+            path: manifest_path.to_path_buf(),
+            source,
+        })?;
+    }
+    Ok(report)
+}
+
+/// Takes back a run whose manifest could not be saved. Only files still
+/// holding the exact result of the run are touched. The caller must report
+/// any entries that could not be put back.
+pub fn revert_unrecorded(manifest: &Manifest) -> RevertReport {
+    revert_entries(manifest.entries.clone()).0
+}
+
+fn revert_entries(entries: Vec<ManifestEntry>) -> (RevertReport, Vec<ManifestEntry>) {
     let mut report = RevertReport::default();
     let mut remaining = Vec::new();
     let mut seen = HashSet::new();
-    for entry in std::mem::take(&mut manifest.entries) {
+    for entry in entries {
         let target = entry.output.clone().unwrap_or_else(|| entry.source.clone());
         if !seen.insert(target.clone()) {
             continue;
@@ -244,18 +267,7 @@ pub fn revert(manifest_path: &Path) -> Result<RevertReport, EuphoriaError> {
             remaining.push(entry);
         }
     }
-    if remaining.is_empty() {
-        let _ = std::fs::remove_file(manifest_path);
-    } else {
-        manifest.entries = remaining;
-        let text = serde_json::to_string_pretty(&manifest)
-            .map_err(|error| failure(manifest_path, error.to_string()))?;
-        std::fs::write(manifest_path, text).map_err(|source| EuphoriaError::ExportFile {
-            path: manifest_path.to_path_buf(),
-            source,
-        })?;
-    }
-    Ok(report)
+    (report, remaining)
 }
 
 /// Runs a tag-only pass over one track: records the tags it had, writes the

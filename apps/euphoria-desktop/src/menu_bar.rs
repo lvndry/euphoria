@@ -10,12 +10,24 @@ use gpui::{App, Entity};
 use crate::live_model::LiveModel;
 
 /// Where the menu bar item is, so the panel opens under it: the middle of the
-/// item and the bottom of the menu bar, in points from the top left of the
-/// main display.
+/// item, the bottom of the menu bar, and the screen that holds them, in
+/// points from the top left of the main display.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct PanelAnchor {
     pub(crate) center_x: i32,
     pub(crate) top: i32,
+    pub(crate) screen: ScreenFrame,
+}
+
+/// A screen's frame in points from the top left of the main display. The
+/// item knows its own screen; gpui's displays on macOS all report an origin
+/// of zero, so they cannot say which screen a point is on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ScreenFrame {
+    pub(crate) left: i32,
+    pub(crate) top: i32,
+    pub(crate) width: i32,
+    pub(crate) height: i32,
 }
 
 /// What the menu bar item asks the app to do.

@@ -16,7 +16,7 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSObject, NSObjectProtocol, NSString, ns_string};
 
-use crate::menu_bar::{MenuBarCommand, MenuBarState, MenuBarSurface, PanelAnchor};
+use crate::menu_bar::{MenuBarCommand, MenuBarState, MenuBarSurface, PanelAnchor, ScreenFrame};
 
 struct TargetState {
     sender: async_channel::Sender<MenuBarCommand>,
@@ -104,15 +104,23 @@ impl MenuTarget {
     fn anchor(&self) -> Option<PanelAnchor> {
         let mtm = self.mtm();
         let item = self.ivars().item.borrow().clone()?;
-        let frame = item.button(mtm)?.window()?.frame();
+        let window = item.button(mtm)?.window()?;
+        let frame = window.frame();
         let main_height = objc2_app_kit::NSScreen::screens(mtm)
             .firstObject()?
             .frame()
             .size
             .height;
+        let screen = window.screen()?.frame();
         Some(PanelAnchor {
             center_x: (frame.origin.x + frame.size.width / 2.0) as i32,
             top: (main_height - frame.origin.y) as i32,
+            screen: ScreenFrame {
+                left: screen.origin.x as i32,
+                top: (main_height - screen.origin.y - screen.size.height) as i32,
+                width: screen.size.width as i32,
+                height: screen.size.height as i32,
+            },
         })
     }
 

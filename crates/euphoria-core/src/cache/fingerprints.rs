@@ -22,9 +22,9 @@ use crate::fingerprint::{
     FINGERPRINT_VERSION, Fingerprint, FingerprintIndex, STORED_THINNING, fingerprint,
 };
 
-/// The most hashes the in-memory index of a library holds, 8 bytes each.
+/// The most hashes the in-memory index of a library holds, 16 bytes each.
 /// A larger library is thinned further, which costs a little recall.
-pub const MAXIMUM_INDEX_HASHES: usize = 16_000_000;
+pub const MAXIMUM_INDEX_HASHES: usize = 8_000_000;
 
 impl Cache {
     /// The stored fingerprint of the file at `path`, if one was made by this

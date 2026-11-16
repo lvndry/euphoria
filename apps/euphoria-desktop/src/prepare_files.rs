@@ -14,7 +14,7 @@ use std::time::Duration;
 use euphoria_core::prepare::{
     ComparisonClip, DEFAULT_SUFFIX, LossyOutput, Manifest, PrepareSettings, ReplayGainFields,
     RunMode, TrackMeasurement, TrackPlan, comparison_clip, measure_track, prepare_track,
-    prepared_path, revert, tag_track,
+    prepared_path, revert, revert_unrecorded, tag_track,
 };
 use gpui::{Context, PathPromptOptions};
 
@@ -505,22 +505,30 @@ impl EuphoriaApp {
                     let mut restored = 0;
                     let mut kept = Vec::new();
                     let mut problems = Vec::new();
+                    let mut remaining = Vec::new();
                     for manifest in manifests {
                         match revert(&manifest) {
                             Ok(report) => {
                                 removed += report.removed.len();
                                 restored += report.restored.len();
                                 kept.extend(report.kept);
+                                if manifest.exists() {
+                                    remaining.push(manifest);
+                                }
                             }
-                            Err(error) => problems.push((manifest, error.chain())),
+                            Err(error) => {
+                                problems.push((manifest.clone(), error.chain()));
+                                remaining.push(manifest);
+                            }
                         }
                     }
-                    (removed, restored, kept, problems)
+                    (removed, restored, kept, problems, remaining)
                 })
                 .await;
             this.update(cx, |this, cx| {
                 this.background_jobs.finish(running);
-                let (removed, restored, kept, problems) = outcome;
+                let (removed, restored, kept, problems, remaining) = outcome;
+                this.last_prepare_manifests = remaining;
                 let mut message = format!(
                     "Reverted: removed {}, put back the tags of {}",
                     files(removed),
@@ -711,6 +719,7 @@ fn write_run(
                     reason: "it has no loudness".to_string(),
                 })
                 .and_then(|fields| {
+                    plan.verify_source(&input)?;
                     let folder = input.parent().map(Path::to_path_buf).unwrap_or_default();
                     tag_track(
                         manifests
@@ -730,8 +739,46 @@ fn write_run(
         progress.files_done.fetch_add(1, Ordering::Relaxed);
     }
     for (folder, manifest) in manifests {
-        if let Ok(path) = manifest.save(&folder) {
-            outcome.manifests.push(path);
+        match manifest.save(&folder) {
+            Ok(path) => outcome.manifests.push(path),
+            Err(error) => {
+                let reverted = revert_unrecorded(&manifest);
+                let affected: HashSet<PathBuf> = manifest
+                    .entries
+                    .iter()
+                    .map(|entry| entry.output.clone().unwrap_or_else(|| entry.source.clone()))
+                    .collect();
+                let put_back: HashSet<PathBuf> = reverted
+                    .removed
+                    .into_iter()
+                    .chain(reverted.restored)
+                    .collect();
+                outcome.written.retain(|path| !affected.contains(path));
+                for entry in manifest.entries {
+                    let target = entry.output.unwrap_or_else(|| entry.source.clone());
+                    let detail = if put_back.contains(&target) {
+                        "its changes were put back".to_string()
+                    } else {
+                        reverted
+                            .kept
+                            .iter()
+                            .find(|(path, _)| *path == target)
+                            .map_or_else(
+                                || "its changes could not be put back".to_string(),
+                                |(_, reason)| {
+                                    format!("its changes could not be put back: {reason}")
+                                },
+                            )
+                    };
+                    outcome.failed.push((
+                        entry.source,
+                        format!(
+                            "could not save its Undo record: {}; {detail}",
+                            error.chain()
+                        ),
+                    ));
+                }
+            }
         }
     }
     outcome

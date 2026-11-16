@@ -51,8 +51,8 @@ pub(crate) struct Rescan {
 /// Walks `roots` again and compares what is there with `known`, the tracks
 /// under them. A track is gone only when its file is not there and the
 /// library folder holding it is, so the tracks of a drive that is not
-/// connected stay. A gone file is taken as moved when a new file with its
-/// name or in its folder holds the same audio. With a cache, an analyzed
+/// connected stay. A gone file is taken as moved when any new file holds
+/// the same audio. With a cache, an analyzed
 /// file whose size or modification time no longer matches is changed.
 ///
 /// This walks folders and reads files, so call it off the main thread.
@@ -166,7 +166,8 @@ pub(crate) fn find_changes(
 }
 
 /// The new files the gone file at `old` may have become: those with its
-/// name first, then the others in its folder.
+/// name first, then the others in its folder, then every other new file.
+/// A move and a rename can happen before one rescan.
 fn move_candidates<'files>(
     old: &Path,
     new_files: &'files [PathBuf],
@@ -176,9 +177,12 @@ fn move_candidates<'files>(
     let same_name = free
         .clone()
         .filter(|file| file.file_name() == old.file_name());
-    let same_folder =
-        free.filter(|file| file.file_name() != old.file_name() && file.parent() == old.parent());
-    same_name.chain(same_folder).collect()
+    let same_folder = free
+        .clone()
+        .filter(|file| file.file_name() != old.file_name() && file.parent() == old.parent());
+    let elsewhere =
+        free.filter(|file| file.file_name() != old.file_name() && file.parent() != old.parent());
+    same_name.chain(same_folder).chain(elsewhere).collect()
 }
 
 /// How many tracks a rescan changed, which its toast tells.
@@ -410,6 +414,31 @@ mod tests {
         assert_eq!(rescan.gone, vec![deleted]);
         assert!(rescan.found.files.is_empty());
         assert!(rescan.changed.is_empty());
+    }
+
+    #[test]
+    fn a_file_moved_and_renamed_across_folders_keeps_its_track() {
+        let folder = crate::tag_writing::testing::ScratchFolder::new("rescan-moved-renamed");
+        let old = folder.0.join("house").join("Old.mp3");
+        let new = folder.0.join("techno").join("New.mp3");
+        std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(new.parent().unwrap()).unwrap();
+        std::fs::write(&new, b"the same track").unwrap();
+        let content = ContentHash::of_file(&new).unwrap();
+        let mut moved_track = known(&old);
+        moved_track.recorded_content = Some(content);
+
+        let rescan = find_changes(
+            std::slice::from_ref(&folder.0),
+            std::slice::from_ref(&folder.0),
+            &[moved_track],
+            None,
+            &AtomicUsize::new(0),
+        );
+
+        assert_eq!(rescan.moved, vec![(old, new, content)]);
+        assert!(rescan.gone.is_empty());
+        assert!(rescan.found.files.is_empty());
     }
 
     #[test]

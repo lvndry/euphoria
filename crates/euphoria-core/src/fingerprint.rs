@@ -375,16 +375,16 @@ struct Candidate {
 }
 
 /// The most tracks an index holds, and the longest a track may be, in frames
-/// (2.3 hours): a hash is kept with its track and frame in one 32 bit number.
-pub const MAXIMUM_TRACKS: usize = 1 << TRACK_BITS;
-const TRACK_BITS: u32 = 14;
+/// (2.3 hours). The track and frame share a 64 bit number so a large library
+/// is not silently cut off at 16,384 tracks.
+pub const MAXIMUM_TRACKS: usize = u32::MAX as usize;
 const FRAME_BITS: u32 = 18;
 
 /// The fingerprints of a library, searched by hash. Hashes are kept in one
-/// list sorted by hash, which costs 8 bytes a hash and nothing else.
+/// list sorted by hash.
 #[derive(Debug, Clone, Default)]
 pub struct FingerprintIndex {
-    entries: Vec<(u32, u32)>,
+    entries: Vec<(u32, u64)>,
     is_sorted: bool,
     stored_thinning: u32,
     extra_thinning: u32,
@@ -428,7 +428,7 @@ impl FingerprintIndex {
                 .hashes()
                 .iter()
                 .filter(|(_, frame)| *frame < (1 << FRAME_BITS))
-                .map(|(hash, frame)| (*hash, ((track as u32) << FRAME_BITS) | *frame)),
+                .map(|(hash, frame)| (*hash, ((track as u64) << FRAME_BITS) | u64::from(*frame))),
         );
         self.is_sorted = false;
     }
@@ -461,7 +461,7 @@ impl FingerprintIndex {
             .collect()
     }
 
-    fn hits(&self, hash: u32) -> &[(u32, u32)] {
+    fn hits(&self, hash: u32) -> &[(u32, u64)] {
         let start = self.entries.partition_point(|entry| entry.0 < hash);
         let end = start + self.entries[start..].partition_point(|entry| entry.0 == hash);
         &self.entries[start..end]
@@ -589,9 +589,9 @@ impl FingerprintIndex {
             };
             for hash in near {
                 for (_, packed) in self.hits(hash) {
-                    let track = packed >> FRAME_BITS;
+                    let track = (packed >> FRAME_BITS) as u32;
                     let offset =
-                        i64::from(packed & ((1 << FRAME_BITS) - 1)) - i64::from(*query_frame);
+                        (packed & ((1 << FRAME_BITS) - 1)) as i64 - i64::from(*query_frame);
                     if !counted.contains(&(track, offset)) {
                         counted.push((track, offset));
                         *votes.entry((track, offset)).or_default() += 1;
@@ -627,6 +627,24 @@ mod tests {
 
     const TRACK_RATE: u32 = 11_025;
     const TRACK_SECONDS: usize = 60;
+
+    #[test]
+    fn an_index_matches_a_track_beyond_the_old_library_limit() {
+        let track = 20_000;
+        let hashes: Vec<_> = (0..12_u32).map(|frame| (frame + 1, frame)).collect();
+        let query = Fingerprint::from_hashes(hashes.clone());
+        let stored = Fingerprint::from_hashes(
+            hashes
+                .into_iter()
+                .map(|(hash, frame)| (hash, frame + 100))
+                .collect(),
+        );
+        let mut index = FingerprintIndex::new();
+        index.add(track, &stored);
+        index.freeze();
+
+        assert_eq!(index.find(&query).map(|found| found.track), Some(track));
+    }
 
     struct Random(u64);
 
