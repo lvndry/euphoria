@@ -22,6 +22,7 @@ use crate::decks::SuggestionScope;
 use crate::format;
 use crate::inspector_sections::SectionKind;
 use crate::library::{Track, TrackStatus};
+use crate::mixes::keys_related_by;
 use crate::tag_settings::NotationChoice;
 use crate::theme::{Layout, Palette};
 use crate::track_overview::{key_stretches, shows_key_timeline};
@@ -1335,7 +1336,9 @@ fn mixes(app: &EuphoriaApp, room: Room, cx: &mut Context<'_, EuphoriaApp>) -> Op
 
 /// The Camelot wheel of the track's key, `size` pixels square, with the
 /// keys the suggestion filter's moves reach marked unless that is turned
-/// off. Clicking it opens the menu of key moves.
+/// off. Clicking it opens the menu of key moves. When the marks are on but
+/// the moves reach no other key, a line under it says so and opens the
+/// menu too.
 pub(crate) fn key_wheel_of(
     track: &Track,
     app: &EuphoriaApp,
@@ -1343,28 +1346,69 @@ pub(crate) fn key_wheel_of(
     cx: &mut Context<'_, EuphoriaApp>,
 ) -> Option<AnyElement> {
     let key = track.key()?;
-    let emphasized = emphasis_for(
-        &key,
-        &app.decks.filter.mix_options().relations,
-        app.display.show_matching_keys,
-    );
-    Some(
+    let palette = app.theme.palette;
+    let relations = app.decks.filter.mix_options().relations;
+    let emphasized = emphasis_for(&key, &relations, app.display.show_matching_keys);
+    let reaches_nothing = shows_only_same_key_hint(track, app);
+    let button = div()
+        .id("camelot-wheel-button")
+        .flex_shrink_0()
+        .cursor_pointer()
+        .tooltip(|window, cx| Tooltip::new(WHEEL_HINT).build(window, cx))
+        .on_click(cx.listener(|this, event: &ClickEvent, _, cx| {
+            this.open_wheel_menu(event.position(), cx);
+        }))
+        .child(wheel(key.camelot(), emphasized, &palette, size));
+    let hint = reaches_nothing.then(|| {
         div()
-            .id("camelot-wheel-button")
-            .flex_shrink_0()
+            .id("wheel-moves-hint")
+            .w(px(size.max(HINT_SMALLEST_WIDTH)))
+            .text_center()
+            .text_size(LABEL_TEXT_SIZE)
+            .line_height(px(HINT_LINE_HEIGHT))
+            .text_color(palette.text_tertiary)
             .cursor_pointer()
-            .tooltip(|window, cx| Tooltip::new(WHEEL_HINT).build(window, cx))
+            .hover(|style| style.underline())
             .on_click(cx.listener(|this, event: &ClickEvent, _, cx| {
                 this.open_wheel_menu(event.position(), cx);
             }))
-            .child(wheel(key.camelot(), emphasized, &app.theme.palette, size))
+            .child(ONLY_SAME_KEY_HINT)
+            .test_support()
+    });
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .flex_shrink_0()
+            .items_center()
+            .gap(GAP_TIGHT)
+            .child(button)
+            .children(hint)
             .children(wheel_menu(app, cx))
             .into_any_element(),
     )
 }
 
 /// What hovering the wheel outside its cells says.
-const WHEEL_HINT: &str = "Click for the key moves the wheel marks";
+const WHEEL_HINT: &str = "Click to choose key moves";
+/// The line under the wheel when the key moves reach no other key.
+const ONLY_SAME_KEY_HINT: &str = "Only same key is ticked";
+const HINT_LINE_HEIGHT: f32 = 14.0;
+/// The narrowest the line under the wheel is, so it wraps on two lines at
+/// most beside a small wheel.
+const HINT_SMALLEST_WIDTH: f32 = 100.0;
+/// The height the line under the wheel takes from the wheel in the strip,
+/// two lines and the gap above them.
+const HINT_ROOM: f32 = 2.0 * HINT_LINE_HEIGHT + 4.0;
+
+/// Whether the wheel of `track` has the line under it that says only the
+/// same key is ticked.
+fn shows_only_same_key_hint(track: &Track, app: &EuphoriaApp) -> bool {
+    app.display.show_matching_keys
+        && track.key().is_some_and(|key| {
+            keys_related_by(&key, &app.decks.filter.mix_options().relations).is_empty()
+        })
+}
 
 /// The wheel alone, as tall as the strip allows, for the Deck strip.
 fn key_wheel(
@@ -1373,7 +1417,12 @@ fn key_wheel(
     room: Room,
     cx: &mut Context<'_, EuphoriaApp>,
 ) -> Option<Div> {
-    key_wheel_of(track, app, room.wheel_size(), cx)
+    let hint_room = if shows_only_same_key_hint(track, app) {
+        HINT_ROOM
+    } else {
+        0.0
+    };
+    key_wheel_of(track, app, room.wheel_size() - hint_room, cx)
         .map(|key_wheel| div().flex().items_center().child(key_wheel))
 }
 

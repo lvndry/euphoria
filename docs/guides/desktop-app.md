@@ -191,6 +191,21 @@ A long folder name is cut short; point at it to read the full path. When the tre
 
 If you add a folder that is inside a folder you already added, it appears in the outer folder's tree rather than a second time.
 
+### Look for new and removed files
+
+Euphoria searches your folders when you add them and each time the app opens. To pick up files you added, moved or deleted since then, click the circling arrows beside the **Folders** heading, choose **File > Rescan Folders**, press Command R (Control R on Linux and Windows), or run **Rescan folders** from ⌘K. To look through one folder only, right click it in the tree and choose **Rescan this folder**; the rest of the library is left alone.
+
+While the folders are searched the button dims, and the toolbar says where and how many audio files have turned up, as when you add a folder. Then:
+
+- New files, and new folders holding audio files, join the library and the tree. Only they are analyzed; a file the cache already knows is filled in at once.
+- The track of a file that is gone leaves the library. When a playlist or a favorite holds it, it stays as a [missing file](#missing-files) instead, so you can locate it or remove it. The tracks of a folder on a drive that is not connected are kept.
+- A file moved to another folder under its own name, or renamed in its folder, keeps its track, its playlists, its stars and what you set, when Euphoria knows its audio from the cache, a playlist or a favorite. It is not analyzed again.
+- A file whose size or modification date changed since it was analyzed is analyzed again through the cache, so only new audio is analyzed.
+
+A [toast](#toasts) says what changed, for example "3 new tracks, 1 removed", or "No changes". The selection, the scroll position, the playing track and any open panel stay as they were, and playback never stops. When the selected track was removed, nothing is selected and the toast says so.
+
+Euphoria does not watch your folders while it runs: a file added in Finder shows after a rescan or the next launch.
+
 To give the table more room, fold the sidebar away. Any of these folds it, and the same one brings it back:
 
 - the sidebar button at the left of the toolbar, beside the window buttons, which stays there while the sidebar is folded
@@ -301,13 +316,15 @@ Dragging a row onto deck B is not supported: the decks accept no drops yet. Use 
 
 ### The Camelot wheel
 
-Every theme shows the Camelot wheel for the selected track's key, in its own colours. The minor keys (A) are on the inner ring and the major keys (B) on the outer ring. The selected key is filled in the accent colour. The matching keys, the ones your key moves reach, get an accent tint and an accent ring: by default the neighbours one step either way and the relative major or minor, so at 12A the wheel marks 11A, 1A and 12B. Rest the pointer on a key to see its Camelot code and its name, and on a matching key the move that reaches it, such as *1A, Bb minor, one step on the wheel*.
+Every theme shows the Camelot wheel for the selected track's key, in its own colours. The minor keys (A) are on the inner ring and the major keys (B) on the outer ring. The selected key is filled in the accent colour, the strongest mark on the wheel. The matching keys, the ones your key moves reach, get a tint and a ring in the colour of the move that reaches them: blue for one step on the wheel, amber for relative, teal for wheel diagonal, pink for energy boost, violet for mood change and olive for semitone boost. By default the wheel marks the neighbours one step either way and the relative major or minor, so at 12A it marks 11A and 1A in blue and 12B in amber. Each key is reached by one move at most, so a key never needs two colours. Rest the pointer on a key to see its Camelot code and its name, and on a matching key the move that reaches it, such as *1A, Bb minor, one step on the wheel*. Rest it on the centre or between the keys for *Click to choose key moves*.
 
-Click the wheel to choose the key moves. A small menu opens over the window with a toggle for each move (same key, one step on the wheel, relative, wheel diagonal, energy boost, mood change and semitone boost) and a **Show matching keys** toggle. The moves are the saved ones under [Narrow the suggestions](#narrow-the-suggestions), so changing one here also changes the Next list under the decks and **Mixes well with**. The last move counted stays on. Click outside the menu or press Escape to close it.
+Click the wheel to choose the key moves. A small menu opens over the window with a toggle for each move (same key, one step on the wheel, relative, wheel diagonal, energy boost, mood change and semitone boost), each after a small square in its colour on the wheel, so the menu doubles as the legend. Under them, **Reset to default moves** goes back to same key, one step and relative. Then come the **Show matching keys** toggle and **All key settings…**, which opens the settings scrolled to the same moves. The moves are the saved ones under [Narrow the suggestions](#narrow-the-suggestions), so changing one here also changes the Next list under the decks and **Mixes well with**, and the settings show the change at once. The last move counted stays on. Click outside the menu or press Escape to close it.
+
+When the matching keys are shown but the moves reach no other key, which happens when only **Same key** is ticked, a muted line under the wheel says *Only same key is ticked*. Click it to open the moves. In the Deck theme the wheel gives up the height of that line, so the strip does not grow.
 
 To show only the selected key, turn off **Show matching keys on the wheel** in the settings, under *Showing keys and tempos*, or in the wheel's menu. It is on by default and saved with the other settings.
 
-The colours are checked in every theme: a matching key differs from the other keys by at least 1.5 to 1 in contrast, the selected key differs from a matching one by as much, and the code on every cell reads at 4.5 to 1 or better.
+The colours are checked in every theme, for every move: a matching key differs from the other keys by at least 1.5 to 1 in contrast and its ring by 3 to 1, the selected key differs from a matching one by 1.5 to 1, and the code on every cell reads at 4.5 to 1 or better. The rings of any two moves are told apart in the OKLab colour space, and one step and relative, the two common moves, stay apart for protanopia and deuteranopia too, the two kinds of red-green colour blindness.
 
 In the column themes the wheel sits to the right of the key, tempo and energy boxes, 96 pixels square, so it is in view without scrolling. In the Deck theme it is a square next to the key and tempo in the strip, as tall as the strip allows inside its padding, between 100 and 220 pixels, so it shrinks with the strip and is never hidden. The focus view shows a smaller wheel in its header. The wheel keeps Camelot codes whatever notation the table uses.
 
@@ -611,6 +628,7 @@ Every write ends with one short toast at the bottom centre, above the player bar
 - Tag writes, automatic batches and tag editor saves: "Wrote key and BPM to 18 files", with **Undo** and its shortcut, Command Z. Undo is the same undo as **Tags > Undo Last Tag Write…**, and after it the toast says "Put the old tags back in 18 files".
 - Exports to a DJ program or an M3U8 file, stem exports, shifted copies and mashups: "Exported 575 tracks to rekordbox XML", with **Show in Finder** in place of Undo. An export to rekordbox adds a second line, "In rekordbox, open the XML view to import it."
 - Saving a set as a playlist: a toast with no action, since nothing was written outside Euphoria.
+- [Rescanning the folders](#look-for-new-and-removed-files): "3 new tracks, 1 removed", or "No changes", with no action.
 
 The toast slides up and fades in over 180 ms, stays 10 seconds, and waits while the pointer is over it. One toast shows at a time and a new one replaces the old; replacing a write's toast takes its Undo away, though **Tags > Undo Last Tag Write…** still works. With macOS **Reduce motion** on, it appears at once. Command Z runs a toast's Undo only when no text field has the keyboard; in a field it stays that field's own undo, and without a toast with Undo it undoes the last cue edit.
 
@@ -738,6 +756,9 @@ A choice of one among several, such as the key notation or the DJ program, is a 
 | --- | --- |
 | Key notation | Camelot (8A), musical (Am) or Open Key (1m). One choice for everything: the table, the track detail, the mixes and the key timeline, the keys and labels written to tags, and the exports. The wheel keeps Camelot codes. Search finds a key in any of the three. Older versions asked in two places, one for what is shown and one for the tags; when the two differed, the tag choice is kept, because it changes your files. |
 | Tempo range | House and techno, 90 to 180 (the default); hip hop, 70 to 140; drum and bass, 120 to 200; or a custom range of whole beats per minute, at most an octave wide, such as 80 up to 160. A track counted at half or double speed moves into the range. Nothing is analyzed again, and tags are written with the tempo as shown. A custom range that cannot be used is explained under it, and the last range that worked stays in use. [Choosing the range](../concepts/accuracy.md#choosing-the-range) says more. |
+| Stage column | Adds a Stage column to the track table: warm-up, build or peak. Off by default. |
+| Show matching keys on the wheel | Whether the [Camelot wheel](#the-camelot-wheel) marks the keys your key moves reach, each in the colour of its move. On by default. |
+| Key moves | Right under it, the moves the wheel, the Next list and **Mixes well with** use, each a switch after its colour on the wheel, with a line from 8A: **Same key** (8A to 8A), **One step on the wheel** (7A or 9A), **Relative** (8B), **Wheel diagonal** (7B, or 9A from 8B), **Energy boost** (10A), **Mood change** (11B) and **Semitone boost** (3A). They are the same saved moves as in the wheel's menu and [Narrow the suggestions](#narrow-the-suggestions), so a change in one place shows everywhere at once. **Reset to default moves** goes back to same key, one step and relative. **All key settings…** in the wheel's menu opens the settings here. |
 
 How the metronome sounds:
 

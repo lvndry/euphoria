@@ -173,6 +173,9 @@ pub(crate) struct EuphoriaApp {
     pub(crate) library_change_generation: u64,
     pub(crate) tag_reads: crate::tag_reads::TagReads,
     pub(crate) settings_scroll: gpui::ScrollHandle,
+    /// The part of the settings body to scroll to the top once the body has
+    /// been laid out.
+    settings_scroll_target: Option<usize>,
     pub(crate) folder_scroll: UniformListScrollHandle,
     pub(crate) tree_focus: FocusHandle,
     pub(crate) sort_order: Option<SortOrder>,
@@ -585,6 +588,7 @@ impl EuphoriaApp {
             library_change_generation: 0,
             tag_reads: crate::tag_reads::TagReads::default(),
             settings_scroll: gpui::ScrollHandle::new(),
+            settings_scroll_target: None,
             folder_scroll: UniformListScrollHandle::new(),
             tree_focus: cx.focus_handle(),
             sort_order: None,
@@ -1546,6 +1550,37 @@ impl EuphoriaApp {
         self.suggestion_filter_changed(cx);
     }
 
+    /// Goes back to the app's default key moves: same key, one step on the
+    /// wheel and relative.
+    pub(crate) fn reset_key_moves(&mut self, cx: &mut Context<'_, Self>) {
+        self.decks.filter.relations = None;
+        self.suggestion_filter_changed(cx);
+    }
+
+    /// Opens the settings at the key moves, closing the wheel's menu.
+    pub(crate) fn open_key_moves_setting(&mut self, cx: &mut Context<'_, Self>) {
+        self.close_wheel_menu(cx);
+        self.open_settings(cx);
+        self.settings_scroll_target = Some(views::settings_panel::KEY_MOVES_PART);
+    }
+
+    /// Scrolls the settings to the part asked for. A scroll handle measures
+    /// against the body's bounds from the frame before, so on the frame the
+    /// settings open the scroll waits one frame.
+    fn follow_settings_scroll(&mut self, window: &mut Window) {
+        let Some(part) = self.settings_scroll_target else {
+            return;
+        };
+        if !self.settings_open {
+            self.settings_scroll_target = None;
+        } else if self.settings_scroll.bounds().size.height > px(0.0) {
+            self.settings_scroll.scroll_to_top_of_item(part);
+            self.settings_scroll_target = None;
+        } else {
+            window.request_animation_frame();
+        }
+    }
+
     /// Opens the settings panel.
     pub(crate) fn open_settings(&mut self, cx: &mut Context<'_, Self>) {
         if self.tag_panel.as_ref().is_some_and(TagPanel::is_busy) {
@@ -1907,7 +1942,6 @@ impl EuphoriaApp {
             .selected_track()
             .map(|track| (track.path.clone(), track.duration_seconds()));
         let keeps_playing = !interrupt
-            && selected.is_some()
             && self.player.offers_pause()
             && self.player.track() != selected.as_ref().map(|(path, _)| path.as_path());
         if keeps_playing {
@@ -3058,6 +3092,7 @@ impl Render for EuphoriaApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         self.sync_metronome_tempo();
         self.sync_surface_motion(window);
+        self.follow_settings_scroll(window);
         let palette = self.theme.palette;
         let now = self.sidebar_slide.now();
         self.sidebar_slide.settle(now);

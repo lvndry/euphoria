@@ -700,6 +700,33 @@ impl Library {
         true
     }
 
+    /// Points the track of `old` at `new`, where the same file is now,
+    /// keeping its place, its analysis, its tags and what the user set.
+    /// Returns false when `old` is not in the library or `new` already is.
+    pub(crate) fn move_track(&mut self, old: &Path, new: PathBuf) -> bool {
+        if self.index_by_path.contains_key(&new) {
+            return false;
+        }
+        let Some(index) = self.index_by_path.remove(old) else {
+            return false;
+        };
+        let at_new_path = Track::new(new.clone());
+        let track = &mut self.tracks[index];
+        if track.tag_title.is_none() {
+            track.title_lowercase = at_new_path.title_lowercase;
+        }
+        track.path = at_new_path.path;
+        track.file_name = at_new_path.file_name;
+        track.file_name_lowercase = at_new_path.file_name_lowercase;
+        track.format = at_new_path.format;
+        track.folder = at_new_path.folder;
+        track.folder_lowercase = at_new_path.folder_lowercase;
+        self.index_by_path.insert(new, index);
+        self.revision += 1;
+        self.structure_revision += 1;
+        true
+    }
+
     /// Takes the track of `path` out of the library. The tracks after it
     /// move up one index. Returns false when the file is not in the
     /// library.
@@ -1737,6 +1764,28 @@ mod tests {
         assert_eq!(track.file_name, "Low Tide.aiff");
         assert_eq!(track.format, "AIFF");
         assert_eq!(track.folder, "house");
+    }
+
+    #[test]
+    fn a_moved_track_keeps_its_place_analysis_and_tags_under_its_new_name() {
+        let mut library = sample_library();
+        let old = library.tracks()[0].path.clone();
+        let tagged_title = library.tracks()[0].tag_title.clone();
+        let status = library.tracks()[0].status.clone();
+        let new = PathBuf::from("/music/moved/renamed.flac");
+        assert!(library.move_track(&old, new.clone()));
+        let moved = &library.tracks()[0];
+        assert_eq!(moved.path, new);
+        assert_eq!(moved.file_name, "renamed.flac");
+        assert_eq!(moved.format, "FLAC");
+        assert_eq!(moved.folder, "moved");
+        assert_eq!(moved.tag_title, tagged_title);
+        assert_eq!(moved.status, status);
+        assert_eq!(library.index_of(&new), Some(0));
+        assert_eq!(library.index_of(&old), None);
+        assert!(!library.move_track(&old, PathBuf::from("/music/other.mp3")));
+        let second = library.tracks()[1].path.clone();
+        assert!(!library.move_track(&second, new));
     }
 
     #[test]

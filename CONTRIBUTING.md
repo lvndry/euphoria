@@ -67,6 +67,8 @@ cargo test --workspace
 
 CI also checks TOML formatting with [taplo](https://taplo.tamasfe.dev) and dependencies with [cargo-deny](https://github.com/EmbarkStudios/cargo-deny). You can run both locally with `taplo fmt --check` and `cargo deny check`.
 
+A pull request runs formatting, Clippy, the unit tests and the desktop headless UI tests. The integration tests, the Linux tests and packaging run on `main`; to run them on your branch too, start the CI workflow by hand with `gh workflow run ci.yml --ref <branch>`. [Continuous integration](docs/development/ci.md) lists what runs where.
+
 If your change affects key or tempo accuracy, run the benchmark before and after and put both tables in the pull request:
 
 ```
