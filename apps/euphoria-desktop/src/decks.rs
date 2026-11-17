@@ -720,6 +720,15 @@ impl EuphoriaApp {
         cx.notify();
     }
 
+    /// Shows the decks or hides them, for the Decks command. The decks are
+    /// drawn under the library, so showing them leaves the focus view.
+    pub(crate) fn toggle_decks_from_command(&mut self, cx: &mut Context<'_, Self>) {
+        if !self.decks.is_open {
+            self.close_focus_view(cx);
+        }
+        self.toggle_decks(cx);
+    }
+
     /// Loads the selected track on `deck`.
     pub(crate) fn load_selected_on_deck(&mut self, deck: DeckId, cx: &mut Context<'_, Self>) {
         if let Some(track_index) = self.selected {

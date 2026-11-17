@@ -515,7 +515,7 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
     register_view_command::<PlayNextRow>(view, cx, |view, cx| view.play_next_row(cx));
     register_view_command::<ExportLibrary>(view, cx, |view, cx| view.open_library_export(cx));
     register_view_command::<WriteTags>(view, cx, |view, cx| view.open_tag_writer(cx));
-    register_view_command::<ToggleDecks>(view, cx, |view, cx| view.toggle_decks(cx));
+    register_view_command::<ToggleDecks>(view, cx, |view, cx| view.toggle_decks_from_command(cx));
     register_view_command::<OpenSetBuilder>(view, cx, |view, cx| view.open_set_builder(cx));
     register_view_command::<BuildSet>(view, cx, |view, cx| {
         if view.set_builder.is_open && !view.set_builder.is_building {
