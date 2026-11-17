@@ -721,12 +721,13 @@ impl EuphoriaApp {
     }
 
     /// Shows the decks or hides them, for the Decks command. The decks are
-    /// drawn under the library, so showing them leaves the focus view.
+    /// drawn under the library, so once they open the focus view closes.
     pub(crate) fn toggle_decks_from_command(&mut self, cx: &mut Context<'_, Self>) {
-        if !self.decks.is_open {
+        let was_open = self.decks.is_open;
+        self.toggle_decks(cx);
+        if !was_open && self.decks.is_open {
             self.close_focus_view(cx);
         }
-        self.toggle_decks(cx);
     }
 
     /// Loads the selected track on `deck`.
