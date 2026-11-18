@@ -85,14 +85,12 @@ case "$(uname -m)" in
     ;;
 esac
 
-# The retry runs this as a condition, where set -e does not apply, so each
+# The retry runs these as a condition, where set -e does not apply, so each
 # step returns on failure itself.
-install_onnx_runtime() {
-  local package
-  local folder
+fetch_onnx_runtime() {
+  local package="$1"
+  local folder="$2"
   local library="libonnxruntime.so.${onnx_runtime_version}"
-  package="$(mktemp)" || return 1
-  folder="$(mktemp -d)" || return 1
   curl --silent --show-error --fail --location --output "$package" \
     "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/${onnx_runtime_version}/microsoft.ml.onnxruntime.${onnx_runtime_version}.nupkg" ||
     return 1
@@ -103,6 +101,19 @@ install_onnx_runtime() {
   sudo ln -sf "$library" /usr/local/lib/libonnxruntime.so.1 || return 1
   sudo ln -sf libonnxruntime.so.1 /usr/local/lib/libonnxruntime.so || return 1
   sudo ldconfig || return 1
+}
+
+install_onnx_runtime() {
+  local package
+  local folder
+  local status=0
+  package="$(mktemp)" || return 1
+  if ! folder="$(mktemp -d)"; then
+    rm -f "$package"
+    return 1
+  fi
+  fetch_onnx_runtime "$package" "$folder" || status=$?
   rm -rf "$package" "$folder"
+  return "$status"
 }
 retry install_onnx_runtime
