@@ -79,7 +79,7 @@ Paths without a crate are under `apps/euphoria-desktop/src/`.
 
 **Outcome.** Exports work in every supported program without manual steps, each one checked in the program itself, and energy no longer depends on the comment field, which users overwrite.
 
-**How it fits.** The writers are in `crates/euphoria-core/src/export/` (`rekordbox.rs`, `traktor.rs`, `engine.rs`, `virtualdj.rs`) and the tag writers in `crates/euphoria-core/src/tags/`. Today only rekordbox has been tested in the program, and only for key, tempo and the comment: beat grids and cues in rekordbox, and every route into Traktor, Engine DJ, Serato and VirtualDJ, are checked by Euphoria's own tests only. [DJ program support](../reference/dj-program-support.md) keeps that status per route and is the place to update as each one is tested. Every route writes energy into the comment.
+**How it fits.** The writers are in `crates/euphoria-core/src/export/` (`rekordbox.rs`, `traktor.rs`, `engine.rs`, `virtualdj.rs`) and the tag writers in `crates/euphoria-core/src/tags/`. Today only rekordbox has been tested in the program, and only for key, tempo and the comment: beat grids and cues in rekordbox, and every route into Traktor, Engine DJ, Serato and VirtualDJ, are checked by Euphoria's own tests only. [DJ program support](../reference/dj-program-support.md) keeps that status per route and is the place to update as each one is tested. Every route writes energy into the comment, except the VirtualDJ database export, which can put it at the start of `Grouping` instead.
 
 Steps:
 
