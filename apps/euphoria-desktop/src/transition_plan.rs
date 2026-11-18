@@ -27,6 +27,7 @@ use gpui::Context;
 use crate::app::EuphoriaApp;
 use crate::camelot::CamelotPosition;
 use crate::cue_editing::UndoGroup;
+use crate::deck_audio::DeckId;
 use crate::focus::clock;
 use crate::library::Track;
 use crate::views::cues::shown_cues;
@@ -403,6 +404,73 @@ impl EuphoriaApp {
         ))
     }
 
+    /// The state of the plan of the track at `a_index` into the track at
+    /// `b_index`.
+    pub(crate) fn pair_plan_state(&self, a_index: usize, b_index: usize) -> Option<&PlanState> {
+        let library = self.session.library();
+        let a_path = &library.track(a_index)?.path;
+        let b_path = &library.track(b_index)?.path;
+        self.planner.state(&(a_path.clone(), b_path.clone()))
+    }
+
+    /// The tracks on deck A and deck B, when both hold a different one.
+    pub(crate) fn deck_pair_indexes(&self) -> Option<(usize, usize)> {
+        let a_index = self.decks.view(DeckId::A).track_index?;
+        let b_index = self.decks.view(DeckId::B).track_index?;
+        (a_index != b_index).then_some((a_index, b_index))
+    }
+
+    /// The plan of deck A's track into deck B's, once worked out.
+    pub(crate) fn deck_plan(&self) -> Option<&Arc<PlannedTransition>> {
+        let (a_index, b_index) = self.deck_pair_indexes()?;
+        match self.pair_plan_state(a_index, b_index)? {
+            PlanState::Ready(planned) => Some(planned),
+            _ => None,
+        }
+    }
+
+    /// The window the decks show of their plan: the one picked, or the
+    /// best.
+    pub(crate) fn deck_plan_window(&self) -> Option<(&Arc<PlannedTransition>, &CandidateWindow)> {
+        let planned = self.deck_plan()?;
+        let window = planned
+            .window(self.decks.plan_window)
+            .or_else(|| planned.window(0))?;
+        Some((planned, window))
+    }
+
+    /// How the window the decks show sounds, once its plan is worked out.
+    pub(crate) fn deck_window_verdict(&self) -> Option<ClashVerdict> {
+        let (planned, window) = self.deck_plan_window()?;
+        Some(if planned.stems_known() == (true, true) {
+            clash_verdict(window)
+        } else {
+            ClashVerdict::NotChecked
+        })
+    }
+
+    /// Asks for the plan of deck A's track into deck B's.
+    pub(crate) fn request_deck_plan(&mut self, cx: &mut Context<'_, Self>) {
+        if !self.decks.is_open {
+            return;
+        }
+        if let Some((a_index, b_index)) = self.deck_pair_indexes() {
+            self.queue_plans(a_index, vec![b_index], cx);
+        }
+    }
+
+    /// Shows window `index` of the decks' plan on the decks.
+    pub(crate) fn select_deck_window(&mut self, index: usize, cx: &mut Context<'_, Self>) {
+        if self.decks.plan_window == index {
+            return;
+        }
+        if self.plan_source() == Some(crate::planner_playback::PlanSource::Decks) {
+            self.stop_plan_playback(cx);
+        }
+        self.decks.plan_window = index;
+        cx.notify();
+    }
+
     /// What the clash column says for the track at `b_index`.
     pub(crate) fn clash_label(&self, b_index: usize) -> &'static str {
         match self.plan_state(b_index) {
@@ -445,6 +513,18 @@ impl EuphoriaApp {
                 targets.push(mix.track_index);
             }
         }
+        self.queue_plans(a_index, targets, cx);
+    }
+
+    /// Asks for the plans of the track at `a_index` into each of
+    /// `targets`, the first soonest, skipping the ones worked out or queued
+    /// already.
+    pub(crate) fn queue_plans(
+        &mut self,
+        a_index: usize,
+        targets: Vec<usize>,
+        cx: &mut Context<'_, Self>,
+    ) {
         let mut fresh: Vec<PlanJob> = Vec::new();
         for b_index in targets {
             if let Some(job) = self.plan_job(a_index, b_index) {
@@ -716,10 +796,10 @@ impl EuphoriaApp {
             window: index,
             planner_was_open,
         });
-        self.load_on_deck(crate::deck_audio::DeckId::A, a_index, cx);
-        self.load_on_deck(crate::deck_audio::DeckId::B, b_index, cx);
-        self.open_deck_source(crate::deck_audio::DeckId::A, a_seconds, false, cx);
-        self.open_deck_source(crate::deck_audio::DeckId::B, b_seconds, false, cx);
+        self.load_on_deck(DeckId::A, a_index, cx);
+        self.load_on_deck(DeckId::B, b_index, cx);
+        self.open_deck_source(DeckId::A, a_seconds, false, cx);
+        self.open_deck_source(DeckId::B, b_seconds, false, cx);
         self.close_planner(cx);
         self.close_focus_view(cx);
         cx.notify();

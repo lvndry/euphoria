@@ -413,6 +413,9 @@ pub(crate) struct Decks {
     /// is not.
     pub(crate) filter_problem: Option<String>,
     pub(crate) suggestions: Vec<NextTrack>,
+    /// The window of the plan of A into B the decks show, as an index into
+    /// the plan's windows.
+    pub(crate) plan_window: usize,
     pub(crate) mode: DeckMode,
     /// The tracks that layer over deck A's, best first.
     pub(crate) ideas: Vec<MashupIdea>,
@@ -495,6 +498,7 @@ impl Default for Decks {
             filter: SuggestionFilter::default(),
             filter_problem: None,
             suggestions: Vec::new(),
+            plan_window: 0,
             mode: DeckMode::NextTrack,
             ideas: Vec::new(),
             idea_index: None,
@@ -791,6 +795,8 @@ impl EuphoriaApp {
         if deck == DeckId::A {
             self.refresh_suggestions();
         }
+        self.decks.plan_window = 0;
+        self.request_deck_plan(cx);
         self.decks.follow_tempo();
         self.open_deck_source(deck, 0.0, false, cx);
     }

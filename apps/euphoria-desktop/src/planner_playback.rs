@@ -32,6 +32,13 @@ pub(crate) enum PlanPlay {
     B,
 }
 
+/// Whose window the transport plays: the planner's or the decks' own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PlanSource {
+    Planner,
+    Decks,
+}
+
 /// Where the bars of the window lie in each track's own audio.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct PlanTiming {
@@ -103,6 +110,7 @@ enum PlanPhase {
 /// A transport that plays.
 #[derive(Debug, Clone)]
 pub(crate) struct PlanPlayback {
+    source: PlanSource,
     kind: PlanPlay,
     timing: PlanTiming,
     phase: PlanPhase,
@@ -143,6 +151,41 @@ impl EuphoriaApp {
         self.planner.playback.is_some()
     }
 
+    /// Whose window the transport plays, while it plays.
+    pub(crate) fn plan_source(&self) -> Option<PlanSource> {
+        self.planner
+            .playback
+            .as_ref()
+            .map(|playback| playback.source)
+    }
+
+    /// The Test transition button on the decks: plays A into B on the
+    /// window the decks show, or stops it.
+    pub(crate) fn test_deck_transition(&mut self, cx: &mut Context<'_, Self>) {
+        if self.plan_source() == Some(PlanSource::Decks) {
+            self.stop_plan_playback(cx);
+        } else {
+            self.play_plan_from(PlanSource::Decks, PlanPlay::Transition, None, cx);
+        }
+    }
+
+    fn source_window(
+        &self,
+        source: PlanSource,
+    ) -> Option<(&std::sync::Arc<PlannedTransition>, &CandidateWindow)> {
+        match source {
+            PlanSource::Planner => self.planner_window(),
+            PlanSource::Decks => self.deck_plan_window(),
+        }
+    }
+
+    fn source_tracks(&self, source: PlanSource) -> Option<(usize, usize)> {
+        match source {
+            PlanSource::Planner => Some((self.selected?, self.focus.selected_match?)),
+            PlanSource::Decks => self.deck_pair_indexes(),
+        }
+    }
+
     pub(crate) fn toggle_plan_playback(&mut self, cx: &mut Context<'_, Self>) {
         if self.plan_is_playing() {
             self.stop_plan_playback(cx);
@@ -159,22 +202,35 @@ impl EuphoriaApp {
         from_bar: Option<f64>,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some((planned, window)) = self.planner_window() else {
+        self.play_plan_from(PlanSource::Planner, kind, from_bar, cx);
+    }
+
+    /// Plays the window of `source` from the bar `from_bar` of its
+    /// timeline, or from where playing waits.
+    pub(crate) fn play_plan_from(
+        &mut self,
+        source: PlanSource,
+        kind: PlanPlay,
+        from_bar: Option<f64>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some((planned, window)) = self.source_window(source) else {
             return;
         };
         let Some(timing) = PlanTiming::of(planned, window) else {
             return;
         };
-        let (Some(a_index), Some(b_index)) = (self.selected, self.focus.selected_match) else {
+        let Some((a_index, b_index)) = self.source_tracks(source) else {
             return;
         };
-        let from_bar = from_bar
-            .or(self.planner.start_bar)
-            .unwrap_or(-LEAD_IN_BARS)
-            .clamp(
-                -(BARS_BEFORE as f64),
-                timing.total_bars() - BARS_BEFORE as f64,
-            );
+        let waiting_bar = match source {
+            PlanSource::Planner => self.planner.start_bar,
+            PlanSource::Decks => None,
+        };
+        let from_bar = from_bar.or(waiting_bar).unwrap_or(-LEAD_IN_BARS).clamp(
+            -(BARS_BEFORE as f64),
+            timing.total_bars() - BARS_BEFORE as f64,
+        );
         let restore_sync = self
             .planner
             .playback
@@ -187,7 +243,9 @@ impl EuphoriaApp {
         if !self.decks.is_open {
             return;
         }
-        self.planner.start_bar = Some(from_bar);
+        if source == PlanSource::Planner {
+            self.planner.start_bar = Some(from_bar);
+        }
         self.decks.sync = false;
         let needs_a = kind != PlanPlay::B;
         let needs_b = kind != PlanPlay::A;
@@ -232,6 +290,7 @@ impl EuphoriaApp {
             .map_or(0, |playback| playback.generation)
             + 1;
         self.planner.playback = Some(PlanPlayback {
+            source,
             kind,
             timing,
             phase: PlanPhase::Loading,
@@ -271,10 +330,14 @@ impl EuphoriaApp {
         if playback.generation != generation {
             return false;
         }
-        let still_planned = self.planner.is_open
+        let source_open = match playback.source {
+            PlanSource::Planner => self.planner.is_open,
+            PlanSource::Decks => true,
+        };
+        let still_planned = source_open
             && self.decks.is_open
             && self
-                .planner_window()
+                .source_window(playback.source)
                 .and_then(|(planned, window)| PlanTiming::of(planned, window))
                 == Some(playback.timing);
         if !still_planned {
@@ -345,7 +408,12 @@ impl EuphoriaApp {
                     _ => timing.bar_of_a(a_seconds),
                 };
                 let finished = needed.iter().all(|deck| self.decks.is_finished(*deck));
-                if position >= end_bar && kind == PlanPlay::Transition || finished {
+                let through = position >= end_bar && kind == PlanPlay::Transition;
+                if through && playback.source == PlanSource::Decks && !finished {
+                    self.hand_decks_over_after_transition(cx);
+                    return false;
+                }
+                if through || finished {
                     self.stop_plan_playback(cx);
                     return false;
                 }
@@ -376,6 +444,18 @@ impl EuphoriaApp {
                 self.decks.send(DeckCommand::Pause(deck));
             }
         }
+    }
+
+    /// Ends a transition played from the decks with both still playing and
+    /// the crossfader on B, where the transition left the sound.
+    fn hand_decks_over_after_transition(&mut self, cx: &mut Context<'_, Self>) {
+        let Some(playback) = self.planner.playback.take() else {
+            return;
+        };
+        self.decks.sync = playback.restore_sync;
+        self.decks.crossfader = 1.0;
+        self.decks.apply_gains();
+        cx.notify();
     }
 
     /// Stops the sound, keeps the playhead where it was, and gives the
