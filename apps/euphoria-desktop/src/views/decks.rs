@@ -58,6 +58,42 @@ fn deck_number(deck: DeckId) -> usize {
     }
 }
 
+/// What a number on Euphoria's energy scale means.
+pub(crate) const ENERGY_SCALE: &str = "On Euphoria's own scale from 1 to 10: 1 to 3 is calm, 4 to 6 a steady groove, 7 to 8 full and busy, 9 to 10 relentless.";
+
+/// What a suggestion's set stage means.
+pub(crate) const STAGE_MEANING: &str =
+    "Where a track like this usually goes in a set, from its tempo and loudness among your tracks.";
+
+/// The tooltip of a suggestion's energy: how it moves from deck A, then
+/// what the number means.
+pub(crate) fn energy_hint(move_hint: &str) -> String {
+    format!("{move_hint}. {ENERGY_SCALE}")
+}
+
+/// The set stage a suggestion row shows for the track at `track_index`.
+pub(crate) fn suggestion_stage_label(
+    library: &crate::library::Library,
+    track_index: usize,
+) -> Option<&'static str> {
+    library.stage_at(track_index).map(|stage| stage.label())
+}
+
+/// The tooltip of an energy direction button.
+pub(crate) fn direction_hint(direction: EnergyDirection) -> &'static str {
+    match direction {
+        EnergyDirection::Up => {
+            "Favors tracks one or two energy points above deck A, on Euphoria's 1 to 10 scale. Key and tempo still count."
+        }
+        EnergyDirection::Same => {
+            "Favors tracks at deck A's energy, on Euphoria's 1 to 10 scale. Key and tempo still count."
+        }
+        EnergyDirection::Down => {
+            "Favors tracks one or two energy points below deck A, on Euphoria's 1 to 10 scale. Key and tempo still count."
+        }
+    }
+}
+
 /// Height of the list of tracks to play next.
 const SUGGESTIONS_HEIGHT: f32 = 150.0;
 
@@ -915,6 +951,7 @@ fn suggestions(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
                 decks.direction == direction,
                 &palette,
             )
+            .tooltip(move |window, cx| Tooltip::new(direction_hint(direction)).build(window, cx))
             .on_click(cx.listener(move |this, _, _, cx| this.set_energy_direction(direction, cx)))
             .test_support()
         })
@@ -1100,6 +1137,7 @@ fn suggestion_rows(
     let rows = decks.suggestions.iter().filter_map(|suggestion| {
         let track = library.track(suggestion.track_index)?;
         let track_index = suggestion.track_index;
+        let stage = suggestion_stage_label(library, track_index);
         let tempo = suggestion
             .tempo_difference_percent
             .map(format::signed_percent)
@@ -1167,12 +1205,25 @@ fn suggestion_rows(
                         .font_features(crate::views::tabular_digits())
                         .text_color(palette.text_secondary)
                         .when_some(energy, |cell, energy| {
-                            let hint = energy.hint.unwrap_or_default();
+                            let hint = energy_hint(&energy.hint.unwrap_or_default());
                             cell.child(energy.text).tooltip(move |window, cx| {
                                 Tooltip::new(hint.clone()).build(window, cx)
                             })
                         }),
                 )
+                .child(match stage {
+                    Some(label) => div()
+                        .id(("suggestion-stage", track_index))
+                        .w(px(64.0))
+                        .flex_shrink_0()
+                        .text_size(SMALL_TEXT_SIZE)
+                        .text_color(palette.text_secondary)
+                        .child(label)
+                        .tooltip(|window, cx| Tooltip::new(STAGE_MEANING).build(window, cx))
+                        .test_support()
+                        .into_any_element(),
+                    None => div().w(px(64.0)).flex_shrink_0().into_any_element(),
+                })
                 .child(
                     div()
                         .w(px(96.0))
@@ -1220,4 +1271,31 @@ fn suggestion_rows(
             }))
             .test_support(),
     )
+}
+
+#[cfg(test)]
+mod energy_wording_tests {
+    use super::*;
+
+    #[test]
+    fn the_energy_tooltip_says_how_it_moves_then_what_the_number_means() {
+        let hint = energy_hint("Energy 7, 2 higher than deck A");
+        assert!(hint.starts_with("Energy 7, 2 higher than deck A. "));
+        assert!(hint.ends_with(ENERGY_SCALE));
+        assert!(ENERGY_SCALE.contains("1 to 10"));
+    }
+
+    #[test]
+    fn each_energy_direction_explains_itself_on_the_scale() {
+        for direction in EnergyDirection::ALL {
+            let hint = direction_hint(direction);
+            assert!(hint.contains("1 to 10 scale"), "{direction:?}");
+            assert!(hint.starts_with("Favors"), "{direction:?}");
+            assert!(hint.contains("Key and tempo still count"), "{direction:?}");
+        }
+        assert_ne!(
+            direction_hint(EnergyDirection::Up),
+            direction_hint(EnergyDirection::Down)
+        );
+    }
 }
