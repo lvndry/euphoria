@@ -143,3 +143,43 @@ fn a_corrected_tempo_moves_a_track_to_another_stage(cx: &mut TestAppContext) {
     });
     assert_eq!(after, Some(SetStage::WarmUp));
 }
+
+#[gpui::test]
+fn the_deck_suggestions_show_each_tracks_set_stage(cx: &mut TestAppContext) {
+    let (window, view) = open(cx);
+    click(window, "toggle-decks", cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.load_on_deck(crate::deck_audio::DeckId::A, 0, cx)
+        })
+    });
+    cx.run_until_parked();
+    let rows: Vec<(usize, Option<&'static str>, Option<&'static str>)> = cx.update(|cx| {
+        let app = view.read(cx);
+        let library = app.session.library();
+        app.decks
+            .suggestions
+            .iter()
+            .map(|suggestion| {
+                let index = suggestion.track_index;
+                (
+                    index,
+                    crate::views::decks::suggestion_stage_label(library, index),
+                    library.stage_at(index).map(|stage| stage.label()),
+                )
+            })
+            .collect()
+    });
+    assert!(
+        rows.iter().any(|(_, shown, _)| shown.is_some()),
+        "some suggestions have a stage"
+    );
+    for (index, shown, expected) in rows.iter().take(6) {
+        assert_eq!(shown, expected, "row {index}");
+        assert_eq!(
+            is_shown(window, ("suggestion-stage", *index), cx),
+            expected.is_some(),
+            "row {index}"
+        );
+    }
+}
