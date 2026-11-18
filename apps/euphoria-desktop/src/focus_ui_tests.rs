@@ -866,3 +866,52 @@ fn the_layers_menu_stays_inside_a_short_window(cx: &mut TestAppContext) {
     })
     .unwrap();
 }
+
+#[gpui::test]
+fn opening_the_decks_from_the_focus_view_leaves_it_and_shows_them(cx: &mut TestAppContext) {
+    let (window, view) = open_library(10, cx);
+    click(window, track(3), cx);
+    open_focus(window, cx);
+    assert!(is_open(&view, cx));
+
+    cx.update_window(window, |_, window, cx| {
+        window.dispatch_action(Box::new(crate::actions::ToggleDecks), cx);
+    })
+    .unwrap();
+    settle(window, cx);
+
+    assert!(!is_open(&view, cx));
+    assert!(cx.update(|cx| view.read(cx).decks.is_open));
+    assert!(!is_shown(window, "focus-view", cx));
+    assert!(is_shown(
+        window,
+        crate::views::decks::deck_part("deck-load", crate::deck_audio::DeckId::A),
+        cx
+    ));
+}
+
+#[gpui::test]
+fn the_focus_view_stays_when_the_decks_cannot_open(cx: &mut TestAppContext) {
+    let (window, view) = open_window_with(
+        demo::tracks(10),
+        Box::new(crate::playback::testing::NoOutput),
+        Settings::default(),
+        None,
+        gpui::size(px(1280.0), px(800.0)),
+        cx,
+    );
+    click(window, track(3), cx);
+    open_focus(window, cx);
+    assert!(is_open(&view, cx));
+
+    cx.update_window(window, |_, window, cx| {
+        window.dispatch_action(Box::new(crate::actions::ToggleDecks), cx);
+    })
+    .unwrap();
+    settle(window, cx);
+
+    assert!(!cx.update(|cx| view.read(cx).decks.is_open));
+    assert!(is_open(&view, cx));
+    assert!(is_shown(window, "focus-view", cx));
+    assert!(cx.update(|cx| view.read(cx).notice.is_some()));
+}
