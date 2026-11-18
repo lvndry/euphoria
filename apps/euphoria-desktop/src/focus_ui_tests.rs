@@ -915,3 +915,23 @@ fn the_focus_view_stays_when_the_decks_cannot_open(cx: &mut TestAppContext) {
     assert!(is_shown(window, "focus-view", cx));
     assert!(cx.update(|cx| view.read(cx).notice.is_some()));
 }
+
+#[gpui::test]
+fn the_toolbar_decks_button_leaves_the_focus_view_and_shows_the_decks(cx: &mut TestAppContext) {
+    let (window, view) = open_library(10, cx);
+    click(window, track(3), cx);
+    open_focus(window, cx);
+    assert!(is_open(&view, cx));
+
+    click(window, "toggle-decks", cx);
+    settle(window, cx);
+
+    assert!(!is_open(&view, cx));
+    assert!(cx.update(|cx| view.read(cx).decks.is_open));
+    assert!(!is_shown(window, "focus-view", cx));
+    assert!(is_shown(
+        window,
+        crate::views::decks::deck_part("deck-load", crate::deck_audio::DeckId::A),
+        cx
+    ));
+}
