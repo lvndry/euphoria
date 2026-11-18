@@ -37,9 +37,23 @@ else
 fi
 """,
                 "sleep": "#!/usr/bin/env bash\necho \"$1\" >> \"$TEST_STATE/pauses\"\n",
-                "curl": "#!/usr/bin/env bash\necho onnxruntime >> \"$TEST_STATE/installed\"\n",
+                "curl": """#!/usr/bin/env bash
+if [[ "${TEST_DOWNLOAD:-}" == failure ]]; then
+  echo 'curl: (22) The requested URL returned error: 404' >&2
+  exit 22
+fi
+echo onnxruntime >> "$TEST_STATE/installed"
+""",
                 "sha256sum": "#!/usr/bin/env bash\nexit 0\n",
-                "tar": "#!/usr/bin/env bash\nexit 0\n",
+                "unzip": """#!/usr/bin/env bash
+set -eu
+while (($#)); do
+  if [[ "$1" == -d ]]; then
+    touch "$2/libonnxruntime.so"
+  fi
+  shift
+done
+""",
             }
             for name, source in stubs.items():
                 path = root / name
@@ -83,6 +97,15 @@ fi
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(count, 0)
         self.assertEqual(installed.splitlines(), ["onnxruntime"])
+
+    def test_a_failed_download_fails_the_install_after_its_retries(self):
+        result, _, installed, pauses = self.run_install(
+            "failure",
+            {"EUPHORIA_APT_PACKAGES_INSTALLED": "1", "TEST_DOWNLOAD": "failure"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(installed, "")
+        self.assertEqual(pauses, ["15", "30", "45", "60"])
+        self.assertIn("giving up after 5 attempts: install_onnx_runtime", result.stderr)
 
     def test_package_list_is_printed_without_installing_anything(self):
         result, count, installed, _ = self.run_install(
