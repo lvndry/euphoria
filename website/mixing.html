@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mixing in key · Euphoria</title>
+<meta name="description" content="How mixing in key works, why two keys mix, and how accurately Euphoria finds keys with its own neural network.">
+<link rel="canonical" href="https://lvndry.github.io/euphoria/mixing.html">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wdth,wght@75..100,400..700&display=swap">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="index.html" id="brand"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path full" id="brand-path" stroke-width="4"></path></svg><span class="brand-word">Euphoria</span></a>
+    <nav class="nav-links" aria-label="Pages"><a href="features.html">Features</a><a href="mixing.html" aria-current="page">Mixing in key</a></nav>
+    <a class="gh" href="https://github.com/lvndry/euphoria" aria-label="Euphoria on GitHub" title="Euphoria on GitHub"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
+    <a class="btn" href="index.html#install">Download</a>
+  </div>
+</header>
+
+<main id="top">
+  <div class="wrap page-head">
+    <h1>Mix in key.</h1>
+    <p class="lede">Two tracks in compatible keys blend without clashing. Euphoria finds the key of every track, shows which ones mix, and lets you see and hear why.</p>
+  </div>
+
+  <section class="section tone" id="wheel">
+    <div class="wrap split">
+      <div class="rise">
+        <h2>The Camelot wheel.</h2>
+        <p class="lede" style="margin-top:24px">DJs write keys as Camelot codes: a number from 1 to 12 and a letter, A for minor and B for major. Neighbours on the wheel mix. Euphoria shows every key both ways, 8A and A minor.</p>
+        <p style="margin-top:20px;color:var(--soft);max-width:52ch">One step around the wheel is a perfect fifth. Two notes a fifth apart, played into an oscilloscope, draw a 3 to 2 curve. That curve is the Euphoria logo.</p>
+      </div>
+      <figure class="wheel-figure rise"><img src="images/keys-and-camelot/camelot-wheel.svg" alt="The Camelot wheel with minor keys inside and major keys outside, from 8A, A minor. The moves that mix in key are 7A and 9A, a fifth away, and 8B, the relative major. The bolder moves are 7B, the diagonal, 10A, the energy boost, 11B, the mood change, and 3A, the semitone boost."><figcaption>From 8A, A minor: the moves that mix, and the bolder ones.</figcaption></figure>
+    </div>
+  </section>
+
+  <section class="section" id="moves-section">
+    <div class="wrap">
+      <div class="section-head rise">
+        <h2>Every move, as a curve.</h2>
+        <p class="lede">Each move from 8A, drawn as the curve its two home notes trace. The names are the ones the app uses.</p>
+      </div>
+      <div class="moves rise" id="moves"></div>
+    </div>
+  </section>
+
+  <section class="section tone" id="mixing">
+    <div class="wrap mixer">
+      <div class="rise">
+        <h2>Try any two keys.</h2>
+        <p class="lede" style="margin-top:24px">Two notes played into an oscilloscope draw a curve. Keys that mix draw simple ones. Pick a key for this track and the next, and watch.</p>
+        <div class="pickers">
+          <div class="picker">
+            <div class="picker-head"><b>This track</b><span id="this-name">8A · A minor</span></div>
+            <div class="keys" id="this-keys"></div>
+            <div class="mode" role="group" aria-label="This track: minor or major" id="this-mode"><button type="button" data-letter="A" aria-pressed="true">Minor (A)</button><button type="button" data-letter="B" aria-pressed="false">Major (B)</button></div>
+          </div>
+          <div class="picker">
+            <div class="picker-head"><b>Next track</b><span id="next-name">9A · E minor</span></div>
+            <div class="keys" id="next-keys"></div>
+            <div class="mode" role="group" aria-label="Next track: minor or major" id="next-mode"><button type="button" data-letter="A" aria-pressed="true">Minor (A)</button><button type="button" data-letter="B" aria-pressed="false">Major (B)</button></div>
+          </div>
+          <div class="presets" aria-label="Common moves">
+            <button type="button" data-move="1">One step up</button><button type="button" data-move="-1">One step down</button><button type="button" data-move="relative">Relative key</button><button type="button" data-move="diagonal">Wheel diagonal</button><button type="button" data-move="2">Energy boost</button><button type="button" data-move="mood">Mood change</button><button type="button" data-move="7">Semitone boost</button><button type="button" data-move="6">A clash</button>
+          </div>
+        </div>
+      </div>
+      <div class="scope rise" aria-live="polite">
+        <svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" id="mix-ghost" stroke-width="0.4" style="opacity:.18"></path><path class="mark-path" id="mix-curve" data-curve="3:2" data-intro stroke-width="1.4"></path></svg>
+        <div class="verdict" id="verdict">Mixes well.</div>
+        <div class="verdict-sub" id="verdict-sub">One step on the wheel. A minor to E minor is a perfect fifth, 3 : 2.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="accuracy">
+    <div class="wrap">
+      <div class="model rise" style="margin-top:0">
+        <div class="model-text">
+          <h2>Our own key model.</h2>
+          <p class="lede">Euphoria detects keys with drone-v2, a neural network trained by the Euphoria project and built into the app. It runs on your computer in plain Rust, with no GPU and nothing to download.</p>
+          <p class="model-claim"><b>15% more tracks with the exact key</b> than KeyFinder, the free key detector that Mixxx also builds in.</p>
+          <p class="model-note">Measured on the 604 GiantSteps Key previews of electronic dance music. GiantSteps guided drone-v2's development, so this is not a blind test. <a href="https://github.com/lvndry/euphoria/blob/main/docs/concepts/accuracy.md">Every result, including the misses</a>.</p>
+        </div>
+        <div class="bars" role="img" aria-label="Exact key on 604 GiantSteps previews: Euphoria 69.9 percent, Essentia 61.3 percent, KeyFinder 60.6 percent. MIREX score, which also gives part credit to near misses: Euphoria 75.4, Essentia 69.5, KeyFinder 69.4.">
+          <div class="bars-head"><span>Exact key, on 604 dance tracks</span><span>Score</span></div>
+          <div class="bar-row is-ours"><span class="bar-name">Euphoria<small>drone-v2, our own neural network</small></span><span class="bar-track"><i style="--value:69.9"></i></span><b class="num">69.9%</b><b class="num mirex">75.4</b></div>
+          <div class="bar-row"><span class="bar-name">Essentia<small>The open-source audio analysis toolkit from the Music Technology Group in Barcelona, on its best key setting</small></span><span class="bar-track"><i style="--value:61.3"></i></span><b class="num">61.3%</b><b class="num mirex">69.5</b></div>
+          <div class="bar-row"><span class="bar-name">KeyFinder<small>The free key detection app, also built into Mixxx DJ</small></span><span class="bar-track"><i style="--value:60.6"></i></span><b class="num">60.6%</b><b class="num mirex">69.4</b></div>
+          <div class="bars-foot"><span>0%</span><span>50%</span><span>100%</span></div>
+          <p class="bars-more">Score is the standard MIREX score, which also gives part credit to near misses that still mix, such as a key a fifth away. When Euphoria misses, its runner-up is often right: the key or its runner-up is right for 80.8% of tracks.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section tone" id="tools">
+    <div class="wrap">
+      <div class="section-head rise">
+        <h2>Mixing in key, in the app.</h2>
+        <p class="lede">The same rules run everywhere you look for the next track.</p>
+      </div>
+      <div class="tools rise" id="tools-list"></div>
+      <figure class="shot-frame rise" style="margin:48px 0 0"><img src="images/desktop-app/focus-view.png" alt="The focus view in the app: the track's sections, waveform with cues, energy and stem lanes, the two tracks it mixes into with their key relation, and the Plan card describing the transition in a sentence." width="1600" height="968" style="display:block;width:100%;height:auto;border-radius:10px"><figcaption style="margin-top:14px;color:var(--soft);font-size:15px">The focus view: the tracks this one mixes into, with the key relation of each, and the plan for the transition.</figcaption></figure>
+    </div>
+  </section>
+
+  <section class="closing">
+    <div class="wrap closing-grid">
+      <svg viewBox="0 0 64 64" id="closing-mark" aria-hidden="true"><path class="mark-path" data-curve="3:2" data-intro data-on-view stroke-width="2"></path></svg>
+      <div class="rise">
+        <h2>Play it in key.</h2>
+        <div class="hero-cta">
+          <a class="btn" href="https://github.com/lvndry/euphoria/releases/latest/download/Euphoria.dmg">Download for macOS</a>
+          <a class="btn ghost" href="index.html#install">Install on Linux</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Euphoria · free and open source under GPL-3.0-or-later</span>
+    <nav aria-label="Footer"><a href="features.html">Features</a><a href="mixing.html">Mixing in key</a><a href="https://github.com/lvndry/euphoria">GitHub</a><a href="https://github.com/lvndry/euphoria/releases">Releases</a><a href="https://github.com/lvndry/euphoria/tree/main/docs">Docs</a><a href="https://github.com/lvndry/euphoria/issues">Report a problem</a></nav>
+  </div>
+</footer>
+
+<script src="assets/site.js"></script>
+</body>
+</html>
