@@ -7,6 +7,22 @@
 <meta name="description" content="How mixing in key works, why two keys mix, and how accurately Euphoria finds keys with its own neural network.">
 <link rel="canonical" href="https://lvndry.github.io/euphoria/mixing.html">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#F6F5F1">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Euphoria">
+<meta property="og:title" content="Mixing in key · Euphoria">
+<meta property="og:description" content="How mixing in key works, why two keys mix, and how accurately Euphoria finds keys with its own neural network.">
+<meta property="og:url" content="https://lvndry.github.io/euphoria/mixing.html">
+<meta property="og:image" content="https://lvndry.github.io/euphoria/og/mixing.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Euphoria: mix in key. Six curves for the same key, a fifth, a fourth, the relative key, an energy boost and a clash.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Mixing in key · Euphoria">
+<meta name="twitter:description" content="How mixing in key works, why two keys mix, and how accurately Euphoria finds keys with its own neural network.">
+<meta name="twitter:image" content="https://lvndry.github.io/euphoria/og/mixing.png">
+<meta name="twitter:image:alt" content="Euphoria: mix in key. Six curves for the same key, a fifth, a fourth, the relative key, an energy boost and a clash.">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "Euphoria", "item": "https://lvndry.github.io/euphoria/"}, {"@type": "ListItem", "position": 2, "name": "Mixing in key", "item": "https://lvndry.github.io/euphoria/mixing.html"}]}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wdth,wght@75..100,400..700&display=swap">
@@ -45,7 +61,17 @@
         <h2>Every move, as a curve.</h2>
         <p class="lede">Each move from 8A, drawn as the curve its two home notes trace. The names are the ones the app uses.</p>
       </div>
-      <div class="moves rise" id="moves"></div>
+      <div class="moves rise" id="moves">
+        <div class="move"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="1:1" data-loop data-offset="0.00" stroke-width="2.40" style="color:oklch(0.58 0.15 240)"></path></svg><b>Same key</b><span class="from">8A to 8A · 1 : 1</span><p>The same key. Always safe.</p><span class="tag mixes">Mixes in key</span></div>
+        <div class="move"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="3:2" data-loop data-offset="0.35" stroke-width="2.40" style="color:oklch(0.58 0.15 270)"></path></svg><b>One step on the wheel</b><span class="from">8A to 9A · 3 : 2</span><p>A fifth apart. The classic harmonic mix.</p><span class="tag mixes">Mixes in key</span></div>
+        <div class="move"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="4:3" data-loop data-offset="0.70" stroke-width="2.40" style="color:oklch(0.58 0.15 210)"></path></svg><b>One step on the wheel</b><span class="from">8A to 7A · 4 : 3</span><p>A fifth the other way: a fourth up.</p><span class="tag mixes">Mixes in key</span></div>
+        <div class="move"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="6:5" data-loop data-offset="1.05" stroke-width="1.91" style="color:oklch(0.58 0.15 240)"></path></svg><b>Relative</b><span class="from">8A to 8B · 6 : 5</span><p>The other letter, the same number: the same notes in major.</p><span class="tag mixes">Mixes in key</span></div>
+        <div class="move"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="8:5" data-loop data-offset="1.40" stroke-width="1.76" style="color:oklch(0.58 0.15 210)"></path></svg><b>Wheel diagonal</b><span class="from">8A to 7B · 8 : 5</span><p>One step and the other letter. Six of seven notes are shared, so the mood shifts while the blend holds.</p><span class="tag bold">Bolder move</span></div>
+        <div class="move"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="9:8" data-loop data-offset="1.75" stroke-width="1.54" style="color:oklch(0.58 0.15 300)"></path></svg><b>Energy boost</b><span class="from">8A to 10A · 9 : 8</span><p>Two numbers up. The key rises by a whole tone, a clear lift.</p><span class="tag bold">Bolder move</span></div>
+        <div class="move"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="1:1" data-loop data-offset="2.10" stroke-width="2.40" style="color:oklch(0.58 0.15 330)"></path></svg><b>Mood change</b><span class="from">8A to 11B · 1 : 1</span><p>The same home note in the other mode, A minor to A major. A dramatic change of mood.</p><span class="tag bold">Bolder move</span></div>
+        <div class="move"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="16:15" data-loop data-offset="2.45" stroke-width="1.14" style="color:oklch(0.58 0.15 90)"></path></svg><b>Semitone boost</b><span class="from">8A to 3A · 16 : 15</span><p>Seven numbers up. The key rises by a semitone, a dramatic lift whose melodies clash.</p><span class="tag bold">Bolder move</span></div>
+        <div class="move"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="45:32" data-loop data-offset="2.80" stroke-width="0.72" style="color:oklch(0.58 0.15 60)"></path></svg><b>A clash</b><span class="from">8A to 2A · 45 : 32</span><p>Keys a tritone apart share little, so Euphoria never suggests this.</p><span class="tag clash">Clashes</span></div>
+      </div>
     </div>
   </section>
 
@@ -105,7 +131,14 @@
         <h2>Mixing in key, in the app.</h2>
         <p class="lede">The same rules run everywhere you look for the next track.</p>
       </div>
-      <div class="tools rise" id="tools-list"></div>
+      <div class="tools rise" id="tools-list">
+        <a class="tool" href="features.html#library"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="3:2" data-static stroke-width="3.4" style="color:oklch(0.58 0.15 240)"></path></svg></span><span><b>Mixes well with</b><span>Beside every track in the inspector: the tracks that mix after it, ranked by key move, tempo and energy.</span></span></a>
+        <a class="tool" href="features.html#palette"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="3:1" data-static stroke-width="3.4" style="color:oklch(0.58 0.15 60)"></path></svg></span><span><b>Search by key</b><span>Type 8A in the command palette for 8A first, then one step and relative, marked as pills.</span></span></a>
+        <a class="tool" href="features.html#decks"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="1:1" data-static stroke-width="3.4" style="color:oklch(0.58 0.15 180)"></path></svg></span><span><b>Next on deck B</b><span>With a track on deck A, the decks list what mixes well after it. Choose which moves count.</span></span></a>
+        <a class="tool" href="features.html#focus"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="4:3" data-static stroke-width="3.4" style="color:oklch(0.58 0.15 150)"></path></svg></span><span><b>Plan a transition</b><span>Pick the next track in the focus view and get the window, the bars and the key relation in a sentence.</span></span></a>
+        <a class="tool" href="features.html#set"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="5:3" data-static stroke-width="3.4" style="color:oklch(0.58 0.15 270)"></path></svg></span><span><b>Sets in key</b><span>The set builder orders tracks along an energy curve with every mix in a compatible key.</span></span></a>
+        <a class="tool" href="features.html#set"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="5:4" data-static stroke-width="3.4" style="color:oklch(0.58 0.15 330)"></path></svg></span><span><b>The key path of a playlist</b><span>Above a playlist, each key in play order, with a red mark on any step that does not mix.</span></span></a>
+      </div>
       <figure class="shot-frame rise" style="margin:48px 0 0"><img src="images/desktop-app/focus-view.png" alt="The focus view in the app: the track's sections, waveform with cues, energy and stem lanes, the two tracks it mixes into with their key relation, and the Plan card describing the transition in a sentence." width="1600" height="968" style="display:block;width:100%;height:auto;border-radius:10px"><figcaption style="margin-top:14px;color:var(--soft);font-size:15px">The focus view: the tracks this one mixes into, with the key relation of each, and the plan for the transition.</figcaption></figure>
     </div>
   </section>

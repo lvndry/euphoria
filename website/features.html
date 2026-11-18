@@ -7,12 +7,29 @@
 <meta name="description" content="Every area of the Euphoria desktop app: library, Needs review, command palette, focus view, decks, set builder, Live, stems, tags, audio quality and exports.">
 <link rel="canonical" href="https://lvndry.github.io/euphoria/features.html">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#F6F5F1">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Euphoria">
+<meta property="og:title" content="Features · Euphoria">
+<meta property="og:description" content="Every area of the Euphoria desktop app: library, Needs review, command palette, focus view, decks, set builder, Live, stems, tags, audio quality and exports.">
+<meta property="og:url" content="https://lvndry.github.io/euphoria/features.html">
+<meta property="og:image" content="https://lvndry.github.io/euphoria/og/features.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Euphoria: everything it does, beside a screenshot of its library.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Features · Euphoria">
+<meta name="twitter:description" content="Every area of the Euphoria desktop app: library, Needs review, command palette, focus view, decks, set builder, Live, stems, tags, audio quality and exports.">
+<meta name="twitter:image" content="https://lvndry.github.io/euphoria/og/features.png">
+<meta name="twitter:image:alt" content="Euphoria: everything it does, beside a screenshot of its library.">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "Euphoria", "item": "https://lvndry.github.io/euphoria/"}, {"@type": "ListItem", "position": 2, "name": "Features", "item": "https://lvndry.github.io/euphoria/features.html"}]}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wdth,wght@75..100,400..700&display=swap">
 <link rel="stylesheet" href="assets/features.css">
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="tick" viewBox="0 0 64 64"><path class="mark-path full" stroke-width="7"></path></symbol></svg>
 <header class="nav">
   <div class="wrap">
     <a class="brand" href="index.html" id="brand"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path full" id="brand-path" stroke-width="4"></path></svg><span class="brand-word">Euphoria</span></a>
@@ -29,8 +46,125 @@
   </div>
 
   <div class="wrap explorer">
-    <div class="rail" role="tablist" aria-label="Areas of the app" id="rail"></div>
-    <div id="panels"></div>
+    <div class="rail" role="tablist" aria-label="Areas of the app" id="rail">
+      <button class="tab" role="tab" type="button" id="tab-library" aria-controls="panel-library" aria-selected="false" style="--hue:240"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="3:2" data-static stroke-width="3.40"></path></svg></span><span><b>Library and analysis</b><span>Key, tempo and energy for every track, in one table.</span></span></button>
+      <button class="tab" role="tab" type="button" id="tab-review" aria-controls="panel-review" aria-selected="false" style="--hue:30"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="2:1" data-static stroke-width="3.40"></path></svg></span><span><b>Needs review</b><span>The unsure tracks, gathered for you to check by ear.</span></span></button>
+      <button class="tab" role="tab" type="button" id="tab-palette" aria-controls="panel-palette" aria-selected="false" style="--hue:60"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="3:1" data-static stroke-width="3.40"></path></svg></span><span><b>Command palette</b><span>Find any track or command with ⌘K.</span></span></button>
+      <button class="tab" role="tab" type="button" id="tab-focus" aria-controls="panel-focus" aria-selected="false" style="--hue:150"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="4:3" data-static stroke-width="3.40"></path></svg></span><span><b>Focus view</b><span>One track, every lane, and the plan for the next.</span></span></button>
+      <button class="tab" role="tab" type="button" id="tab-decks" aria-controls="panel-decks" aria-selected="false" style="--hue:180"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="1:1" data-static stroke-width="3.40"></path></svg></span><span><b>Decks and mashups</b><span>Try a transition on two decks before the set.</span></span></button>
+      <button class="tab" role="tab" type="button" id="tab-set" aria-controls="panel-set" aria-selected="false" style="--hue:270"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="5:3" data-static stroke-width="3.18"></path></svg></span><span><b>Set builder and playlists</b><span>Draw an energy curve. Get a set in key.</span></span></button>
+      <button class="tab" role="tab" type="button" id="tab-live" aria-controls="panel-live" aria-selected="false" style="--hue:300"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="4:1" data-static stroke-width="3.40"></path></svg></span><span><b>Live</b><span>The key of whatever your Mac is playing.</span></span></button>
+      <button class="tab" role="tab" type="button" id="tab-stems" aria-controls="panel-stems" aria-selected="false" style="--hue:120"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="5:2" data-static stroke-width="3.40"></path></svg></span><span><b>Stems</b><span>Hear the vocals, drums, bass and the rest on their own.</span></span></button>
+      <button class="tab" role="tab" type="button" id="tab-tags" aria-controls="panel-tags" aria-selected="false" style="--hue:330"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="5:4" data-static stroke-width="3.00"></path></svg></span><span><b>Tags</b><span>Write keys into your files, after seeing every change.</span></span></button>
+      <button class="tab" role="tab" type="button" id="tab-quality" aria-controls="panel-quality" aria-selected="false" style="--hue:0"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="7:4" data-static stroke-width="2.71"></path></svg></span><span><b>Audio quality</b><span>Find the fake lossless and the files to replace.</span></span></button>
+      <button class="tab" role="tab" type="button" id="tab-export" aria-controls="panel-export" aria-selected="false" style="--hue:210"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="7:5" data-static stroke-width="2.60"></path></svg></span><span><b>Exports and command line</b><span>Send it all to rekordbox, Traktor, Serato and more.</span></span></button>
+    </div>
+    <div id="panels">
+      <section class="panel" role="tabpanel" id="panel-library" aria-labelledby="tab-library" style="--hue:240">
+        <div class="panel-title"><h2>Library and analysis</h2><p class="pitch">Add a folder and Euphoria reads every track once: its key, its tempo, its energy and its audio quality, cached so the next launch is instant.</p></div>
+        <div class=""><figure class="figure" style="margin:0"><img src="images/desktop-app/main-window-paper.png" alt="The Euphoria library in the Paper theme: a folder tree, a table of tracks with Camelot key chips, tempo and energy, and the inspector of the selected track." loading="eager"></figure></div>
+        <div class="body">
+          <div><p>Keys show in Camelot and in musical notation, tempos come from the beat grid, and energy uses Euphoria's own documented scale from 1 to 10.</p><p>Select a track and the inspector shows its place on the Camelot wheel, its waveform with cues, what else its key and tempo could be, and the tracks that mix well with it.</p><div class="keys"><span class="kbd"><kbd>⌘O</kbd>Add a folder</span><span class="kbd"><kbd>⌘R</kbd>Rescan</span></div><a class="guide" href="https://github.com/lvndry/euphoria/blob/main/docs/guides/desktop-app.md#the-track-table">Read the guide</a></div>
+          <div><h3>What you can do</h3><ul><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Filter by tempo, energy, quality and stage</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Sort and resize every column</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>See the tracks that mix well with the selected one</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Look for new and removed files with one rescan</span></li></ul></div>
+        </div>
+        <div class="next"><button type="button" data-go="export">← Exports and command line</button><button type="button" data-go="review">Needs review →</button></div>
+      </section>
+      <section class="panel" role="tabpanel" id="panel-review" aria-labelledby="tab-review" style="--hue:30">
+        <div class="panel-title"><h2>Needs review</h2><p class="pitch">A key or tempo rated low confidence, a key that disagrees with the file's tags, or a file that could not be analyzed lands in one list.</p></div>
+        <div class=""><figure class="figure" style="margin:0"><img src="images/desktop-app/needs-review-list.png" alt="The Needs review list with tracks marked Key unsure or Tempo unsure, and a piano keyboard that marks the notes of 10A." loading="lazy"></figure></div>
+        <div class="body">
+          <div><p>Each track says why it is there: Key unsure, Tempo unsure, or a key that differs from the one in its tags.</p><p>Play the notes of the key on the keyboard in the inspector and hear which fit, shift the key to hear what it mixes with there, then correct it in one click.</p><a class="guide" href="https://github.com/lvndry/euphoria/blob/main/docs/guides/desktop-app.md#settle-a-track-under-needs-review">Read the guide</a></div>
+          <div><h3>What you can do</h3><ul><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Check a key by ear with the marked notes</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>See the runner-up key and tempo</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Settle a track once it is right</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Corrections are used by every export</span></li></ul></div>
+        </div>
+        <div class="next"><button type="button" data-go="library">← Library and analysis</button><button type="button" data-go="palette">Command palette →</button></div>
+      </section>
+      <section class="panel" role="tabpanel" id="panel-palette" aria-labelledby="tab-palette" style="--hue:60">
+        <div class="panel-title"><h2>Command palette</h2><p class="pitch">One box finds tracks and runs commands. It understands what a DJ types: 8A 124 deep finds tracks in 8A or a key that mixes with it, near 124 BPM, with deep in the name.</p></div>
+        <div class=""><figure class="figure" style="margin:0"><img src="images/desktop-app/command-palette.png" alt="The command palette open over the library, listing recent tracks and common commands." loading="lazy"></figure></div>
+        <div class="body">
+          <div><p>Type a key, a tempo, a tempo range or an energy, mixed with words in any order. The exact key comes first, then one step on the wheel and the relative key.</p><p>Under the tracks, every menu command is listed with its shortcut, so the palette teaches the keyboard as you go.</p><div class="keys"><span class="kbd"><kbd>⌘K</kbd>Open the palette</span></div><a class="guide" href="https://github.com/lvndry/euphoria/blob/main/docs/guides/desktop-app.md#find-anything-with-k">Read the guide</a></div>
+          <div><h3>What you can do</h3><ul><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Keys: 8A, Am, A minor</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Tempos: 124, 120-126</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Energy: e6, e7-9, energy 6+</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Enter selects, ⌘Enter plays</span></li></ul></div>
+        </div>
+        <div class="next"><button type="button" data-go="review">← Needs review</button><button type="button" data-go="focus">Focus view →</button></div>
+      </section>
+      <section class="panel" role="tabpanel" id="panel-focus" aria-labelledby="tab-focus" style="--hue:150">
+        <div class="panel-title"><h2>Focus view</h2><p class="pitch">The focus view gives the selected track the whole window: its sections, a zoomed waveform with cues, its energy and where each stem sounds, on one time axis.</p></div>
+        <div class=""><figure class="figure" style="margin:0"><img src="images/desktop-app/focus-view.png" alt="The focus view: the track's sections, detailed waveform with cue flags, energy lane and stem lanes on one timeline, with the tracks it mixes into and the Plan card." loading="lazy"></figure></div>
+        <div class="body">
+          <div><p>Drag cue flags onto beats, draw a loop with Command held, and change the playing tempo with key lock. Nothing is written to the file.</p><p>Pick a track in Mixes into and the Plan card writes the best transition in a sentence: which sections to mix, how many bars, where to swap the bass, and at what tempo.</p><div class="keys"><span class="kbd"><kbd>Enter</kbd>Open on a row</span><span class="kbd"><kbd>L</kbd>Loop 4 bars</span><span class="kbd"><kbd>Esc</kbd>Back to the library</span></div><a class="guide" href="https://github.com/lvndry/euphoria/blob/main/docs/guides/desktop-app.md#focus-view">Read the guide</a></div>
+          <div><h3>What you can do</h3><ul><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Loops of ½ beat to 16 bars, saved with the track</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Tempo control of 16% either way, with key lock</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Set the planned cues on both tracks in one click</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Open the transition on the decks</span></li></ul></div>
+        </div>
+        <div class="next"><button type="button" data-go="palette">← Command palette</button><button type="button" data-go="decks">Decks and mashups →</button></div>
+      </section>
+      <section class="panel" role="tabpanel" id="panel-decks" aria-labelledby="tab-decks" style="--hue:180">
+        <div class="panel-title"><h2>Decks and mashups</h2><p class="pitch">Two decks under the table, with sync, key lock, loops and a crossfader, so you can hear a transition before you play it out.</p></div>
+        <div class=""><figure class="figure" style="margin:0"><img src="images/desktop-app/decks.png" alt="Two decks under the library table, each with its key, tempo, waveform, cues and loop buttons, and a mixer with volume faders and a crossfader." loading="lazy"></figure></div>
+        <div class="body">
+          <div><p>Each deck shows its key, its tempo, its waveform with bars and cues, and its energy over time. Playback lines up the downbeats of both decks.</p><p>Next on deck B lists what mixes well after deck A, ranked by key move, tempo and the energy you want next. Mashup mode swaps it for tracks that layer over deck A, with a key shift and stems.</p><div class="keys"><span class="kbd"><kbd>⌘⇧D</kbd>Show or hide the decks</span></div><a class="guide" href="https://github.com/lvndry/euphoria/blob/main/docs/guides/desktop-app.md#decks">Read the guide</a></div>
+          <div><h3>What you can do</h3><ul><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Sync to A and key lock, on by default</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Loop 1 to 16 bars on the beat</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Narrow suggestions by key move, tempo, energy and genre</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Export a mashup to a WAV file</span></li></ul></div>
+        </div>
+        <div class="next"><button type="button" data-go="focus">← Focus view</button><button type="button" data-go="set">Set builder and playlists →</button></div>
+      </section>
+      <section class="panel" role="tabpanel" id="panel-set" aria-labelledby="tab-set" style="--hue:270">
+        <div class="panel-title"><h2>Set builder and playlists</h2><p class="pitch">Draw the energy you want across the night, choose a pool of tracks and a length, and Euphoria orders a set along the curve with every mix in a compatible key.</p></div>
+        <div class=""><figure class="figure" style="margin:0"><img src="images/desktop-app/set-builder.png" alt="The set builder after building an 11 track set on the Journey curve: a bar per track against the curve, chips for how far it strays, one rule break and 22 minutes, and the set listed with key moves and tempo steps." loading="lazy"></figure></div>
+        <div class="body">
+          <div><p>Each track becomes a bar on the curve, so you see at once where the set fits and where it does not. A chip row sums up how far it strays, how many rules it breaks and how long it runs.</p><p>Lock tracks, reorder them, play any transition, then render the whole set as one continuous mix or save it as a playlist with its key path, tempo range and energy flow.</p><div class="keys"><span class="kbd"><kbd>⌘⇧B</kbd>Open the set builder</span><span class="kbd"><kbd>⌘Enter</kbd>Build the set</span></div><a class="guide" href="https://github.com/lvndry/euphoria/blob/main/docs/guides/desktop-app.md#build-a-set">Read the guide</a></div>
+          <div><h3>What you can do</h3><ul><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Presets: Warm up, Peak time, Journey</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>From 2 to 60 tracks, from a folder or a playlist</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Render to FLAC, MP3 with chapters, or WAV</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Export playlists to rekordbox or M3U8</span></li></ul></div>
+        </div>
+        <div class="next"><button type="button" data-go="decks">← Decks and mashups</button><button type="button" data-go="live">Live →</button></div>
+      </section>
+      <section class="panel" role="tabpanel" id="panel-live" aria-labelledby="tab-live" style="--hue:300">
+        <div class="panel-title"><h2>Live</h2><p class="pitch">A small panel stays on top and shows the key and tempo of whatever the Mac is playing, with the tracks of your library that mix in.</p></div>
+        <div class=""><figure class="figure" style="margin:0"><img src="images/live/live-panel-paper.png" alt="The Live panel showing the key and tempo of the audio playing on the Mac and the library tracks that mix with it." loading="lazy"></figure></div>
+        <div class="body">
+          <div><p>Play a track in rekordbox, Spotify or a browser, or a turntable through an audio interface, and Live names its key, tempo and energy as it plays. Nothing is recorded.</p><p>It keeps running in the menu bar when you close the window.</p><div class="keys"><span class="kbd"><kbd>⌘⇧L</kbd>Open Live</span></div><a class="guide" href="https://github.com/lvndry/euphoria/blob/main/docs/guides/euphoria-live.md">Read the guide</a></div>
+          <div><h3>What you can do</h3><ul><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Key and tempo of anything playing</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Tracks from your library that mix in</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Stays on top of other windows</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Lives in the menu bar</span></li></ul></div>
+        </div>
+        <div class="next"><button type="button" data-go="set">← Set builder and playlists</button><button type="button" data-go="stems">Stems →</button></div>
+      </section>
+      <section class="panel" role="tabpanel" id="panel-stems" aria-labelledby="tab-stems" style="--hue:120">
+        <div class="panel-title"><h2>Stems</h2><p class="pitch">Separate a track into its four stems with the Demucs model, then play the full track, the acapella or the instrumental, or any stem alone.</p></div>
+        <div class=""><figure class="figure chart" style="margin:0"><img src="images/lanes/lanes.svg" alt="A chart of the lanes under the waveform: where vocals, drums, bass and the rest sound over the length of a track." loading="lazy"><figcaption>The lanes the stems feed: where each part sounds, second by second.</figcaption></figure></div>
+        <div class="body">
+          <div><p>Stems feed the lanes of the focus view and the planner, which use them to find windows where two tracks never sing or play basslines at once.</p><p>Export stems, the acapella or the instrumental as WAV files, also in a shifted key.</p><a class="guide" href="https://github.com/lvndry/euphoria/blob/main/docs/guides/desktop-app.md#stems">Read the guide</a></div>
+          <div><h3>What you can do</h3><ul><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Full track, acapella or instrumental</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Solo or mute any stem in the focus view</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Vocals and bass overlap check in the planner</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Export stems as WAV</span></li></ul></div>
+        </div>
+        <div class="next"><button type="button" data-go="live">← Live</button><button type="button" data-go="tags">Tags →</button></div>
+      </section>
+      <section class="panel" role="tabpanel" id="panel-tags" aria-labelledby="tab-tags" style="--hue:330">
+        <div class="panel-title"><h2>Tags</h2><p class="pitch">Write key, tempo and energy into the tags your DJ software reads, or edit title, artist, genre and other fields across thousands of files at once.</p></div>
+        <div class=""><figure class="figure" style="margin:0"><img src="images/desktop-app/write-tags-preview.png" alt="The Write tags for rekordbox preview: each file with its key, BPM and comment changes, and the rules in use." loading="lazy"></figure></div>
+        <div class="body">
+          <div><p>Every file and every field is listed before anything is written. Keys and tempos already in your files are kept, and unsure values are skipped.</p><p>Undo puts the old tags back byte for byte, from the app or with euphoria tags undo.</p><div class="keys"><span class="kbd"><kbd>⌘⇧T</kbd>Write tags</span><span class="kbd"><kbd>⌘I</kbd>Edit tags</span></div><a class="guide" href="https://github.com/lvndry/euphoria/blob/main/docs/guides/write-tags.md">Read the guide</a></div>
+          <div><h3>What you can do</h3><ul><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Key notation of your choice, Camelot by default</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Find and replace, prefixes and suffixes</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Fill empty key and BPM fields from the analysis</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Undo the last write</span></li></ul></div>
+        </div>
+        <div class="next"><button type="button" data-go="stems">← Stems</button><button type="button" data-go="quality">Audio quality →</button></div>
+      </section>
+      <section class="panel" role="tabpanel" id="panel-quality" aria-labelledby="tab-quality" style="--hue:0">
+        <div class="panel-title"><h2>Audio quality</h2><p class="pitch">Euphoria checks the codec, the real bit rate and where the content stops, and flags files likely re-encoded from a lower quality source.</p></div>
+        <div class=""><figure class="figure chart" style="margin:0"><img src="images/audio-quality/verdicts.svg" alt="A scatter of each encoding's lowest cutoff against its measured bit rate, over the zones of the weak, acceptable and good verdicts." loading="lazy"><figcaption>How the real bit rate and the cutoff decide the verdict.</figcaption></figure></div>
+        <div class="body">
+          <div><p>euphoria quality lists the files to replace, worst first, with the reason: low bit rate, fake lossless or damaged. It writes the list as CSV or as an M3U8 playlist too.</p><p>Prepare files writes copies that play evenly on a club system: to a loudness target, under a true-peak ceiling, with tuning corrected if you want.</p><a class="guide" href="https://github.com/lvndry/euphoria/blob/main/docs/guides/prepare-files.md">Read the guide</a></div>
+          <div><h3>What you can do</h3><ul><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Real bit rate and cutoff, per file</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Fake lossless detection</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Loudness targets from -14 to -7 LUFS</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>ReplayGain tags without touching the audio</span></li></ul></div>
+        </div>
+        <div class="next"><button type="button" data-go="tags">← Tags</button><button type="button" data-go="export">Exports and command line →</button></div>
+      </section>
+      <section class="panel" role="tabpanel" id="panel-export" aria-labelledby="tab-export" style="--hue:210">
+        <div class="panel-title"><h2>Exports and command line</h2><p class="pitch">Analyse once, then send keys, tempos, beat grids, cues and playlists to the library you play from, from the app or the command line.</p></div>
+        <pre class="term"><span class="p">$</span> euphoria analyze ~/Music/"DJ tracks" --json
+      <span class="p">$</span> euphoria quality ~/Music --m3u8 replace.m3u8
+      <span class="p">$</span> euphoria export rekordbox ~/Music --beat-grid --cues
+      <span class="p">$</span> euphoria export traktor ~/Music --beat-grid --cues
+      <span class="p">$</span> euphoria tags write --serato-markers ~/Music
+      <span class="p">$</span> euphoria tags undo</pre>
+        <div class="body">
+          <div><p>rekordbox gets an XML file with keys, tempos, energy, saved loops and a playlist per folder. Traktor gets an NML collection. Serato, Engine DJ and VirtualDJ get their cues and grids written in, after a copy is saved.</p><p>Every export and analysis is also a command, with table or JSON output you can script.</p><a class="guide" href="https://github.com/lvndry/euphoria/blob/main/docs/guides/dj-programs.md">Read the guide</a></div>
+          <div><h3>What you can do</h3><ul><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>rekordbox XML, tested</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Traktor NML, not yet tested</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Serato tags, not yet tested</span></li><li><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#tick"></use></svg><span>Engine DJ and VirtualDJ, not yet tested</span></li></ul></div>
+        </div>
+        <div class="next"><button type="button" data-go="quality">← Audio quality</button><button type="button" data-go="library">Library and analysis →</button></div>
+      </section>
+    </div>
   </div>
 
   <section class="closing">

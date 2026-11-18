@@ -26,6 +26,11 @@ class BuildWebsiteTest(unittest.TestCase):
                 self.assertTrue((output / image).is_file(), image)
             for page in ["features.html", "mixing.html"]:
                 self.assertIn(page, build_website.references(build_website.SOURCE)[1])
+            for social in ["og/home.png", "og/features.png", "og/mixing.png"]:
+                self.assertTrue((output / social).is_file(), social)
+            sitemap = (output / "sitemap.xml").read_text(encoding="utf-8")
+            for url in ["", "features.html", "mixing.html"]:
+                self.assertIn(f"<loc>{build_website.SITE_URL}{url}</loc>", sitemap)
             for unpublished in build_website.NOT_PUBLISHED:
                 self.assertFalse((output / unpublished).exists(), unpublished)
 
@@ -35,7 +40,9 @@ class BuildWebsiteTest(unittest.TestCase):
             source = root / "website"
             source.mkdir()
             (source / "index.html").write_text(
-                '<img src="images/gone/shot.png"><a href="nowhere.html#top">x</a>', encoding="utf-8"
+                '<img src="images/gone/shot.png"><a href="nowhere.html#top">x</a>'
+            f'<meta property="og:image" content="{build_website.SITE_URL}og/gone.png">',
+            encoding="utf-8",
             )
             images = root / "images"
             images.mkdir()
@@ -43,7 +50,7 @@ class BuildWebsiteTest(unittest.TestCase):
             favicon.write_text("<svg/>", encoding="utf-8")
             output = root / "site"
             missing = build_website.build(source, images, favicon, output)
-            self.assertEqual(missing, ["nowhere.html", "images/gone/shot.png"])
+            self.assertEqual(missing, ["nowhere.html", "og/gone.png", "images/gone/shot.png"])
             self.assertFalse(output.exists())
 
 

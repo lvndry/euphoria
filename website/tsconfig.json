@@ -8,5 +8,5 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "skipLibCheck": true
   },
-  "include": ["assets/*.js"]
+  "include": ["assets/*.js", "types.d.ts"]
 }

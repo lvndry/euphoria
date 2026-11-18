@@ -7,6 +7,22 @@
 <meta name="description" content="Euphoria finds the key, tempo and energy of every track in your collection, so you can mix in key. Free, open source and fully offline.">
 <link rel="canonical" href="https://lvndry.github.io/euphoria/">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#F6F5F1">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Euphoria">
+<meta property="og:title" content="Euphoria · Every track, in key">
+<meta property="og:description" content="Euphoria finds the key, tempo and energy of every track in your collection, so you can mix in key. Free, open source and fully offline.">
+<meta property="og:url" content="https://lvndry.github.io/euphoria/">
+<meta property="og:image" content="https://lvndry.github.io/euphoria/og/home.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Euphoria: every track, in key. The logo's curve beside the words, on a light background.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Euphoria · Every track, in key">
+<meta name="twitter:description" content="Euphoria finds the key, tempo and energy of every track in your collection, so you can mix in key. Free, open source and fully offline.">
+<meta name="twitter:image" content="https://lvndry.github.io/euphoria/og/home.png">
+<meta name="twitter:image:alt" content="Euphoria: every track, in key. The logo's curve beside the words, on a light background.">
+<script type="application/ld+json">[{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Euphoria", "description": "Euphoria finds the key, tempo and energy of every track in your collection, so you can mix in key. Free, open source and fully offline.", "url": "https://lvndry.github.io/euphoria/", "applicationCategory": "MultimediaApplication", "applicationSubCategory": "DJ software", "operatingSystem": "macOS 15 or later on Apple Silicon; Linux on x86_64", "downloadUrl": "https://github.com/lvndry/euphoria/releases/latest/download/Euphoria.dmg", "isAccessibleForFree": true, "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}, "license": "https://www.gnu.org/licenses/gpl-3.0.html", "image": "https://lvndry.github.io/euphoria/og/home.png", "screenshot": "https://lvndry.github.io/euphoria/images/desktop-app/main-window-paper.png", "sameAs": ["https://github.com/lvndry/euphoria"], "featureList": ["Musical key detection in Camelot and musical notation, with its own neural network", "Tempo detection from the beat grid", "Energy rating from 1 to 10", "Audio quality checks", "Exports to rekordbox, Traktor, Serato, Engine DJ and VirtualDJ"]}, {"@context": "https://schema.org", "@type": "WebSite", "name": "Euphoria", "url": "https://lvndry.github.io/euphoria/"}]</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wdth,wght@75..100,400..700&display=swap">
@@ -39,7 +55,14 @@
           <svg viewBox="0 0 64 64" role="img" aria-label="The Euphoria mark: the curve two notes a perfect fifth apart trace on an oscilloscope"><path class="mark-path" data-curve="3:2" data-intro stroke-width="1.5"></path></svg>
         </div>
       </div>
-      <div class="intervals" id="intervals" aria-label="The curves of the intervals between keys"></div>
+      <div class="intervals" id="intervals" aria-label="The curves of the intervals between keys">
+        <div class="interval"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="1:1" data-loop data-offset="1.20" stroke-width="2.60" style="color:oklch(0.6 0.14 240)"></path></svg><b>Same key</b><span>8A to 8A · 1 : 1</span></div>
+        <div class="interval"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="3:2" data-loop data-offset="1.65" stroke-width="2.60" style="color:oklch(0.6 0.14 270)"></path></svg><b>Perfect fifth</b><span>8A to 9A · 3 : 2</span></div>
+        <div class="interval"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="4:3" data-loop data-offset="2.10" stroke-width="2.60" style="color:oklch(0.6 0.14 210)"></path></svg><b>Perfect fourth</b><span>8A to 7A · 4 : 3</span></div>
+        <div class="interval"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="6:5" data-loop data-offset="2.55" stroke-width="2.07" style="color:oklch(0.6 0.14 240)"></path></svg><b>Relative major</b><span>8A to 8B · 6 : 5</span></div>
+        <div class="interval"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="9:8" data-loop data-offset="3.00" stroke-width="1.67" style="color:oklch(0.6 0.14 300)"></path></svg><b>Energy boost</b><span>8A to 10A · 9 : 8</span></div>
+        <div class="interval"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="45:32" data-loop data-offset="3.45" stroke-width="0.78" style="color:oklch(0.6 0.14 60)"></path></svg><b>A clash</b><span>8A to 2A · 45 : 32</span></div>
+      </div>
     </div>
   </section>
 
