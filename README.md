@@ -22,10 +22,10 @@ Available now:
 - `euphoria analyze`, a command line tool with table and JSON output
 - `euphoria quality`, which lists the files to replace, worst first, with why: low bit rate, fake lossless or damaged, also as CSV or an M3U8 playlist
 - `euphoria export rekordbox`, which writes keys, tempos, energy ratings and a playlist per folder as a rekordbox XML file
-- `euphoria export traktor`, which writes a Traktor NML collection with keys, tempos and playlists, plus beat grids and cues with `--beat-grid` and `--cues`; importing it in Traktor has not yet been tested
-- `euphoria export engine`, which writes keys, tempos, beat grids and hot cues into the tracks of your Engine DJ library after saving a copy; not yet tested in Engine DJ
-- `euphoria export virtualdj`, which writes keys, tempos, beat grids, cues and energy into the songs of your VirtualDJ database after saving a copy; not yet tested in VirtualDJ
-- `euphoria tags write --serato-markers`, which writes cue points and beat grids into the tags Serato DJ reads, keeping the cues already there; not yet tested in Serato
+- `euphoria export traktor`, which writes a Traktor NML collection with keys, tempos and playlists, plus beat grids and cues with `--beat-grid` and `--cues`
+- `euphoria export engine`, which writes keys, tempos, beat grids and hot cues into the tracks of your Engine DJ library after saving a copy
+- `euphoria export virtualdj`, which writes keys, tempos, beat grids, cues and energy into the songs of your VirtualDJ database after saving a copy
+- `euphoria tags write --serato-markers`, which writes cue points and beat grids into the tags Serato DJ reads, keeping the cues already there
 - `euphoria tags write`, which writes key, tempo and energy into the tags of your files after showing every change, `euphoria tags set`, which edits title, artist, genre and other fields across many files with find and replace, and `euphoria tags undo`, which puts the old tags back byte for byte
 - MP3, M4A and MP4 (AAC or ALAC), FLAC, Ogg Vorbis, WAV and AIFF
 - A desktop app for macOS, downloadable below: see the [desktop app guide](docs/guides/desktop-app.md)
