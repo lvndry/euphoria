@@ -171,7 +171,7 @@ def main():
                 "command-palette",
                 {"theme": "paper", "selected": house},
                 OPEN_COMMAND_PALETTE,
-                OPENS_A_PANEL,
+                CHANGES_THE_VIEW,
             ),
         ]
         wanted = set(sys.argv[1:])
