@@ -1151,6 +1151,96 @@ fn drag_edge_to(window: &mut gpui::Window, released_at: Point<gpui::Pixels>, cx:
     window.render_frame(cx);
 }
 
+fn open_with_decks(
+    window_size: gpui::Size<gpui::Pixels>,
+    cx: &mut TestAppContext,
+) -> (AnyWindowHandle, Entity<EuphoriaApp>) {
+    let (window, view) = open_arranged(ThemeName::Slate, Panels::default(), window_size, cx);
+    cx.update(|cx| view.update(cx, |app, cx| app.toggle_decks(cx)));
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.render_frame(cx);
+    })
+    .unwrap();
+    (window, view)
+}
+
+fn drag_decks_edge_to(window: &mut gpui::Window, pointer_y: f32, cx: &mut gpui::App) {
+    window.render_frame(cx);
+    let pressed_at = window.find("decks-edge").bounds().center();
+    window.drag(pressed_at, gpui::point(pressed_at.x, px(pointer_y)), cx);
+    window.render_frame(cx);
+    window.render_frame(cx);
+}
+
+fn decks_height(window: &mut gpui::Window) -> gpui::Pixels {
+    window.find("decks").bounds().size.height
+}
+
+fn column_bounds(view: &Entity<EuphoriaApp>, cx: &mut gpui::App) -> Bounds<gpui::Pixels> {
+    view.read(cx)
+        .decks_column_bounds
+        .get()
+        .expect("the column was drawn")
+}
+
+#[gpui::test]
+fn dragging_the_top_of_the_decks_down_gives_the_table_more_rows(cx: &mut TestAppContext) {
+    let (window, view) = open_with_decks(USUAL_WINDOW, cx);
+    cx.update_window(window, |_, window, cx| {
+        let fitted = decks_height(window);
+        let edge_y = window.find("decks-edge").bounds().center().y;
+
+        drag_decks_edge_to(window, edge_y / px(1.0) + 200.0, cx);
+        assert!((decks_height(window) - (fitted - px(200.0))).abs() <= px(1.0));
+        let edge_moved_to = window.find("decks-edge").bounds().center().y;
+        assert!(
+            (edge_moved_to - (edge_y + px(200.0))).abs() <= px(1.0),
+            "the edge follows the pointer"
+        );
+
+        drag_decks_edge_to(window, USUAL_WINDOW.height / px(1.0) - 2.0, cx);
+        assert_eq!(decks_height(window), px(crate::panels::SHORTEST_DECKS));
+
+        drag_decks_edge_to(window, 0.0, cx);
+        let column = column_bounds(&view, cx);
+        let table_height = window.find("decks").bounds().top() - column.top();
+        assert!(
+            (table_height - px(crate::panels::SHORTEST_TABLE)).abs() <= px(1.0),
+            "dragged up, the decks stop where the table keeps its shortest height: {table_height:?}"
+        );
+        assert!(decks_height(window) <= fitted);
+    })
+    .unwrap();
+    cx.update(|cx| assert!(view.read(cx).panels.decks_height.is_some()));
+
+    cx.update_window(window, |_, window, cx| {
+        drag_decks_edge_to(window, USUAL_WINDOW.height / px(1.0) - 2.0, cx);
+        window.double_click("decks-edge", cx);
+        window.render_frame(cx);
+        window.render_frame(cx);
+    })
+    .unwrap();
+    cx.update(|cx| assert_eq!(view.read(cx).panels, Panels::default()));
+}
+
+#[gpui::test]
+fn dragged_decks_leave_the_table_its_shortest_height_in_the_smallest_window(
+    cx: &mut TestAppContext,
+) {
+    let (window, view) = open_with_decks(SMALLEST_WINDOW, cx);
+    cx.update(|cx| view.update(cx, |app, _| app.panels.decks_height = Some(5_000)));
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.render_frame(cx);
+        let column = column_bounds(&view, cx);
+        let decks_top = window.find("decks").bounds().top();
+        assert!(decks_top - column.top() >= px(crate::panels::SHORTEST_TABLE));
+        assert!(window.try_find(track(0)).is_some(), "a row stays visible");
+    })
+    .unwrap();
+}
+
 #[gpui::test]
 fn dragging_the_edge_of_the_inspector_resizes_it_between_its_limits(cx: &mut TestAppContext) {
     let (window, view) = open_arranged(ThemeName::Slate, Panels::default(), USUAL_WINDOW, cx);

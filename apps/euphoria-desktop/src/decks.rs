@@ -814,6 +814,9 @@ impl EuphoriaApp {
         crate::mashup::apply_stem_levels(view);
         self.decks.send(DeckCommand::Pause(deck));
         self.decks.waveform_tasks[index(deck)] = self.load_deck_waveform(&path, track.bpm(), cx);
+        if self.decks.view(deck).stem_files.is_none() {
+            self.scan_for_stems(cx);
+        }
         if deck == DeckId::A {
             self.refresh_suggestions();
         }
