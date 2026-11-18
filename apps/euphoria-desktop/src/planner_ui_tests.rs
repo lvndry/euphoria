@@ -1732,10 +1732,15 @@ fn each_suggestion_says_how_its_best_window_sounds(cx: &mut TestAppContext) {
     let labels = suggestion_labels(&setup, cx);
     assert!(!labels.is_empty());
     for (index, label) in &labels {
-        assert!(
-            ["Clean", "Vocals overlap", "Bass overlap"].contains(label),
-            "{index}: {label}"
-        );
+        let expected = cx.update(|cx| {
+            let app = setup.view.read(cx);
+            let Some(PlanState::Ready(planned)) = app.pair_plan_state(0, *index) else {
+                panic!("{index}: the plan is not ready");
+            };
+            assert_eq!(planned.stems_known(), (true, true), "{index}");
+            crate::transition_plan::clash_verdict(planned.window(0).expect("a window")).label()
+        });
+        assert_eq!(*label, expected, "row {index} shows its own pair's verdict");
         assert!(is_shown(setup.window, ("suggestion-verdict", *index), cx));
     }
 
