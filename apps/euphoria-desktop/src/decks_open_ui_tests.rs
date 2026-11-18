@@ -195,3 +195,64 @@ fn closing_the_decks_drops_an_open_still_on_its_way(cx: &mut TestAppContext) {
         assert!(!decks.view(DeckId::B).playing);
     });
 }
+
+#[gpui::test]
+fn move_to_a_shows_only_once_deck_b_has_its_track(cx: &mut TestAppContext) {
+    let fixture = open(cx);
+    cx.update(|cx| {
+        fixture
+            .view
+            .update(cx, |app, cx| app.load_on_deck(DeckId::B, fixture.flac, cx))
+    });
+    settle(fixture.window, cx);
+    assert!(!crate::ui_tests::is_shown(
+        fixture.window,
+        "deck-move-to-a",
+        cx
+    ));
+
+    fixture.output.finish_opening();
+    settle(fixture.window, cx);
+    assert!(crate::ui_tests::is_shown(
+        fixture.window,
+        "deck-move-to-a",
+        cx
+    ));
+}
+
+#[gpui::test]
+fn deck_b_plays_on_untouched_when_move_to_a_cannot_open_the_track(cx: &mut TestAppContext) {
+    let fixture = open(cx);
+    let mp3 = path_of(&fixture, fixture.mp3, cx);
+    cx.update(|cx| {
+        fixture.view.update(cx, |app, cx| {
+            app.load_on_deck(DeckId::A, fixture.flac, cx);
+            app.load_on_deck(DeckId::B, fixture.mp3, cx);
+        })
+    });
+    fixture.output.finish_opening();
+    fixture.output.finish_opening();
+    settle(fixture.window, cx);
+    cx.update(|cx| {
+        fixture
+            .view
+            .update(cx, |app, cx| app.toggle_deck_play(DeckId::B, cx))
+    });
+    settle(fixture.window, cx);
+
+    cx.update(|cx| fixture.view.update(cx, |app, cx| app.move_b_to_a(cx)));
+    settle(fixture.window, cx);
+    fixture.output.fail_opening();
+    settle(fixture.window, cx);
+
+    cx.update(|cx| {
+        let decks = &fixture.view.read(cx).decks;
+        let deck_b = decks.view(DeckId::B);
+        assert_eq!(deck_b.track_index, Some(fixture.mp3));
+        assert_eq!(deck_b.path.as_deref(), Some(mp3.as_path()));
+        assert!(deck_b.playing, "B keeps playing");
+        assert_eq!(deck_b.problem, None);
+        assert!(decks.view(DeckId::A).problem.is_some());
+        assert!(!decks.view(DeckId::A).playing);
+    });
+}

@@ -1694,3 +1694,39 @@ fn test_transition_plays_a_into_b_and_leaves_both_decks_playing(cx: &mut TestApp
         assert!(!app.decks.view(DeckId::A).playing && !app.decks.view(DeckId::B).playing);
     });
 }
+
+#[gpui::test]
+fn moving_b_to_a_during_a_test_transition_ends_it_without_stopping_the_sound(
+    cx: &mut TestAppContext,
+) {
+    use crate::deck_audio::DeckId;
+    let setup = open_plans("deck-move-during-transition", &[0, 1], cx);
+    load_pair_on_decks(&setup, cx);
+    let timing = deck_timing(&setup, cx);
+    click(setup.window, "deck-test-transition", cx);
+    assert!(tick(&setup, 0.0, 0.0, cx));
+    assert!(tick(&setup, timing.a_seconds_at(-0.3), 0.0, cx));
+    assert!(tick(
+        &setup,
+        timing.a_seconds_at(1.0),
+        timing.b_seconds_at(1.0),
+        cx
+    ));
+    let b_index = cx.update(|cx| {
+        let app = setup.view.read(cx);
+        assert!(app.decks.view(DeckId::B).playing, "the mix has started");
+        app.decks.view(DeckId::B).track_index
+    });
+
+    cx.update(|cx| setup.view.update(cx, |app, cx| app.move_b_to_a(cx)));
+
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        assert!(app.planner.playback.is_none(), "the transition is over");
+        assert_eq!(app.decks.view(DeckId::A).track_index, b_index);
+        assert!(
+            app.decks.view(DeckId::B).playing,
+            "B plays on until A has opened"
+        );
+    });
+}

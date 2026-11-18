@@ -8,7 +8,9 @@
 use std::rc::Rc;
 
 use euphoria_core::harmony::{EnergyDirection, Relation};
+use gpui::component::button::{Button, ButtonVariants};
 use gpui::component::input::Input;
+use gpui::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
 use gpui::{
@@ -24,6 +26,7 @@ use crate::format;
 use crate::planner_playback::{PlanSource, PlanTiming};
 use crate::player::fraction_along;
 use crate::playlist_flow::DraggedTracks;
+use crate::playlists::PlaylistId;
 use crate::theme::Palette;
 use crate::transition_plan::{window_detail, window_title};
 use crate::views::artwork::cover_tile;
@@ -32,6 +35,7 @@ use crate::views::favorites;
 use crate::views::key_chip::key_chip;
 use crate::views::mashup;
 use crate::views::panel_edge;
+use crate::views::playlists::on_app;
 use crate::views::track_overview::{self, LaneFrame, LaneInputs};
 use crate::views::waveform::{SeenBounds, WaveformColours, waveform};
 use crate::views::{GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, LABEL_TEXT_SIZE, RADIUS_SMALL};
@@ -188,6 +192,52 @@ where
     press_and_drag(track, seen_bounds, cx, set)
         .test_support()
         .into_any_element()
+}
+
+/// The menu that adds the track on `deck` to a playlist, while the deck has
+/// a track and there is a playlist to add it to.
+fn add_to_playlist_button(
+    app: &EuphoriaApp,
+    deck: DeckId,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> Option<AnyElement> {
+    app.decks.view(deck).path.as_ref()?;
+    let playlists: Vec<(PlaylistId, String)> = app
+        .session
+        .playlists()
+        .all()
+        .iter()
+        .map(|playlist| (playlist.id, playlist.name.clone()))
+        .collect();
+    if playlists.is_empty() {
+        return None;
+    }
+    let app_handle = cx.entity().downgrade();
+    Some(
+        div()
+            .flex_shrink_0()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(
+                Button::new(deck_part("deck-add-to-playlist", deck))
+                    .ghost()
+                    .label("Add to playlist")
+                    .dropdown_caret(true)
+                    .dropdown_menu(move |menu, _, _| {
+                        playlists.iter().fold(menu, |menu, (id, name)| {
+                            let id = *id;
+                            menu.item(
+                                PopupMenuItem::new(name.clone()).on_click(on_app(
+                                    &app_handle,
+                                    move |this, _, cx| {
+                                        this.add_deck_track_to_playlist(deck, id, cx)
+                                    },
+                                )),
+                            )
+                        })
+                    }),
+            )
+            .into_any_element(),
+    )
 }
 
 /// The decks, the mixer and the suggestions.
@@ -414,6 +464,7 @@ fn back_to_plan(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Option<
 }
 
 fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> Stateful<Div> {
+    let add_to_playlist = add_to_playlist_button(app, deck, cx);
     let palette = app.theme.palette;
     let decks = &app.decks;
     let view = decks.view(deck);
@@ -620,6 +671,27 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
                 )),
         )
         .child(div().flex_1())
+        .when(
+            deck == DeckId::B
+                && view.track_index.is_some()
+                && !view.loading
+                && view.problem.is_none(),
+            |row| {
+                row.child(
+                    secondary_button("Move to A", &palette)
+                        .id("deck-move-to-a")
+                        .tooltip(|window, cx| {
+                            Tooltip::new(
+                                "Puts this track on deck A where it is and empties deck B.",
+                            )
+                            .build(window, cx)
+                        })
+                        .on_click(cx.listener(|this, _, _, cx| this.move_b_to_a(cx)))
+                        .test_support(),
+                )
+            },
+        )
+        .children(add_to_playlist)
         .child(
             secondary_button("Load selected", &palette)
                 .id(deck_part("deck-load", deck))
