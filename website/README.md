@@ -29,7 +29,7 @@ python3 docs/images/desktop-app/make_screenshots.py focus-view decks set-builder
 
 ## Publishing
 
-`.github/workflows/website.yml` builds the site and deploys it to GitHub Pages on every push to `main` that changes it, its images or the build. Pages must be set to deploy from GitHub Actions in the repository settings.
+`.github/workflows/website.yml` builds the site and deploys it to GitHub Pages, at https://lvndry.github.io/euphoria/, on every push to `main` that changes it, its images or the build. Pages is set to deploy from GitHub Actions in the repository settings.
 
 ## Claims
 
