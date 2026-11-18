@@ -15,7 +15,7 @@ use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
 use gpui::{
     AnyElement, ClickEvent, Context, Div, FontWeight, MouseButton, MouseDownEvent, MouseMoveEvent,
-    SharedString, Stateful, TestSupportExt, canvas, div, px, relative,
+    ScrollEvent, SharedString, Stateful, TestSupportExt, canvas, div, px, relative,
 };
 
 use crate::app::EuphoriaApp;
@@ -1232,6 +1232,21 @@ fn suggestion_rows(
                         .text_color(palette.text_tertiary)
                         .child(relation_name(suggestion.relation)),
                 )
+                .child(
+                    div()
+                        .id(("suggestion-verdict", track_index))
+                        .w(px(96.0))
+                        .flex_shrink_0()
+                        .whitespace_nowrap()
+                        .text_size(SMALL_TEXT_SIZE)
+                        .text_color(palette.text_secondary)
+                        .child(app.suggestion_clash_label(track_index))
+                        .tooltip(|window, cx| {
+                            Tooltip::new("How the best window into this track sounds")
+                                .build(window, cx)
+                        })
+                        .test_support(),
+                )
                 .on_click(cx.listener(move |this, _, _, cx| this.load_suggestion(track_index, cx)))
                 .test_support(),
         )
@@ -1262,6 +1277,14 @@ fn suggestion_rows(
             .flex_col()
             .h(px(SUGGESTIONS_HEIGHT))
             .overflow_y_scroll()
+            .track_scroll(&decks.suggestions_scroll)
+            .on_scroll(cx.listener(|_, _: &ScrollEvent, _, cx| {
+                cx.spawn(async move |this, cx| {
+                    this.update(cx, |this, cx| this.request_suggestion_plans(cx))
+                        .ok();
+                })
+                .detach();
+            }))
             .children(rows)
             .children(empty.map(|text| {
                 div()

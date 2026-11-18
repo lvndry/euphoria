@@ -473,23 +473,76 @@ impl EuphoriaApp {
 
     /// What the clash column says for the track at `b_index`.
     pub(crate) fn clash_label(&self, b_index: usize) -> &'static str {
-        match self.plan_state(b_index) {
-            Some(PlanState::Ready(planned)) => match planned.window(0) {
-                Some(window) => {
-                    if planned.stems_known() == (true, true) {
-                        clash_verdict(window).label()
-                    } else {
-                        ClashVerdict::NotChecked.label()
-                    }
-                }
-                None => "No window",
-            },
-            Some(PlanState::Failed(_)) => "",
-            Some(PlanState::Computing) => "Checking",
-            None => "\u{2013}",
-        }
+        clash_label_of(self.plan_state(b_index))
     }
 
+    /// What a suggestion row says of the transition from deck A's track
+    /// into the track at `b_index`.
+    pub(crate) fn suggestion_clash_label(&self, b_index: usize) -> &'static str {
+        let state = self
+            .decks
+            .view(DeckId::A)
+            .track_index
+            .and_then(|a_index| self.pair_plan_state(a_index, b_index));
+        clash_label_of(state)
+    }
+
+    /// The rows of the suggestions in view, with a little over.
+    pub(crate) fn visible_suggestion_rows(&self) -> std::ops::Range<usize> {
+        let scroll = &self.decks.suggestions_scroll;
+        let top = scroll.top_item();
+        let last = scroll.bottom_item().max(top + 4);
+        top..(last + 2)
+    }
+
+    /// Asks for the plans of deck A's track into the suggestions in view,
+    /// when they changed since last asked or a plan among them was dropped.
+    pub(crate) fn request_suggestion_plans(&mut self, cx: &mut Context<'_, Self>) {
+        if !self.decks.is_open || self.decks.mode != crate::decks::DeckMode::NextTrack {
+            return;
+        }
+        let Some(a_index) = self.decks.view(DeckId::A).track_index else {
+            return;
+        };
+        let rows = self.visible_suggestion_rows();
+        let end = rows.end.min(self.decks.suggestions.len());
+        let start = rows.start.min(end);
+        let targets: Vec<usize> = self.decks.suggestions[start..end]
+            .iter()
+            .map(|suggestion| suggestion.track_index)
+            .collect();
+        let wanted = Some((a_index, targets.clone()));
+        let all_known = targets
+            .iter()
+            .all(|b_index| self.pair_plan_state(a_index, *b_index).is_some());
+        if self.decks.requested_suggestion_plans == wanted && all_known {
+            return;
+        }
+        self.decks.requested_suggestion_plans = wanted;
+        self.queue_plans(a_index, targets, cx);
+    }
+}
+
+/// What the clash column says for a plan in `state`.
+fn clash_label_of(state: Option<&PlanState>) -> &'static str {
+    match state {
+        Some(PlanState::Ready(planned)) => match planned.window(0) {
+            Some(window) => {
+                if planned.stems_known() == (true, true) {
+                    clash_verdict(window).label()
+                } else {
+                    ClashVerdict::NotChecked.label()
+                }
+            }
+            None => "No window",
+        },
+        Some(PlanState::Failed(_)) => "",
+        Some(PlanState::Computing) => "Checking",
+        None => "\u{2013}",
+    }
+}
+
+impl EuphoriaApp {
     /// Asks for the plans of the picked match and of the matches in rows
     /// `first..last` of the list, the nearest to the top first, and keeps
     /// at most [`PLANS_AT_ONCE`] running.

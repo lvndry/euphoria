@@ -416,6 +416,11 @@ pub(crate) struct Decks {
     /// The window of the plan of A into B the decks show, as an index into
     /// the plan's windows.
     pub(crate) plan_window: usize,
+    /// Where the list of suggestions is scrolled.
+    pub(crate) suggestions_scroll: gpui::ScrollHandle,
+    /// Deck A's track and the suggestions in view whose plans were last
+    /// asked for.
+    pub(crate) requested_suggestion_plans: Option<(usize, Vec<usize>)>,
     pub(crate) mode: DeckMode,
     /// The tracks that layer over deck A's, best first.
     pub(crate) ideas: Vec<MashupIdea>,
@@ -509,6 +514,8 @@ impl Default for Decks {
             filter_problem: None,
             suggestions: Vec::new(),
             plan_window: 0,
+            suggestions_scroll: gpui::ScrollHandle::new(),
+            requested_suggestion_plans: None,
             mode: DeckMode::NextTrack,
             ideas: Vec::new(),
             idea_index: None,
