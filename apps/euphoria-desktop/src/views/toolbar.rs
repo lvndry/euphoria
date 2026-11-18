@@ -159,7 +159,9 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> St
                     commands.child(
                         pressed_button("toggle-decks", "Decks", app.decks.is_open, &palette)
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .on_click(cx.listener(|this, _, _, cx| this.toggle_decks(cx)))
+                            .on_click(
+                                cx.listener(|this, _, _, cx| this.toggle_decks_from_command(cx)),
+                            )
                             .test_support(),
                     )
                 })
