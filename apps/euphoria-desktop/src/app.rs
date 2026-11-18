@@ -2341,6 +2341,28 @@ impl EuphoriaApp {
         self.request_stems_of(path, cx);
     }
 
+    /// The stems of the track at `path` are ready: everything that shows or
+    /// plays that track takes them, the decks in either mode included.
+    pub(crate) fn stems_separated(&mut self, path: PathBuf, cx: &mut Context<'_, Self>) {
+        if self.player.track() == Some(path.as_path()) {
+            self.stems_changed(cx);
+        }
+        self.decks.stem_library.recheck(&path);
+        self.load_vocal_lane(path.clone(), cx);
+        self.focus_stems_changed(&path, cx);
+        let files = self.stems.ready_files(&path);
+        for deck in DeckId::BOTH {
+            let view = self.decks.view_mut(deck);
+            if view.path.as_deref() == Some(path.as_path()) && view.stem_files.is_none() {
+                view.stem_files = files.clone();
+            }
+        }
+        if self.decks.is_open {
+            self.scan_for_stems(cx);
+        }
+        cx.notify();
+    }
+
     /// Asks the stems of the track at `path` to be separated, now, or in
     /// line behind the separation that runs.
     pub(crate) fn request_stems_of(&mut self, path: PathBuf, cx: &mut Context<'_, Self>) {
@@ -2365,20 +2387,8 @@ impl EuphoriaApp {
                         break;
                     };
                     if let Some(path) = finished {
-                        this.update(cx, |this, cx| {
-                            if this.player.track() == Some(path.as_path()) {
-                                this.stems_changed(cx);
-                            }
-                            this.decks.stem_library.recheck(&path);
-                            this.load_vocal_lane(path.clone(), cx);
-                            this.focus_stems_changed(&path, cx);
-                            if this.decks.is_open
-                                && this.decks.mode == crate::decks::DeckMode::Mashup
-                            {
-                                this.scan_for_stems(cx);
-                            }
-                        })
-                        .ok();
+                        this.update(cx, |this, cx| this.stems_separated(path, cx))
+                            .ok();
                     }
                     if !is_busy {
                         break;

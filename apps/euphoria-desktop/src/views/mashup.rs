@@ -104,7 +104,35 @@ pub(crate) fn deck_controls(
                 .into_any_element(),
             );
         }
-        preset_row = Some(div().flex().gap(GAP_TIGHT).children(buttons));
+        preset_row = Some(
+            div()
+                .flex()
+                .gap(GAP_TIGHT)
+                .children(buttons)
+                .into_any_element(),
+        );
+    } else if let Some(path) = view.path.clone() {
+        preset_row = Some(match app.stems.phase_of(&path) {
+            Some(phase) => div()
+                .id(deck_part("deck-separating", deck))
+                .text_size(SMALL_TEXT_SIZE)
+                .text_color(palette.text_tertiary)
+                .child(phase.caption())
+                .test_support()
+                .into_any_element(),
+            None => secondary_button("Separate stems", &palette)
+                .id(deck_part("deck-separate", deck))
+                .tooltip(|window, cx| {
+                    Tooltip::new("Separates the vocals and the instrumental to play either one.")
+                        .build(window, cx)
+                })
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.request_stems_of(path.clone(), cx);
+                    cx.notify();
+                }))
+                .test_support()
+                .into_any_element(),
+        });
     }
     let shift_row = div()
         .flex()
