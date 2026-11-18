@@ -11,9 +11,10 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, ValueEnum};
+use euphoria_core::ContentHash;
 use euphoria_core::stems::{
     CachedSeparator, MixExport, Mixdown, SeparationMode, SeparationObserver, SeparationStage, Stem,
-    export_mix, publish_stems,
+    StemCache, export_mix, publish_stems,
 };
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 
@@ -30,8 +31,12 @@ pub struct StemsArguments {
     /// The audio file to separate.
     file: PathBuf,
     /// The folder to write the stems to, created when missing.
-    #[arg(short, long, value_name = "DIR")]
-    output: PathBuf,
+    #[arg(short, long, value_name = "DIR", required_unless_present = "remove")]
+    output: Option<PathBuf>,
+    /// Delete the stems of the track kept in the cache, from every mode,
+    /// so it is separated again next time. The audio file is not touched.
+    #[arg(long, conflicts_with_all = ["output", "force", "mix", "mode"])]
+    remove: bool,
     /// Replace stem files already in the folder.
     #[arg(long)]
     force: bool,
@@ -88,26 +93,26 @@ fn mix_file_name(file: &Path, mixdown: Mixdown) -> String {
 }
 
 pub fn run(arguments: &StemsArguments) -> Result<ExitCode> {
+    let Some(output_directory) = arguments.output.as_deref() else {
+        return remove(&arguments.file);
+    };
     let mixdown = arguments.mix.map(Mixdown::from);
     let destinations: Vec<(Stem, PathBuf)> = match mixdown {
         Some(_) => Vec::new(),
         None => Stem::ALL
             .iter()
-            .map(|stem| (*stem, arguments.output.join(format!("{}.wav", stem.name()))))
+            .map(|stem| (*stem, output_directory.join(format!("{}.wav", stem.name()))))
             .collect(),
     };
-    let mix_destination = mixdown.map(|mixdown| {
-        arguments
-            .output
-            .join(mix_file_name(&arguments.file, mixdown))
-    });
+    let mix_destination =
+        mixdown.map(|mixdown| output_directory.join(mix_file_name(&arguments.file, mixdown)));
     if !arguments.force
         && let Some((_, existing)) = destinations.iter().find(|(_, path)| path.exists())
     {
         bail!(
             "{} already exists: add --force to replace the stems in {}",
             Printable(existing.display()),
-            Printable(arguments.output.display())
+            Printable(output_directory.display())
         );
     }
     if !arguments.file.is_file() {
@@ -137,8 +142,8 @@ pub fn run(arguments: &StemsArguments) -> Result<ExitCode> {
     progress.finish();
     let files = separated.map_err(with_causes)?;
 
-    std::fs::create_dir_all(&arguments.output)
-        .with_context(|| format!("cannot create {}", Printable(arguments.output.display())))?;
+    std::fs::create_dir_all(output_directory)
+        .with_context(|| format!("cannot create {}", Printable(output_directory.display())))?;
     if let (Some(mixdown), Some(destination)) = (mixdown, &mix_destination) {
         let mix =
             export_mix(&files, mixdown, destination, arguments.force, None).map_err(with_causes)?;
@@ -147,6 +152,49 @@ pub fn run(arguments: &StemsArguments) -> Result<ExitCode> {
     }
     publish_stems(&files, &destinations, arguments.force).map_err(with_causes)?;
     write_summary(&destinations, was_cached, started.elapsed())?;
+    Ok(ExitCode::SUCCESS)
+}
+
+fn remove(file: &Path) -> Result<ExitCode> {
+    if !file.is_file() {
+        bail!("{} is not a file", Printable(file.display()));
+    }
+    let hash = ContentHash::of_file(file)
+        .with_context(|| format!("cannot read {}", Printable(file.display())))?;
+    let cache = StemCache::open_default().map_err(with_causes)?;
+    let mut removed = Vec::new();
+    for mode in SeparationMode::BEST_FIRST {
+        if let Some(files) = cache.cached_for(mode, &hash) {
+            files.remove().map_err(with_causes)?;
+            removed.push(mode);
+        }
+    }
+    let theme = Theme::stderr();
+    let mut standard_error = std::io::stderr().lock();
+    if removed.is_empty() {
+        output::write_note(
+            &mut standard_error,
+            &theme,
+            format_args!("{} has no stems in the cache.", Printable(file.display())),
+        )?;
+    } else {
+        let modes: Vec<&str> = removed
+            .iter()
+            .map(|mode| match mode {
+                SeparationMode::Default => "default",
+                SeparationMode::Advanced => "advanced",
+            })
+            .collect();
+        output::write_note(
+            &mut standard_error,
+            &theme,
+            format_args!(
+                "removed the {} stems of {}.",
+                modes.join(" and "),
+                Printable(file.display())
+            ),
+        )?;
+    }
     Ok(ExitCode::SUCCESS)
 }
 
