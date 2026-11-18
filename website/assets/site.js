@@ -1,8 +1,5 @@
 // @ts-check
 
-/** @typedef {[number, number]} Ratio Two whole numbers of an interval, larger first, such as [3, 2] for a fifth. */
-/** @typedef {{ number: number, letter: string }} CamelotKey A Camelot code: 1 to 12, and A for minor or B for major. */
-
 (function () {
   document.documentElement.classList.add("js");
   const DRAW = 1.6, HOLD = 0.5, ERASE = 1.2, LOOP = DRAW + HOLD + ERASE, PULSE = 2.4, DEPTH = 0.55;
@@ -107,21 +104,6 @@
    */
   const strokeFor = (larger, smaller, base) => (base * Math.min(1, Math.sqrt(7 / (larger + smaller)))).toFixed(2);
 
-  /** @type {Array<[string, string, string, number]>} */
-  const intervals = [
-    ["1:1", "Same key", "8A to 8A", 240],
-    ["3:2", "Perfect fifth", "8A to 9A", 270],
-    ["4:3", "Perfect fourth", "8A to 7A", 210],
-    ["6:5", "Relative major", "8A to 8B", 240],
-    ["9:8", "Energy boost", "8A to 10A", 300],
-    ["45:32", "A clash", "8A to 2A", 60],
-  ];
-  const intervalsBox = document.getElementById("intervals");
-  if (intervalsBox) intervalsBox.innerHTML = intervals.map(([ratio, name, move, keyHue], index) => {
-    const [larger, smaller] = ratioOf(ratio);
-    return `<div class="interval"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="${ratio}" data-loop data-offset="${(1.2 + index * 0.45).toFixed(2)}" stroke-width="${strokeFor(larger, smaller, 2.6)}" style="color:oklch(0.6 0.14 ${keyHue})"></path></svg><b>${name}</b><span>${move} · ${ratio.replace(":", " : ")}</span></div>`;
-  }).join("");
-
   /** @type {WeakMap<SVGPathElement, string>} */
   const drawn = new WeakMap();
   /**
@@ -139,7 +121,12 @@
     path.setAttribute("d", curvePath(larger, smaller, from, to));
   }
 
-  const tracked = new Set(/** @type {NodeListOf<SVGPathElement>} */ (document.querySelectorAll("path[data-curve]")));
+  /** @type {NodeListOf<SVGPathElement>} */ (document.querySelectorAll("path[data-static]")).forEach((path) => {
+    const [larger, smaller] = ratioOf(path.dataset.curve);
+    path.setAttribute("d", curvePath(larger, smaller, 0, 1));
+  });
+
+  const tracked = new Set(/** @type {NodeListOf<SVGPathElement>} */ (document.querySelectorAll("path[data-curve]:not([data-static])")));
   /** @type {Map<SVGPathElement, number>} */
   const started = new Map();
   /** @param {SVGPathElement} path */
@@ -214,35 +201,6 @@
   const ratioFor = (semitones) => RATIOS[semitones] ?? RATIOS[0] ?? [1, 1];
   /** @param {number} number */
   const wrap = (number) => ((number - 1 + 120) % 12) + 1;
-
-  const movesBox = document.getElementById("moves");
-  if (movesBox) {
-    /** @type {Array<[string, string, number, string, string]>} */
-    const MOVES = [
-      ["Same key", "8A to 8A", 240, "mixes", "The same key. Always safe."],
-      ["One step on the wheel", "8A to 9A", 270, "mixes", "A fifth apart. The classic harmonic mix."],
-      ["One step on the wheel", "8A to 7A", 210, "mixes", "A fifth the other way: a fourth up."],
-      ["Relative", "8A to 8B", 240, "mixes", "The other letter, the same number: the same notes in major."],
-      ["Wheel diagonal", "8A to 7B", 210, "bold", "One step and the other letter. Six of seven notes are shared, so the mood shifts while the blend holds."],
-      ["Energy boost", "8A to 10A", 300, "bold", "Two numbers up. The key rises by a whole tone, a clear lift."],
-      ["Mood change", "8A to 11B", 330, "bold", "The same home note in the other mode, A minor to A major. A dramatic change of mood."],
-      ["Semitone boost", "8A to 3A", 90, "bold", "Seven numbers up. The key rises by a semitone, a dramatic lift whose melodies clash."],
-      ["A clash", "8A to 2A", 60, "clash", "Keys a tritone apart share little, so Euphoria never suggests this."],
-    ];
-    /**
-     * @param {string} code
-     * @returns {CamelotKey}
-     */
-    const parse = (code) => ({ number: parseInt(code, 10), letter: code.slice(-1) });
-    movesBox.innerHTML = MOVES.map(([name, fromTo, keyHue, kind, description], index) => {
-      const [fromCode = "8A", toCode = "8A"] = fromTo.split(" to ");
-      const semitones = (pitchOf(parse(toCode)) - pitchOf(parse(fromCode)) + 12) % 12;
-      const [larger, smaller] = ratioFor(semitones);
-      const label = kind === "mixes" ? "Mixes in key" : kind === "bold" ? "Bolder move" : "Clashes";
-      return `<div class="move"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="${larger}:${smaller}" data-loop data-offset="${(index * 0.35).toFixed(2)}" stroke-width="${strokeFor(larger, smaller, 2.4)}" style="color:oklch(0.58 0.15 ${keyHue})"></path></svg><b>${name}</b><span class="from">${fromTo} · ${larger} : ${smaller}</span><p>${description}</p><span class="tag ${kind}">${label}</span></div>`;
-    }).join("");
-    /** @type {NodeListOf<SVGPathElement>} */ (movesBox.querySelectorAll("path[data-curve]")).forEach((path) => { tracked.add(path); restart(path); });
-  }
 
   if (document.getElementById("this-keys")) {
     const MIXES = new Set(["Same key", "One step on the wheel", "Relative"]);
@@ -399,18 +357,6 @@
   } else if (closingPath) {
     restart(closingPath);
   }
-
-  /** @type {Array<[string, string, string, Ratio, number]>} */
-  const TOOLS = [
-    ["Mixes well with", "Beside every track in the inspector: the tracks that mix after it, ranked by key move, tempo and energy.", "library", [3, 2], 240],
-    ["Search by key", "Type 8A in the command palette for 8A first, then one step and relative, marked as pills.", "palette", [3, 1], 60],
-    ["Next on deck B", "With a track on deck A, the decks list what mixes well after it. Choose which moves count.", "decks", [1, 1], 180],
-    ["Plan a transition", "Pick the next track in the focus view and get the window, the bars and the key relation in a sentence.", "focus", [4, 3], 150],
-    ["Sets in key", "The set builder orders tracks along an energy curve with every mix in a compatible key.", "set", [5, 3], 270],
-    ["The key path of a playlist", "Above a playlist, each key in play order, with a red mark on any step that does not mix.", "set", [5, 4], 330],
-  ];
-  const toolsList = document.getElementById("tools-list");
-  if (toolsList) toolsList.innerHTML = TOOLS.map(([name, description, id, [larger, smaller], toolHue]) => `<a class="tool" href="features.html#${id}"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" stroke-width="3.4" d="${curvePath(larger, smaller, 0, 1)}" style="color:oklch(0.58 0.15 ${toolHue})"></path></svg></span><span><b>${name}</b><span>${description}</span></span></a>`).join("");
 
   requestAnimationFrame(frame);
 })();

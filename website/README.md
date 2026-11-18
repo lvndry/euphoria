@@ -35,6 +35,16 @@ The screenshots of the app come from `docs/images/desktop-app/make_screenshots.p
 python3 docs/images/desktop-app/make_screenshots.py focus-view decks set-builder command-palette
 ```
 
+## Search and sharing
+
+The pages' content is in their HTML, so search engines and link previews read every feature, move and tool; the scripts only draw the curves and run the tabs and the mixer. Each page has a description, a canonical URL, Open Graph and Twitter tags with its own 1200 by 630 preview image, and JSON-LD: a `SoftwareApplication` on the home page and breadcrumbs on the others. The build writes `sitemap.xml`.
+
+The preview images in `og/` are `og/card.html` rendered for each page by headless Chrome. Make them again after changing a page's title or the card:
+
+```
+python3 website/og/make_og_images.py
+```
+
 ## Publishing
 
 `.github/workflows/website.yml` builds the site and deploys it to GitHub Pages, at https://lvndry.github.io/euphoria/, on every push to `main` that changes it, its images or the build. Pages is set to deploy from GitHub Actions in the repository settings.

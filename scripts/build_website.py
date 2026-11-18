@@ -28,11 +28,14 @@ SOURCE = REPOSITORY / "website"
 IMAGES = REPOSITORY / "docs" / "images"
 FAVICON = REPOSITORY / "assets" / "logo" / "favicon.svg"
 DEFAULT_OUTPUT = REPOSITORY / "target" / "website"
+# Where GitHub Pages serves the site; the sitemap and the pages' absolute URLs name it.
+SITE_URL = "https://lvndry.github.io/euphoria/"
 
 # Files in website/ that describe or check the site rather than serve it.
-NOT_PUBLISHED = ("README.md", "tsconfig.json")
+NOT_PUBLISHED = ("README.md", "tsconfig.json", "types.d.ts", "card.html", "make_og_images.py")
 TEXT_SUFFIXES = {".html", ".css", ".js"}
 IMAGE_REFERENCE = re.compile(r"images/[A-Za-z0-9_./-]+\.(?:png|svg|jpg|webp)")
+SOCIAL_IMAGE_REFERENCE = re.compile(re.escape(SITE_URL) + r"(og/[A-Za-z0-9_-]+\.png)")
 PAGE_REFERENCE = re.compile(r'href="([A-Za-z0-9_-]+\.html)(?:#[^"]*)?"')
 # Written into every build, so a later build knows the folder is one it may replace.
 BUILD_MARKER = ".euphoria-website-build"
@@ -57,7 +60,8 @@ def check_output(output, inputs):
 
 
 def references(source):
-    """The images and pages named by the text files of `source`."""
+    """The images from docs/images, and the pages and social images of the
+    site itself, named by the text files of `source`."""
     images = set()
     pages = set()
     for path in sorted(source.rglob("*")):
@@ -66,7 +70,18 @@ def references(source):
         text = path.read_text(encoding="utf-8")
         images.update(IMAGE_REFERENCE.findall(text))
         pages.update(PAGE_REFERENCE.findall(text))
+        pages.update(SOCIAL_IMAGE_REFERENCE.findall(text))
     return images, pages
+
+
+def sitemap(output):
+    """A sitemap of the built pages, the home page first, at their published URLs."""
+    pages = sorted(path.relative_to(output).as_posix() for path in output.glob("*.html"))
+    pages.sort(key=lambda page: page != "index.html")
+    entries = "".join(
+        f"  <url><loc>{SITE_URL}{'' if page == 'index.html' else page}</loc></url>\n" for page in pages
+    )
+    return f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n{entries}</urlset>\n'
 
 
 def build(source, images_folder, favicon, output):
@@ -90,6 +105,7 @@ def build(source, images_folder, favicon, output):
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(images_folder / image.removeprefix("images/"), destination)
     shutil.copy2(favicon, output / "favicon.svg")
+    (output / "sitemap.xml").write_text(sitemap(output), encoding="utf-8")
     (output / BUILD_MARKER).write_text("Made by scripts/build_website.py\n", encoding="utf-8")
     return []
 
