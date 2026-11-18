@@ -3149,6 +3149,7 @@ impl Render for EuphoriaApp {
             .and_then(|index| self.session.library().track(index));
         self.inspector_sections.sync(selected_track);
         self.follow_playing();
+        self.request_suggestion_plans(cx);
         if self.inspector_sections.advance() | self.next_preview.advance() {
             window.request_animation_frame();
         }

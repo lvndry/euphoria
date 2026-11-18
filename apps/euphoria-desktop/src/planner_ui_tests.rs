@@ -1694,3 +1694,132 @@ fn test_transition_plays_a_into_b_and_leaves_both_decks_playing(cx: &mut TestApp
         assert!(!app.decks.view(DeckId::A).playing && !app.decks.view(DeckId::B).playing);
     });
 }
+
+fn suggestion_labels(setup: &Setup, cx: &mut TestAppContext) -> Vec<(usize, &'static str)> {
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        app.decks
+            .suggestions
+            .iter()
+            .map(|suggestion| {
+                (
+                    suggestion.track_index,
+                    app.suggestion_clash_label(suggestion.track_index),
+                )
+            })
+            .collect()
+    })
+}
+
+fn load_a_on_decks(setup: &Setup, cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        setup.view.update(cx, |app, cx| {
+            app.toggle_decks(cx);
+            app.load_on_deck(crate::deck_audio::DeckId::A, 0, cx);
+        })
+    });
+    for _ in 0..10 {
+        settle(setup.window, cx);
+        cx.run_until_parked();
+    }
+    settle(setup.window, cx);
+}
+
+#[gpui::test]
+fn each_suggestion_says_how_its_best_window_sounds(cx: &mut TestAppContext) {
+    let setup = open_plans("suggestion-verdicts", &[0, 1, 2], cx);
+    load_a_on_decks(&setup, cx);
+    let labels = suggestion_labels(&setup, cx);
+    assert!(!labels.is_empty());
+    for (index, label) in &labels {
+        assert!(
+            ["Clean", "Vocals overlap", "Bass overlap"].contains(label),
+            "{index}: {label}"
+        );
+        assert!(is_shown(setup.window, ("suggestion-verdict", *index), cx));
+    }
+
+    let unseparated = open_plans("suggestion-verdicts-no-stems", &[], cx);
+    load_a_on_decks(&unseparated, cx);
+    let labels = suggestion_labels(&unseparated, cx);
+    assert!(!labels.is_empty());
+    assert!(
+        labels.iter().all(|(_, label)| *label == "Stems needed"),
+        "{labels:?}"
+    );
+}
+
+#[gpui::test]
+fn only_the_suggestions_in_view_are_planned_until_the_list_scrolls(cx: &mut TestAppContext) {
+    let mut tracks = plan_tracks();
+    for number in 0..16 {
+        tracks.push(plan_track(
+            &format!("missing-{number:02}.wav"),
+            "A minor",
+            120.0,
+        ));
+    }
+    let scratch = ScratchFolder::new("suggestion-plans-in-view");
+    let (window, view) = open_window_with(
+        tracks,
+        Box::new(SilentOutput),
+        Settings::default(),
+        None,
+        gpui::size(px(1440.0), px(900.0)),
+        cx,
+    );
+    cx.update(|cx| {
+        view.update(cx, |app, _| {
+            app.planner.signals_directory = Some(scratch.0.join("signals"));
+        })
+    });
+    let a = path_of(&view, 0, cx);
+    let setup = Setup {
+        window,
+        view,
+        scratch,
+        stem_folders: Vec::new(),
+        a: a.clone(),
+        b: a.clone(),
+        c: a,
+    };
+    load_a_on_decks(&setup, cx);
+    let asked = |cx: &mut TestAppContext| -> Vec<bool> {
+        cx.update(|cx| {
+            let app = setup.view.read(cx);
+            app.decks
+                .suggestions
+                .iter()
+                .map(|suggestion| app.pair_plan_state(0, suggestion.track_index).is_some())
+                .collect()
+        })
+    };
+    let before = asked(cx);
+    assert!(before.len() > 12, "{} suggestions", before.len());
+    let in_view = cx.update(|cx| setup.view.read(cx).visible_suggestion_rows());
+    assert!(in_view.end < before.len(), "{in_view:?}");
+    assert!(
+        before[..in_view.end].iter().all(|asked| *asked),
+        "{before:?}"
+    );
+    assert!(!before[before.len() - 1], "the last row is not planned yet");
+
+    cx.update_window(setup.window, |_, window, cx| {
+        window.render_frame(cx);
+        window.scroll(
+            "deck-suggestions",
+            gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(-2_000.0))),
+            cx,
+        );
+    })
+    .unwrap();
+    for _ in 0..4 {
+        settle(setup.window, cx);
+        cx.run_until_parked();
+    }
+    let after = asked(cx);
+    assert!(
+        after[after.len() - 1],
+        "scrolling down asks for the last rows"
+    );
+}
