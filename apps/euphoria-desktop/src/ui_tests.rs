@@ -5505,6 +5505,151 @@ fn clicking_a_deck_cue_seeks_the_sound_to_its_time(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn moving_b_to_a_carries_on_from_b_and_empties_b(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    use crate::views::decks::deck_part;
+    let output = RenderedDecks::default();
+    let (window, view) = open_window_on(deck_tracks(), Box::new(output.clone()), cx);
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    let mp3 = index_of_track(&view, "sine-440hz-mono.mp3", cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.toggle_decks(cx);
+            app.load_on_deck(DeckId::A, flac, cx);
+            app.load_on_deck(DeckId::B, mp3, cx);
+            app.set_crossfader(0.8, cx);
+            app.set_deck_volume(DeckId::A, 0.6, cx);
+        })
+    });
+    cx.run_until_parked();
+    let suggests_mp3 = |cx: &mut TestAppContext| {
+        cx.update(|cx| {
+            view.read(cx)
+                .decks
+                .suggestions
+                .iter()
+                .any(|suggestion| suggestion.track_index == mp3)
+        })
+    };
+    assert!(suggests_mp3(cx), "deck A's suggestions offer the mp3");
+    click(window, deck_part("deck-play", DeckId::B), cx);
+    output.pull(0.3);
+    let b_position = cx.update(|cx| view.read(cx).decks.position_seconds(DeckId::B));
+    assert!(b_position > 0.05, "deck B has played: {b_position}");
+
+    click(window, "deck-move-to-a", cx);
+    cx.run_until_parked();
+    output.pull(0.02);
+
+    cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        let a = decks.view(DeckId::A);
+        let b = decks.view(DeckId::B);
+        assert_eq!(a.track_index, Some(mp3));
+        assert!(a.playing, "the music carries on");
+        let position = decks.position_seconds(DeckId::A);
+        assert!(
+            (position - b_position).abs() < 0.05,
+            "deck A takes over where B was: {position} against {b_position}"
+        );
+        assert_eq!(b.track_index, None);
+        assert_eq!(b.path, None);
+        assert!(!b.playing);
+        assert!((decks.crossfader - 0.2).abs() < 1e-6);
+        assert!((a.volume - 1.0).abs() < 1e-6);
+        assert!((b.volume - 0.6).abs() < 1e-6);
+    });
+    assert!(!suggests_mp3(cx), "the suggestions follow the new deck A");
+    assert!(!is_shown(window, "deck-move-to-a", cx), "deck B is empty");
+
+    output.pull(0.3);
+    let later = cx.update(|cx| view.read(cx).decks.position_seconds(DeckId::A));
+    assert!(later > b_position + 0.05, "deck A plays on: {later}");
+}
+
+#[gpui::test]
+fn a_load_on_deck_b_while_a_opens_calls_the_move_off(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    let (_window, view) = open_window_on(deck_tracks(), Box::new(SilentOutput), cx);
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    let mp3 = index_of_track(&view, "sine-440hz-mono.mp3", cx);
+    let wav = index_of_track(&view, "sine-440hz-stereo.wav", cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.toggle_decks(cx);
+            app.load_on_deck(DeckId::A, flac, cx);
+            app.load_on_deck(DeckId::B, mp3, cx);
+        })
+    });
+    cx.run_until_parked();
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.move_b_to_a(cx);
+            app.load_on_deck(DeckId::B, wav, cx);
+        })
+    });
+    cx.run_until_parked();
+    cx.update(|cx| {
+        let decks = &view.read(cx).decks;
+        assert_eq!(decks.view(DeckId::A).track_index, Some(mp3));
+        assert_eq!(
+            decks.view(DeckId::B).track_index,
+            Some(wav),
+            "the track loaded on B after the move stays"
+        );
+    });
+}
+
+#[gpui::test]
+fn a_decks_track_is_added_to_the_chosen_playlist(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    use crate::views::decks::deck_part;
+    let (window, view) = open_window_on(deck_tracks(), Box::new(SilentOutput), cx);
+    let mp3 = index_of_track(&view, "sine-440hz-mono.mp3", cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.toggle_decks(cx);
+            app.load_on_deck(DeckId::B, mp3, cx);
+        })
+    });
+    cx.run_until_parked();
+    assert!(
+        !is_shown(window, deck_part("deck-add-to-playlist", DeckId::B), cx),
+        "no playlist to add to yet"
+    );
+    let (first, second) = cx.update(|cx| {
+        view.update(cx, |app, _| {
+            let playlists = app.session.playlists_mut();
+            (playlists.create(), playlists.create())
+        })
+    });
+    assert!(is_shown(
+        window,
+        deck_part("deck-add-to-playlist", DeckId::B),
+        cx
+    ));
+    assert!(!is_shown(
+        window,
+        deck_part("deck-add-to-playlist", DeckId::A),
+        cx
+    ));
+
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.add_deck_track_to_playlist(DeckId::B, second, cx)
+        })
+    });
+
+    cx.update(|cx| {
+        let app = view.read(cx);
+        let path = app.decks.view(DeckId::B).path.clone().unwrap();
+        let playlists = app.session.playlists();
+        assert_eq!(playlists.get(second).unwrap().tracks, vec![path]);
+        assert!(playlists.get(first).unwrap().tracks.is_empty());
+    });
+}
+
+#[gpui::test]
 fn a_loop_button_loops_the_deck_and_pressed_again_leaves_it(cx: &mut TestAppContext) {
     use crate::deck_audio::DeckId;
     use crate::views::decks::{deck_part, loop_id};
