@@ -5,7 +5,7 @@ description: How Euphoria fills the gaps found in the Mixed In Key research, in 
 
 # Plan for the product gaps
 
-Written on 18 November 2026 from the [Mixed In Key research](mixed-in-key-research.md). Items are in priority order. The first four make the decks the place where a DJ chooses and tries the next track, which is where Mixed In Key Pro is strongest and where Euphoria's transition planner is not yet visible. Sizes are rough: small is a day or two, medium about a week, large more than that.
+Written on 18 November 2026 from a comparison with Mixed In Key. Items are in priority order. The first four make the decks the place where a DJ chooses and tries the next track, which is where Mixed In Key Pro is strongest and where Euphoria's transition planner is not yet visible. Sizes are rough: small is a day or two, medium about a week, large more than that.
 
 Paths without a crate are under `apps/euphoria-desktop/src/`.
 
