@@ -1,0 +1,40 @@
+.docs { display: grid; grid-template-columns: minmax(0, 260px) minmax(0, 1fr); gap: clamp(32px, 4vw, 64px); align-items: start; padding-block: clamp(32px, 4vw, 56px) clamp(96px, 10vw, 140px); }
+.docs-nav { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 88px); max-height: calc(100vh - 110px); overflow-y: auto; display: grid; gap: 22px; padding-right: 8px; font-size: 15px; }
+.docs-nav a { text-decoration: none; color: var(--soft); border-radius: 8px; display: block; padding: 4px 10px; margin-inline: -10px; transition: background 0.2s, color 0.2s; }
+.docs-nav a:hover { color: var(--ink); background: var(--paper-2); }
+.docs-nav a[aria-current="page"] { color: var(--ink); font-weight: 600; background: var(--paper-2); }
+.docs-home { font-weight: 600; }
+.docs-section { display: grid; gap: 4px; }
+.docs-section-label { margin: 0; font-weight: 600; color: var(--ink) !important; }
+.docs-section ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.docs-search { min-height: 44px; --pagefind-ui-scale: 0.8; --pagefind-ui-primary: var(--ink); --pagefind-ui-text: var(--ink); --pagefind-ui-background: var(--paper); --pagefind-ui-border: var(--paper-3); --pagefind-ui-tag: var(--paper-2); --pagefind-ui-border-width: 1px; --pagefind-ui-border-radius: 10px; --pagefind-ui-font: var(--font); }
+
+.docs-main { min-width: 0; max-width: 78ch; }
+.prose { font-size: 17px; line-height: 1.65; }
+.prose > * + * { margin-top: 1em; }
+.prose h1 { font-size: clamp(40px, 2rem + 2.4vw, 64px); line-height: 0.95; letter-spacing: -0.045em; margin-bottom: 0.4em; }
+.prose h2 { font-size: clamp(28px, 1.4rem + 1.2vw, 38px); line-height: 1.05; margin-top: 1.8em; }
+.prose h3 { font-size: 22px; margin-top: 1.6em; }
+.prose h4 { font-size: 18px; margin-top: 1.4em; font-stretch: 100%; letter-spacing: -0.01em; }
+.prose p, .prose li { color: var(--ink); }
+.prose a { text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.prose ul, .prose ol { padding-left: 1.3em; }
+.prose li + li { margin-top: 0.35em; }
+.prose code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.88em; background: var(--paper-2); padding: 0.1em 0.35em; border-radius: 5px; }
+.prose pre { background: #161616 !important; color: #EDECE7; padding: 18px 20px; border-radius: 14px; overflow-x: auto; font-size: 14px; line-height: 1.6; }
+.prose pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+.prose img { display: block; max-width: 100%; height: auto; margin-inline: auto; background: #fff; border-radius: 14px; padding: 12px; }
+.prose table { display: block; overflow-x: auto; border-collapse: collapse; font-size: 15px; width: max-content; max-width: 100%; }
+.prose th, .prose td { text-align: left; padding: 8px 14px 8px 0; vertical-align: top; border-bottom: 1px solid var(--paper-3); }
+.prose th { font-weight: 600; }
+.prose blockquote { margin-left: 0; padding-left: 18px; color: var(--soft); border-left: 3px solid var(--paper-3); }
+
+.docs-pager { display: flex; justify-content: space-between; gap: 16px; margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--paper-3); font-weight: 600; }
+.docs-pager a { text-decoration: none; }
+.docs-pager a:hover { text-decoration: underline; }
+.docs-source { margin-top: 24px; font-size: 15px; color: var(--faint); }
+
+@media (max-width: 900px) {
+  .docs { grid-template-columns: minmax(0, 1fr); }
+  .docs-nav { position: static; max-height: none; overflow: visible; order: 2; }
+}

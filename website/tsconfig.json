@@ -1,12 +1,5 @@
 {
-  "compilerOptions": {
-    "allowJs": true,
-    "checkJs": true,
-    "noEmit": true,
-    "strict": true,
-    "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "skipLibCheck": true
-  },
-  "include": ["assets/*.js", "types.d.ts"]
+  "extends": "astro/tsconfigs/strict",
+  "include": [".astro/types.d.ts", "site.ts", "astro.config.ts", "src/**/*", "scripts/**/*"],
+  "exclude": ["dist", "node_modules"]
 }

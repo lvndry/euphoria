@@ -171,10 +171,6 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Relative links and headings
         run: uv run --no-project --python 3.12 python -m unittest scripts/test_docs_links.py
-      - name: Website builds with every image and page it names
-        run: uv run --no-project --python 3.12 python -m unittest scripts/test_build_website.py
-      - name: Website scripts type-check
-        run: npx --yes -p typescript@latest tsc -p website/tsconfig.json
 
   workflows:
     name: Workflow files

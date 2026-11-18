@@ -1,53 +1,36 @@
 # Website
 
-The Euphoria website: three static pages with no framework and no build tools beyond Python.
+The Euphoria website, built with [Astro](https://astro.build) and published by GitHub Pages at https://lvndry.github.io/euphoria/.
 
-| Page | What it shows |
-| --- | --- |
-| `index.html` | What Euphoria is, the app, key, tempo and energy, the key model in brief, a tour, install and questions |
-| `features.html` | Every area of the desktop app, one tab each, with a screenshot, what it does and a link to its guide |
-| `mixing.html` | The Camelot wheel, every key move as a curve, an interactive mixer, the key model's accuracy and the mixing tools in the app |
+| Route | Source | What it shows |
+| --- | --- | --- |
+| `/` | `src/pages/index.astro` | What Euphoria is, the app, key, tempo and energy, the key model in brief, a tour, install and questions |
+| `/features` | `src/pages/features.astro` | Every area of the desktop app, one tab each, with a screenshot, what it does and a link to its guide |
+| `/mixing` | `src/pages/mixing.astro` | The Camelot wheel, every key move as a curve, an interactive mixer, the key model's accuracy and the mixing tools in the app |
+| `/docs/...` | `../docs/**/*.md` | The documentation, one page per Markdown file, with a sidebar and search |
+| `/og/...png` | `src/pages/og/[...id].png.ts` | A 1200 by 630 social image for every page |
 
-`assets/site.css` and `assets/site.js` serve the home page and the mixing page, `assets/features.css` and `assets/features.js` the features page. The curves are the logo's own: the Lissajous figure of two notes, drawn tip to tip with the timing of `apps/euphoria-desktop/src/logo_motion.rs`.
-
-## Type checking
-
-The scripts are plain JavaScript, served as they are, and type-checked as TypeScript: each starts with `// @ts-check` and declares its types in JSDoc, and `website/tsconfig.json` checks them in strict mode. CI runs the same command:
+## Work on it
 
 ```
-npx --yes -p typescript@latest tsc -p website/tsconfig.json
+cd website
+bun install
+bun run dev          # a live preview at http://localhost:4321/euphoria/
+bun run build        # the site in dist/, and its search index
+bun run check        # type-check the pages and scripts
+bun run check-links  # after a build: every link, anchor and absolute URL resolves under /euphoria
 ```
 
-## Build and preview
+CI runs the build and both checks on every pull request that touches the site, the docs or the logo, and `.github/workflows/website.yml` deploys `main`. `astro check` does not support TypeScript 7 yet, so `typescript` stays on version 6 until it does.
 
-```
-python3 scripts/build_website.py
-open target/website/index.html
-```
+## How it fits together
 
-The pages name their images as `images/...`. The build copies each one from `docs/images`, so the website and the documentation share one set of screenshots and figures, and copies `assets/logo/favicon.svg`. It fails, naming each one, when a page names an image or a page that does not exist; `scripts/test_build_website.py` runs that check in CI.
-
-## Screenshots
-
-The screenshots of the app come from `docs/images/desktop-app/make_screenshots.py`, on a demo library of GiantSteps previews. To make again only the ones the website added:
-
-```
-python3 docs/images/desktop-app/make_screenshots.py focus-view decks set-builder command-palette
-```
-
-## Search and sharing
-
-The pages' content is in their HTML, so search engines and link previews read every feature, move and tool; the scripts only draw the curves and run the tabs and the mixer. Each page has a description, a canonical URL, Open Graph and Twitter tags with its own 1200 by 630 preview image, and JSON-LD: a `SoftwareApplication` on the home page and breadcrumbs on the others. The build writes `sitemap.xml`.
-
-The preview images in `og/` are `og/card.html` rendered for each page by headless Chrome. Make them again after changing a page's title or the card:
-
-```
-python3 website/og/make_og_images.py
-```
-
-## Publishing
-
-`.github/workflows/website.yml` builds the site and deploys it to GitHub Pages, at https://lvndry.github.io/euphoria/, on every push to `main` that changes it, its images or the build. Pages is set to deploy from GitHub Actions in the repository settings.
+- `site.ts` names the address, `https://lvndry.github.io` and the base `/euphoria`. `src/lib/url.ts` makes every route and absolute URL from them, and `check-links` fails on anything outside the base.
+- `src/layouts/Base.astro` holds the head of every page: title, description, canonical URL, Open Graph and Twitter tags, JSON-LD, the nav and the footer. `src/layouts/Docs.astro` adds the docs sidebar, search and previous and next links.
+- The documentation is `../docs`, read as a content collection. Sections follow the table in `docs/README.md`, and pages within a section follow the order `docs/index.md` links them, so a new page appears without a list to update. Links between `.md` files become routes and links to other files point at GitHub (`src/lib/remark-docs-links.ts`).
+- Screenshots and charts come from `../docs/images` through `src/lib/images.ts`, the one set the docs and the site share; a page naming an image that does not exist fails the build. Make the app's screenshots again with `docs/images/desktop-app/make_screenshots.py`.
+- The curves are the logo's own: the Lissajous figure of two notes, in `src/lib/curves.ts`, drawn by `src/scripts/site.ts` with the timing of `apps/euphoria-desktop/src/logo_motion.rs`.
+- Social images are drawn at build time from SVG with Instrument Sans by `src/lib/og.ts`, with no browser.
 
 ## Claims
 
