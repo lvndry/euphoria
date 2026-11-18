@@ -448,7 +448,7 @@ impl EuphoriaApp {
 
     /// Ends a transition played from the decks with both still playing and
     /// the crossfader on B, where the transition left the sound.
-    fn hand_decks_over_after_transition(&mut self, cx: &mut Context<'_, Self>) {
+    pub(crate) fn hand_decks_over_after_transition(&mut self, cx: &mut Context<'_, Self>) {
         let Some(playback) = self.planner.playback.take() else {
             return;
         };

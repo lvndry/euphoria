@@ -431,6 +431,8 @@ pub(crate) struct Decks {
     /// Counts loads, so a file opened after another was asked for is
     /// dropped.
     load_generation: [u64; 2],
+    /// While deck B's track is opening on deck A to take over from B.
+    handoff: Option<Handoff>,
     is_refreshing: bool,
     waveform_tasks: [Option<Task<()>>; 2],
     /// Where each deck's waveform was last drawn, for turning a click into
@@ -484,6 +486,14 @@ impl Decks {
     }
 }
 
+/// Deck B's track opening on deck A: the loads it belongs to, so a later
+/// load on either deck calls it off.
+#[derive(Debug, Clone, Copy)]
+struct Handoff {
+    a_generation: u64,
+    b_generation: u64,
+}
+
 impl Default for Decks {
     fn default() -> Self {
         Self {
@@ -506,6 +516,7 @@ impl Default for Decks {
             pairing: StemPairing::default(),
             stem_fader_bounds: Default::default(),
             load_generation: [0, 0],
+            handoff: None,
             is_refreshing: false,
             waveform_tasks: [None, None],
             waveform_bounds: Default::default(),
@@ -695,6 +706,7 @@ impl EuphoriaApp {
             self.decks.voice = None;
             self.decks.link = None;
             self.decks.waveform_tasks = [None, None];
+            self.decks.handoff = None;
             for deck in DeckId::BOTH {
                 self.decks.load_generation[index(deck)] += 1;
                 let view = self.decks.view_mut(deck);
@@ -761,8 +773,25 @@ impl EuphoriaApp {
         setup: DeckSetup,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(track) = self.session.library().track(track_index) else {
+        if !self.put_track_on_deck(deck, track_index, setup, cx) {
             return;
+        }
+        self.decks.follow_tempo();
+        self.open_deck_source(deck, 0.0, false, cx);
+    }
+
+    /// Sets `deck` up for the track at `track_index`, paused, and starts
+    /// its waveform, without opening its sound. False when there is no
+    /// such track.
+    fn put_track_on_deck(
+        &mut self,
+        deck: DeckId,
+        track_index: usize,
+        setup: DeckSetup,
+        cx: &mut Context<'_, Self>,
+    ) -> bool {
+        let Some(track) = self.session.library().track(track_index) else {
+            return false;
         };
         let path = track.path.clone();
         let stem_files = self
@@ -797,8 +826,94 @@ impl EuphoriaApp {
         }
         self.decks.plan_window = 0;
         self.request_deck_plan(cx);
+        true
+    }
+
+    /// Puts deck B's track on deck A where B is, at B's speed, and empties
+    /// deck B, so the next track can go on B. B keeps playing until A has
+    /// its sound, then A carries on from B's place without a gap.
+    pub(crate) fn move_b_to_a(&mut self, cx: &mut Context<'_, Self>) {
+        let from = self.decks.view(DeckId::B);
+        let Some(track_index) = from.track_index else {
+            return;
+        };
+        if !self.decks.is_open || from.loading || from.problem.is_some() {
+            return;
+        }
+        if self.plan_source() == Some(crate::planner_playback::PlanSource::Decks) {
+            self.hand_decks_over_after_transition(cx);
+        }
+        let from = self.decks.view(DeckId::B);
+        let setup = DeckSetup {
+            shift_semitones: from.shift_semitones,
+            stem_levels: from.use_stems.then_some(from.stem_levels),
+        };
+        let rate = from.rate;
+        let keylock = from.keylock;
+        let seconds = self.decks.position_seconds(DeckId::B);
+        if !self.put_track_on_deck(DeckId::A, track_index, setup, cx) {
+            return;
+        }
+        let view = self.decks.view_mut(DeckId::A);
+        view.rate = rate;
+        view.keylock = keylock;
         self.decks.follow_tempo();
-        self.open_deck_source(deck, 0.0, false, cx);
+        self.open_deck_source(DeckId::A, seconds, false, cx);
+        self.decks.handoff = Some(Handoff {
+            a_generation: self.decks.load_generation[index(DeckId::A)],
+            b_generation: self.decks.load_generation[index(DeckId::B)],
+        });
+    }
+
+    /// Deck A has opened the track it takes over from deck B: A moves to
+    /// where B is now and plays if B did, B stops and empties, and the
+    /// crossfader and volumes swap sides so the level heard stays the same.
+    fn finish_handoff(&mut self, cx: &mut Context<'_, Self>) {
+        let Some(handoff) = self.decks.handoff.take() else {
+            return;
+        };
+        if handoff.a_generation != self.decks.load_generation[index(DeckId::A)]
+            || handoff.b_generation != self.decks.load_generation[index(DeckId::B)]
+        {
+            return;
+        }
+        let seconds = self.decks.position_seconds(DeckId::B);
+        let was_playing = self.decks.view(DeckId::B).playing;
+        let a_volume = self.decks.view(DeckId::A).volume;
+        let b_volume = self.decks.view(DeckId::B).volume;
+        self.decks.send(DeckCommand::Pause(DeckId::B));
+        self.decks.load_generation[index(DeckId::B)] += 1;
+        self.decks.waveform_tasks[index(DeckId::B)] = None;
+        *self.decks.view_mut(DeckId::B) = DeckView {
+            volume: a_volume,
+            ..DeckView::empty()
+        };
+        self.decks.view_mut(DeckId::A).volume = b_volume;
+        self.decks.crossfader = 1.0 - self.decks.crossfader;
+        self.decks.apply_gains();
+        self.decks.send(DeckCommand::Seek {
+            deck: DeckId::A,
+            seconds,
+        });
+        self.decks.follow_tempo();
+        if was_playing {
+            self.start_deck(DeckId::A);
+            self.follow_decks(cx);
+        }
+        cx.notify();
+    }
+
+    /// Adds the track on `deck` to the end of the playlist `id`.
+    pub(crate) fn add_deck_track_to_playlist(
+        &mut self,
+        deck: DeckId,
+        id: PlaylistId,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(path) = self.decks.view(deck).path.clone() else {
+            return;
+        };
+        self.add_to_playlist(id, &[path], cx);
     }
 
     pub(crate) fn open_deck_source(
@@ -877,6 +992,9 @@ impl EuphoriaApp {
                         if play {
                             this.start_deck(deck);
                             this.follow_decks(cx);
+                        }
+                        if deck == DeckId::A {
+                            this.finish_handoff(cx);
                         }
                     }
                     Err(problem) => {

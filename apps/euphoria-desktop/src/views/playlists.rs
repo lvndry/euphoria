@@ -240,7 +240,7 @@ fn playlist_row(
 }
 
 /// Runs `action` on the app from a menu item.
-fn on_app(
+pub(crate) fn on_app(
     app: &WeakEntity<EuphoriaApp>,
     action: impl Fn(&mut EuphoriaApp, &mut Window, &mut Context<'_, EuphoriaApp>) + 'static,
 ) -> impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static {

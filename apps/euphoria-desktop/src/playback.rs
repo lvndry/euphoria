@@ -1807,6 +1807,14 @@ pub(crate) mod testing {
             let _ = answer.try_send(opened);
         }
 
+        /// Answers the oldest track asked for with a problem instead.
+        pub(crate) fn fail_opening(&self) {
+            let Some((_, answer)) = self.lock().waiting.pop_front() else {
+                panic!("no track is opening");
+            };
+            let _ = answer.try_send(Err(PlaybackProblem::NotDecodable));
+        }
+
         /// The tracks whose sound is still playing, oldest first.
         pub(crate) fn sounding(&self) -> Vec<PathBuf> {
             self.lock()
