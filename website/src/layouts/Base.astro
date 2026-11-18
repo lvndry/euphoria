@@ -1,0 +1,116 @@
+---
+import favicon from "../../../assets/logo/favicon.svg";
+import { absoluteUrl, withBase } from "../lib/url";
+
+interface Props {
+  title: string;
+  description: string;
+  /** The page's route without the base, such as "/" or "/features". */
+  route: string;
+  /** Route of the page's 1200 by 630 social image, such as "/og/home.png". */
+  image: string;
+  imageAlt: string;
+  /** Which nav link is the current page. */
+  current?: "features" | "mixing" | "docs" | undefined;
+  /** Structured data for search engines; the breadcrumb is added for pages other than home. */
+  jsonLd?: Record<string, unknown> | Record<string, unknown>[] | undefined;
+  breadcrumb?: string | undefined;
+}
+
+const { title, description, route, image, imageAlt, current, jsonLd, breadcrumb } = Astro.props;
+const canonical = absoluteUrl(route);
+const imageUrl = absoluteUrl(image);
+const structured = [
+  ...(Array.isArray(jsonLd) ? jsonLd : jsonLd ? [jsonLd] : []),
+  ...(breadcrumb
+    ? [
+        {
+          "@context": "https://schema.org",
+          "@type": "BreadcrumbList",
+          itemListElement: [
+            { "@type": "ListItem", position: 1, name: "Euphoria", item: absoluteUrl("/") },
+            { "@type": "ListItem", position: 2, name: breadcrumb, item: canonical },
+          ],
+        },
+      ]
+    : []),
+];
+const navLinks = [
+  { key: "features", label: "Features", href: withBase("/features") },
+  { key: "mixing", label: "Mixing in key", href: withBase("/mixing") },
+  { key: "docs", label: "Docs", href: withBase("/docs") },
+] as const;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" href={favicon.src} type="image/svg+xml" />
+    <link rel="sitemap" href={withBase("/sitemap-index.xml")} />
+    <meta name="theme-color" content="#F6F5F1" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Euphoria" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={imageUrl} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={imageAlt} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={imageUrl} />
+    <meta name="twitter:image:alt" content={imageAlt} />
+    {structured.length > 0 && <script type="application/ld+json" set:html={JSON.stringify(structured.length === 1 ? structured[0] : structured)} />}
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wdth,wght@75..100,400..700&display=swap" />
+    <slot name="head" />
+  </head>
+  <body>
+    <slot name="before-nav" />
+    <header class="nav">
+      <div class="wrap">
+        <a class="brand" href={withBase("/")} id="brand"
+          ><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path full" id="brand-path" stroke-width="4"></path></svg><span class="brand-word"
+            >Euphoria</span
+          ></a
+        >
+        <nav class="nav-links" aria-label="Pages">
+          {navLinks.map((link) => <a href={link.href} aria-current={link.key === current ? "page" : undefined}>{link.label}</a>)}
+        </nav>
+        <a class="gh" href="https://github.com/lvndry/euphoria" aria-label="Euphoria on GitHub" title="Euphoria on GitHub"
+          ><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"
+            ><path
+              d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
+            ></path></svg
+          ></a
+        >
+        <a class="btn" href={withBase("/#install")}>Download</a>
+      </div>
+    </header>
+    <slot />
+    <footer>
+      <div class="wrap">
+        <span>Euphoria · free and open source under GPL-3.0-or-later</span>
+        <nav aria-label="Footer">
+          <a href={withBase("/")}>Home</a>
+          <a href={withBase("/features")}>Features</a>
+          <a href={withBase("/mixing")}>Mixing in key</a>
+          <a href={withBase("/docs")}>Docs</a>
+          <a href="https://github.com/lvndry/euphoria">GitHub</a>
+          <a href="https://github.com/lvndry/euphoria/releases">Releases</a>
+        </nav>
+      </div>
+    </footer>
+    <script>
+      import "../scripts/site.ts";
+    </script>
+  </body>
+</html>

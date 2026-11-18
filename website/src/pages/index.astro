@@ -1,43 +1,49 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Euphoria · Every track, in key</title>
-<meta name="description" content="Euphoria finds the key, tempo and energy of every track in your collection, so you can mix in key. Free, open source and fully offline.">
-<link rel="canonical" href="https://lvndry.github.io/euphoria/">
-<link rel="icon" href="favicon.svg" type="image/svg+xml">
-<meta name="theme-color" content="#F6F5F1">
-<meta property="og:type" content="website">
-<meta property="og:site_name" content="Euphoria">
-<meta property="og:title" content="Euphoria · Every track, in key">
-<meta property="og:description" content="Euphoria finds the key, tempo and energy of every track in your collection, so you can mix in key. Free, open source and fully offline.">
-<meta property="og:url" content="https://lvndry.github.io/euphoria/">
-<meta property="og:image" content="https://lvndry.github.io/euphoria/og/home.png">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Euphoria: every track, in key. The logo's curve beside the words, on a light background.">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Euphoria · Every track, in key">
-<meta name="twitter:description" content="Euphoria finds the key, tempo and energy of every track in your collection, so you can mix in key. Free, open source and fully offline.">
-<meta name="twitter:image" content="https://lvndry.github.io/euphoria/og/home.png">
-<meta name="twitter:image:alt" content="Euphoria: every track, in key. The logo's curve beside the words, on a light background.">
-<script type="application/ld+json">[{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Euphoria", "description": "Euphoria finds the key, tempo and energy of every track in your collection, so you can mix in key. Free, open source and fully offline.", "url": "https://lvndry.github.io/euphoria/", "applicationCategory": "MultimediaApplication", "applicationSubCategory": "DJ software", "operatingSystem": "macOS 15 or later on Apple Silicon; Linux on x86_64", "downloadUrl": "https://github.com/lvndry/euphoria/releases/latest/download/Euphoria.dmg", "isAccessibleForFree": true, "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}, "license": "https://www.gnu.org/licenses/gpl-3.0.html", "image": "https://lvndry.github.io/euphoria/og/home.png", "screenshot": "https://lvndry.github.io/euphoria/images/desktop-app/main-window-paper.png", "sameAs": ["https://github.com/lvndry/euphoria"], "featureList": ["Musical key detection in Camelot and musical notation, with its own neural network", "Tempo detection from the beat grid", "Energy rating from 1 to 10", "Audio quality checks", "Exports to rekordbox, Traktor, Serato, Engine DJ and VirtualDJ"]}, {"@context": "https://schema.org", "@type": "WebSite", "name": "Euphoria", "url": "https://lvndry.github.io/euphoria/"}]</script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wdth,wght@75..100,400..700&display=swap">
-<link rel="stylesheet" href="assets/site.css">
-</head>
-<body>
-<header class="nav">
-  <div class="wrap">
-    <a class="brand" href="index.html" id="brand"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path full" id="brand-path" stroke-width="4"></path></svg><span class="brand-word">Euphoria</span></a>
-    <nav class="nav-links" aria-label="Pages"><a href="features.html">Features</a><a href="mixing.html">Mixing in key</a></nav>
-    <a class="gh" href="https://github.com/lvndry/euphoria" aria-label="Euphoria on GitHub" title="Euphoria on GitHub"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
-    <a class="btn" href="index.html#install">Download</a>
-  </div>
-</header>
+---
+import Base from "../layouts/Base.astro";
+import "../styles/site.css";
+import { docsImage } from "../lib/images";
+import { absoluteUrl, withBase } from "../lib/url";
 
+const softwareApplication = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Euphoria",
+  "description": "Euphoria finds the key, tempo and energy of every track in your collection, so you can mix in key. Free, open source and fully offline.",
+  "url": absoluteUrl("/"),
+  "applicationCategory": "MultimediaApplication",
+  "applicationSubCategory": "DJ software",
+  "operatingSystem": "macOS 15 or later on Apple Silicon; Linux on x86_64",
+  "downloadUrl": "https://github.com/lvndry/euphoria/releases/latest/download/Euphoria.dmg",
+  "isAccessibleForFree": true,
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  },
+  "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+  "image": absoluteUrl("/og/home.png"),
+  "screenshot": absoluteUrl(docsImage("desktop-app/main-window-paper.png").src),
+  "sameAs": [
+    "https://github.com/lvndry/euphoria"
+  ],
+  "featureList": [
+    "Musical key detection in Camelot and musical notation, with its own neural network",
+    "Tempo detection from the beat grid",
+    "Energy rating from 1 to 10",
+    "Audio quality checks",
+    "Exports to rekordbox, Traktor, Serato, Engine DJ and VirtualDJ"
+  ]
+};
+---
+
+<Base
+  title="Euphoria · Every track, in key"
+  description="Euphoria finds the key, tempo and energy of every track in your collection, so you can mix in key. Free, open source and fully offline."
+  route="/"
+  image="/og/home.png"
+  imageAlt="Euphoria: every track, in key. The logo's curve beside the words, on a light background."
+  jsonLd={[softwareApplication, { "@context": "https://schema.org", "@type": "WebSite", name: "Euphoria", url: absoluteUrl("/") }]}
+>
 <main id="top">
   <section class="hero">
     <div class="wrap">
@@ -49,7 +55,7 @@
             <a class="btn" href="https://github.com/lvndry/euphoria/releases/latest/download/Euphoria.dmg"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M11.18 8.5c-.02-1.6 1.31-2.37 1.37-2.41-.75-1.09-1.91-1.24-2.32-1.26-.98-.1-1.92.58-2.42.58-.5 0-1.27-.57-2.09-.55-1.07.02-2.06.62-2.62 1.59-1.12 1.94-.29 4.81.8 6.38.53.77 1.17 1.63 2 1.6.8-.03 1.11-.52 2.08-.52.97 0 1.24.52 2.09.5.86-.01 1.41-.78 1.94-1.55.61-.89.86-1.76.88-1.8-.02-.01-1.69-.65-1.71-2.56zM9.6 3.8c.44-.54.74-1.28.66-2.03-.64.03-1.41.43-1.87.96-.41.47-.77 1.23-.67 1.96.71.05 1.44-.36 1.88-.89z"/></svg>Download for macOS</a>
             <a class="btn ghost" href="#install">Install on Linux</a>
           </div>
-          <p class="hero-meta">Keys by our own neural network, <a href="mixing.html#accuracy">15% more exact keys than KeyFinder</a> · macOS and Linux · GPL-3.0</p>
+          <p class="hero-meta">Keys by our own neural network, <a href={withBase("/mixing#accuracy")}>15% more exact keys than KeyFinder</a> · macOS and Linux · GPL-3.0</p>
         </div>
         <div class="hero-mark" id="hero-mark" title="Replay">
           <svg viewBox="0 0 64 64" role="img" aria-label="The Euphoria mark: the curve two notes a perfect fifth apart trace on an oscilloscope"><path class="mark-path" data-curve="3:2" data-intro stroke-width="1.5"></path></svg>
@@ -70,8 +76,8 @@
     <div class="wrap rise">
       <div class="shot-frame">
         <div class="stack">
-          <img id="shot-paper" src="images/desktop-app/main-window-paper.png" alt="The Euphoria app in its light Paper theme: a folder tree of house tracks, a table of fourteen tracks with Camelot key chips, tempo and energy, and Kwa Mama by Atmos Blaq selected with key 11A, 117.9 BPM, energy 4, its waveform and five cue points." width="1600" height="968">
-          <img id="shot-slate" class="is-hidden" src="images/desktop-app/main-window.png" alt="The same library in the dark Slate theme." width="1600" height="968">
+          <img id="shot-paper" src={docsImage("desktop-app/main-window-paper.png").src} alt="The Euphoria app in its light Paper theme: a folder tree of house tracks, a table of fourteen tracks with Camelot key chips, tempo and energy, and Kwa Mama by Atmos Blaq selected with key 11A, 117.9 BPM, energy 4, its waveform and five cue points." width="1600" height="968">
+          <img id="shot-slate" class="is-hidden" src={docsImage("desktop-app/main-window.png").src} alt="The same library in the dark Slate theme." width="1600" height="968">
         </div>
       </div>
       <div class="shot-bar">
@@ -111,7 +117,7 @@
         <div class="teaser-text">
           <h3>More tracks with the exact key than KeyFinder.</h3>
           <p>Euphoria finds keys with drone-v2, a neural network the project trained and built into the app. On 604 dance tracks it names the exact key 69.9% of the time, against 60.6% for KeyFinder, the free key detector also built into Mixxx DJ.</p>
-          <a class="text-link" href="mixing.html#accuracy">How we measure it</a>
+          <a class="text-link" href={withBase("/mixing#accuracy")}>How we measure it</a>
         </div>
       </div>
     </div>
@@ -122,9 +128,9 @@
       <div>
         <h2>See why two keys mix.</h2>
         <p class="lede" style="margin-top:24px">Two notes played into an oscilloscope draw a curve. Keys that mix draw simple ones, and keys that clash scribble. Pick any two keys and watch.</p>
-        <p style="margin-top:32px"><a class="btn" href="mixing.html">Explore mixing in key</a></p>
+        <p style="margin-top:32px"><a class="btn" href={withBase("/mixing")}>Explore mixing in key</a></p>
       </div>
-      <a class="mix-teaser-curve" href="mixing.html" aria-label="Explore mixing in key"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="4:3" data-loop stroke-width="1.3" style="color:oklch(0.58 0.15 210)"></path></svg></a>
+      <a class="mix-teaser-curve" href={withBase("/mixing")} aria-label="Explore mixing in key"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="4:3" data-loop stroke-width="1.3" style="color:oklch(0.58 0.15 210)"></path></svg></a>
     </div>
   </section>
 
@@ -141,7 +147,7 @@
             <p>The focus view stacks a track's sections, a zoomed waveform with its cues, its energy and where each stem sounds, with the tracks it mixes into and a plan for the transition.</p>
             <ul><li><svg viewBox="0 0 64 64"><path class="mark-path full" stroke-width="7"></path></svg>Cue points for start, main, breakdown, drop and outro</li><li><svg viewBox="0 0 64 64"><path class="mark-path full" stroke-width="7"></path></svg>Saved loops, exported with everything else</li></ul>
           </div>
-          <div class="crop"><img src="images/desktop-app/focus-view.png" alt="The focus view: the track's sections, detailed waveform with cue flags, energy and stem lanes on one timeline, the tracks it mixes into and the Plan card." width="1600" height="968" loading="lazy"></div>
+          <div class="crop"><img src={docsImage("desktop-app/focus-view.png").src} alt="The focus view: the track's sections, detailed waveform with cue flags, energy and stem lanes on one timeline, the tracks it mixes into and the Plan card." width="1600" height="968" loading="lazy"></div>
         </div>
         <div class="row flip rise">
           <div class="row-text">
@@ -149,22 +155,22 @@
             <p>A key or tempo rated low confidence, or a key that disagrees with the file's tags, lands under Needs review. Play the key's notes on the keyboard and decide.</p>
             <ul><li><svg viewBox="0 0 64 64"><path class="mark-path full" stroke-width="7"></path></svg>Shift a track's key and hear what it mixes with there</li><li><svg viewBox="0 0 64 64"><path class="mark-path full" stroke-width="7"></path></svg>Correct the key, tempo or energy in one place</li></ul>
           </div>
-          <div class="crop"><img src="images/desktop-app/needs-review-list.png" alt="The Needs review list: tracks marked Key unsure or Tempo unsure, with a piano keyboard that marks the notes of the key." width="1600" height="969" loading="lazy"></div>
+          <div class="crop"><img src={docsImage("desktop-app/needs-review-list.png").src} alt="The Needs review list: tracks marked Key unsure or Tempo unsure, with a piano keyboard that marks the notes of the key." width="1600" height="969" loading="lazy"></div>
         </div>
         <div class="row rise">
           <div class="row-text">
             <h3>Every change, shown before it happens</h3>
             <p>Euphoria lists each file and each field before writing tags. Keys and tempos already in your files are kept, unsure values are skipped, and undo puts the old tags back byte for byte.</p>
           </div>
-          <div class="crop"><img src="images/desktop-app/write-tags-preview.png" alt="The Write tags for rekordbox dialog: fourteen files, each with its key, BPM and comment change, and the rules in use." width="1600" height="968" loading="lazy"></div>
+          <div class="crop"><img src={docsImage("desktop-app/write-tags-preview.png").src} alt="The Write tags for rekordbox dialog: fourteen files, each with its key, BPM and comment change, and the rules in use." width="1600" height="968" loading="lazy"></div>
         </div>
       </div>
       <div class="extra rise">
         <div><h3>Audio quality</h3><p>Codec, real bit rate, where the content stops, and files likely re-encoded from a lower quality source, listed worst first.</p></div>
         <div><h3>Playlists</h3><p>Each set's key path, tempo range and energy flow at a glance, exported to rekordbox or as M3U8 for any other program.</p></div>
-        <div><h3>Into your DJ software</h3><p>Keys, tempos, beat grids and cues for rekordbox, Traktor, Serato, Engine DJ and VirtualDJ. <a class="text-link" href="features.html#export">See the exports</a></p></div>
+        <div><h3>Into your DJ software</h3><p>Keys, tempos, beat grids and cues for rekordbox, Traktor, Serato, Engine DJ and VirtualDJ. <a class="text-link" href={withBase("/features#export")}>See the exports</a></p></div>
       </div>
-      <p class="rise" style="margin-top:56px"><a class="btn" href="features.html">See every feature</a></p>
+      <p class="rise" style="margin-top:56px"><a class="btn" href={withBase("/features")}>See every feature</a></p>
     </div>
   </section>
 
@@ -255,14 +261,4 @@ Crazy            <span class="k" style="--hue:270">9A</span>    E minor    116.0
     </div>
   </section>
 </main>
-
-<footer>
-  <div class="wrap">
-    <span>Euphoria · free and open source under GPL-3.0-or-later</span>
-    <nav aria-label="Footer"><a href="features.html">Features</a><a href="mixing.html">Mixing in key</a><a href="https://github.com/lvndry/euphoria">GitHub</a><a href="https://github.com/lvndry/euphoria/releases">Releases</a><a href="https://github.com/lvndry/euphoria/tree/main/docs">Docs</a><a href="https://github.com/lvndry/euphoria/issues">Report a problem</a></nav>
-  </div>
-</footer>
-
-<script src="assets/site.js"></script>
-</body>
-</html>
+</Base>

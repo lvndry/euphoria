@@ -1,43 +1,19 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Mixing in key · Euphoria</title>
-<meta name="description" content="How mixing in key works, why two keys mix, and how accurately Euphoria finds keys with its own neural network.">
-<link rel="canonical" href="https://lvndry.github.io/euphoria/mixing.html">
-<link rel="icon" href="favicon.svg" type="image/svg+xml">
-<meta name="theme-color" content="#F6F5F1">
-<meta property="og:type" content="website">
-<meta property="og:site_name" content="Euphoria">
-<meta property="og:title" content="Mixing in key · Euphoria">
-<meta property="og:description" content="How mixing in key works, why two keys mix, and how accurately Euphoria finds keys with its own neural network.">
-<meta property="og:url" content="https://lvndry.github.io/euphoria/mixing.html">
-<meta property="og:image" content="https://lvndry.github.io/euphoria/og/mixing.png">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Euphoria: mix in key. Six curves for the same key, a fifth, a fourth, the relative key, an energy boost and a clash.">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Mixing in key · Euphoria">
-<meta name="twitter:description" content="How mixing in key works, why two keys mix, and how accurately Euphoria finds keys with its own neural network.">
-<meta name="twitter:image" content="https://lvndry.github.io/euphoria/og/mixing.png">
-<meta name="twitter:image:alt" content="Euphoria: mix in key. Six curves for the same key, a fifth, a fourth, the relative key, an energy boost and a clash.">
-<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "Euphoria", "item": "https://lvndry.github.io/euphoria/"}, {"@type": "ListItem", "position": 2, "name": "Mixing in key", "item": "https://lvndry.github.io/euphoria/mixing.html"}]}</script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wdth,wght@75..100,400..700&display=swap">
-<link rel="stylesheet" href="assets/site.css">
-</head>
-<body>
-<header class="nav">
-  <div class="wrap">
-    <a class="brand" href="index.html" id="brand"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path full" id="brand-path" stroke-width="4"></path></svg><span class="brand-word">Euphoria</span></a>
-    <nav class="nav-links" aria-label="Pages"><a href="features.html">Features</a><a href="mixing.html" aria-current="page">Mixing in key</a></nav>
-    <a class="gh" href="https://github.com/lvndry/euphoria" aria-label="Euphoria on GitHub" title="Euphoria on GitHub"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
-    <a class="btn" href="index.html#install">Download</a>
-  </div>
-</header>
+---
+import Base from "../layouts/Base.astro";
+import "../styles/site.css";
+import { docsImage } from "../lib/images";
+import { withBase } from "../lib/url";
+---
 
+<Base
+  title="Mixing in key · Euphoria"
+  description="How mixing in key works, why two keys mix, and how accurately Euphoria finds keys with its own neural network."
+  route="/mixing"
+  image="/og/mixing.png"
+  imageAlt="Euphoria: mix in key. Six curves for the same key, a fifth, a fourth, the relative key, an energy boost and a clash."
+  current="mixing"
+  breadcrumb="Mixing in key"
+>
 <main id="top">
   <div class="wrap page-head">
     <h1>Mix in key.</h1>
@@ -51,7 +27,7 @@
         <p class="lede" style="margin-top:24px">DJs write keys as Camelot codes: a number from 1 to 12 and a letter, A for minor and B for major. Neighbours on the wheel mix. Euphoria shows every key both ways, 8A and A minor.</p>
         <p style="margin-top:20px;color:var(--soft);max-width:52ch">One step around the wheel is a perfect fifth. Two notes a fifth apart, played into an oscilloscope, draw a 3 to 2 curve. That curve is the Euphoria logo.</p>
       </div>
-      <figure class="wheel-figure rise"><img src="images/keys-and-camelot/camelot-wheel.svg" alt="The Camelot wheel with minor keys inside and major keys outside, from 8A, A minor. The moves that mix in key are 7A and 9A, a fifth away, and 8B, the relative major. The bolder moves are 7B, the diagonal, 10A, the energy boost, 11B, the mood change, and 3A, the semitone boost."><figcaption>From 8A, A minor: the moves that mix, and the bolder ones.</figcaption></figure>
+      <figure class="wheel-figure rise"><img src={docsImage("keys-and-camelot/camelot-wheel.svg").src} alt="The Camelot wheel with minor keys inside and major keys outside, from 8A, A minor. The moves that mix in key are 7A and 9A, a fifth away, and 8B, the relative major. The bolder moves are 7B, the diagonal, 10A, the energy boost, 11B, the mood change, and 3A, the semitone boost."><figcaption>From 8A, A minor: the moves that mix, and the bolder ones.</figcaption></figure>
     </div>
   </section>
 
@@ -132,14 +108,14 @@
         <p class="lede">The same rules run everywhere you look for the next track.</p>
       </div>
       <div class="tools rise" id="tools-list">
-        <a class="tool" href="features.html#library"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="3:2" data-static stroke-width="3.4" style="color:oklch(0.58 0.15 240)"></path></svg></span><span><b>Mixes well with</b><span>Beside every track in the inspector: the tracks that mix after it, ranked by key move, tempo and energy.</span></span></a>
-        <a class="tool" href="features.html#palette"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="3:1" data-static stroke-width="3.4" style="color:oklch(0.58 0.15 60)"></path></svg></span><span><b>Search by key</b><span>Type 8A in the command palette for 8A first, then one step and relative, marked as pills.</span></span></a>
-        <a class="tool" href="features.html#decks"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="1:1" data-static stroke-width="3.4" style="color:oklch(0.58 0.15 180)"></path></svg></span><span><b>Next on deck B</b><span>With a track on deck A, the decks list what mixes well after it. Choose which moves count.</span></span></a>
-        <a class="tool" href="features.html#focus"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="4:3" data-static stroke-width="3.4" style="color:oklch(0.58 0.15 150)"></path></svg></span><span><b>Plan a transition</b><span>Pick the next track in the focus view and get the window, the bars and the key relation in a sentence.</span></span></a>
-        <a class="tool" href="features.html#set"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="5:3" data-static stroke-width="3.4" style="color:oklch(0.58 0.15 270)"></path></svg></span><span><b>Sets in key</b><span>The set builder orders tracks along an energy curve with every mix in a compatible key.</span></span></a>
-        <a class="tool" href="features.html#set"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="5:4" data-static stroke-width="3.4" style="color:oklch(0.58 0.15 330)"></path></svg></span><span><b>The key path of a playlist</b><span>Above a playlist, each key in play order, with a red mark on any step that does not mix.</span></span></a>
+        <a class="tool" href={withBase("/features#library")}><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="3:2" data-static stroke-width="3.4" style="color:oklch(0.58 0.15 240)"></path></svg></span><span><b>Mixes well with</b><span>Beside every track in the inspector: the tracks that mix after it, ranked by key move, tempo and energy.</span></span></a>
+        <a class="tool" href={withBase("/features#palette")}><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="3:1" data-static stroke-width="3.4" style="color:oklch(0.58 0.15 60)"></path></svg></span><span><b>Search by key</b><span>Type 8A in the command palette for 8A first, then one step and relative, marked as pills.</span></span></a>
+        <a class="tool" href={withBase("/features#decks")}><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="1:1" data-static stroke-width="3.4" style="color:oklch(0.58 0.15 180)"></path></svg></span><span><b>Next on deck B</b><span>With a track on deck A, the decks list what mixes well after it. Choose which moves count.</span></span></a>
+        <a class="tool" href={withBase("/features#focus")}><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="4:3" data-static stroke-width="3.4" style="color:oklch(0.58 0.15 150)"></path></svg></span><span><b>Plan a transition</b><span>Pick the next track in the focus view and get the window, the bars and the key relation in a sentence.</span></span></a>
+        <a class="tool" href={withBase("/features#set")}><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="5:3" data-static stroke-width="3.4" style="color:oklch(0.58 0.15 270)"></path></svg></span><span><b>Sets in key</b><span>The set builder orders tracks along an energy curve with every mix in a compatible key.</span></span></a>
+        <a class="tool" href={withBase("/features#set")}><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="5:4" data-static stroke-width="3.4" style="color:oklch(0.58 0.15 330)"></path></svg></span><span><b>The key path of a playlist</b><span>Above a playlist, each key in play order, with a red mark on any step that does not mix.</span></span></a>
       </div>
-      <figure class="shot-frame rise" style="margin:48px 0 0"><img src="images/desktop-app/focus-view.png" alt="The focus view in the app: the track's sections, waveform with cues, energy and stem lanes, the two tracks it mixes into with their key relation, and the Plan card describing the transition in a sentence." width="1600" height="968" style="display:block;width:100%;height:auto;border-radius:10px"><figcaption style="margin-top:14px;color:var(--soft);font-size:15px">The focus view: the tracks this one mixes into, with the key relation of each, and the plan for the transition.</figcaption></figure>
+      <figure class="shot-frame rise" style="margin:48px 0 0"><img src={docsImage("desktop-app/focus-view.png").src} alt="The focus view in the app: the track's sections, waveform with cues, energy and stem lanes, the two tracks it mixes into with their key relation, and the Plan card describing the transition in a sentence." width="1600" height="968" style="display:block;width:100%;height:auto;border-radius:10px"><figcaption style="margin-top:14px;color:var(--soft);font-size:15px">The focus view: the tracks this one mixes into, with the key relation of each, and the plan for the transition.</figcaption></figure>
     </div>
   </section>
 
@@ -150,20 +126,10 @@
         <h2>Play it in key.</h2>
         <div class="hero-cta">
           <a class="btn" href="https://github.com/lvndry/euphoria/releases/latest/download/Euphoria.dmg">Download for macOS</a>
-          <a class="btn ghost" href="index.html#install">Install on Linux</a>
+          <a class="btn ghost" href={withBase("/#install")}>Install on Linux</a>
         </div>
       </div>
     </div>
   </section>
 </main>
-
-<footer>
-  <div class="wrap">
-    <span>Euphoria · free and open source under GPL-3.0-or-later</span>
-    <nav aria-label="Footer"><a href="features.html">Features</a><a href="mixing.html">Mixing in key</a><a href="https://github.com/lvndry/euphoria">GitHub</a><a href="https://github.com/lvndry/euphoria/releases">Releases</a><a href="https://github.com/lvndry/euphoria/tree/main/docs">Docs</a><a href="https://github.com/lvndry/euphoria/issues">Report a problem</a></nav>
-  </div>
-</footer>
-
-<script src="assets/site.js"></script>
-</body>
-</html>
+</Base>

@@ -291,3 +291,6 @@ footer a:hover { color: var(--ink); }
   html { scroll-behavior: auto; }
   .rise, .js .rise.pending { transition: none; transform: none; }
 }
+
+.not-found { padding-block: clamp(80px, 12vw, 160px); display: grid; gap: 20px; }
+.not-found h1 { font-size: var(--step-display); line-height: 0.9; letter-spacing: -0.05em; }

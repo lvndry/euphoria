@@ -1,0 +1,13 @@
+---
+import Base from "../layouts/Base.astro";
+import "../styles/site.css";
+import { withBase } from "../lib/url";
+---
+
+<Base title="Page not found · Euphoria" description="This page does not exist on the Euphoria website." route="/404" image="/og/home.png" imageAlt="Euphoria: every track, in key.">
+  <main class="wrap not-found">
+    <h1>Not in key.</h1>
+    <p class="lede">This page does not exist. It may have moved when the site changed.</p>
+    <p class="hero-cta"><a class="btn" href={withBase("/")}>Home</a><a class="btn ghost" href={withBase("/docs")}>Documentation</a></p>
+  </main>
+</Base>

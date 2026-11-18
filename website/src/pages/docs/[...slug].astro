@@ -1,0 +1,23 @@
+---
+import { getCollection, render } from "astro:content";
+
+import Docs from "../../layouts/Docs.astro";
+import { buildSidebar, previousAndNext, routeFor, routeSlugFor, type DocsEntry } from "../../lib/docs";
+
+export async function getStaticPaths() {
+  const entries = await getCollection("docs");
+  return entries.map((entry) => ({ params: { slug: routeSlugFor(entry.id) || undefined }, props: { entry } }));
+}
+
+interface Props {
+  entry: DocsEntry;
+}
+
+const { entry } = Astro.props;
+const sidebar = buildSidebar(await getCollection("docs"));
+const { Content } = await render(entry);
+---
+
+<Docs entry={entry} sidebar={sidebar} currentRoute={routeFor(entry.id)} neighbours={previousAndNext(sidebar, entry.id)}>
+  <Content />
+</Docs>

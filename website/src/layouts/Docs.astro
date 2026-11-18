@@ -1,0 +1,85 @@
+---
+import "../styles/site.css";
+import "../styles/docs.css";
+import { ogImageFor, type DocsEntry, type PrevNext, type SidebarSection } from "../lib/docs";
+import { withBase } from "../lib/url";
+import { SITE_BASE } from "../../site";
+import Base from "./Base.astro";
+
+interface Props {
+  entry: DocsEntry;
+  sidebar: SidebarSection[];
+  currentRoute: string;
+  neighbours: PrevNext;
+}
+
+const { entry, sidebar, currentRoute, neighbours } = Astro.props;
+const isIndex = entry.id === "index";
+const sourceUrl = `https://github.com/lvndry/euphoria/blob/main/docs/${entry.id}.md`;
+const title = isIndex ? "Documentation · Euphoria" : `${entry.data.title} · Euphoria docs`;
+const route = currentRoute.slice(SITE_BASE.length) || "/docs";
+---
+
+<Base
+  title={title}
+  description={entry.data.description}
+  route={route}
+  image={ogImageFor(entry.id)}
+  imageAlt={`Euphoria docs: ${entry.data.title}`}
+  current="docs"
+  breadcrumb={isIndex ? "Docs" : entry.data.title}
+  jsonLd={{ "@context": "https://schema.org", "@type": "TechArticle", headline: entry.data.title, description: entry.data.description }}
+>
+  <main class="wrap docs">
+    <aside class="docs-nav" aria-label="Documentation">
+      <div id="search" class="docs-search"></div>
+      <a class="docs-home" href={withBase("/docs")} aria-current={isIndex ? "page" : undefined}>Overview</a>
+      {
+        sidebar.map((section) => (
+          <div class="docs-section">
+            {section.route ? (
+              <a class="docs-section-label" href={section.route} aria-current={section.route === currentRoute ? "page" : undefined}>
+                {section.label}
+              </a>
+            ) : (
+              <p class="docs-section-label">{section.label}</p>
+            )}
+            <ul>
+              {section.items.map((item) => (
+                <li>
+                  <a href={item.route} aria-current={item.route === currentRoute ? "page" : undefined}>
+                    {item.title}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      }
+    </aside>
+    <div class="docs-main">
+      <article class="prose" data-pagefind-body>
+        <slot />
+      </article>
+      <nav class="docs-pager" aria-label="Previous and next page">
+        {neighbours.previous ? <a class="previous" href={neighbours.previous.route}>← {neighbours.previous.title}</a> : <span></span>}
+        {neighbours.next ? <a class="next" href={neighbours.next.route}>{neighbours.next.title} →</a> : <span></span>}
+      </nav>
+      <p class="docs-source"><a href={sourceUrl}>Edit this page on GitHub</a></p>
+    </div>
+  </main>
+  {
+    import.meta.env.PROD && (
+      <script is:inline define:vars={{ bundle: withBase("/pagefind/") }}>
+        const link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = `${bundle}pagefind-ui.css`;
+        document.head.appendChild(link);
+        const script = document.createElement("script");
+        script.src = `${bundle}pagefind-ui.js`;
+        script.onload = () => new window.PagefindUI({ element: "#search", showSubResults: true, showImages: false, resetStyles: false });
+        document.head.appendChild(script);
+      </script>
+    )
+  }
+</Base>

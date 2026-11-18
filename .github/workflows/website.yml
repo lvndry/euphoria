@@ -1,43 +1,64 @@
 name: Website
 
 on:
+  pull_request:
+    paths:
+      - website/**
+      - docs/**
+      - assets/logo/**
+      - .github/workflows/website.yml
   push:
     branches: [main]
     paths:
       - website/**
-      - docs/images/**
+      - docs/**
       - assets/logo/**
-      - scripts/build_website.py
       - .github/workflows/website.yml
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# One deployment at a time, and a deployment in progress is never cancelled
-# halfway, so the published site is always one whole build.
+# One deployment at a time, and one in progress is never cancelled halfway, so
+# the published site is always one whole build. Pull request runs replace each other.
 concurrency:
-  group: website
-  cancel-in-progress: false
+  group: website-${{ github.event_name == 'pull_request' && github.ref || 'pages' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
-    name: Build the website
+    name: Build and check the website
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: website
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
       - name: Build
-        run: python3 scripts/build_website.py --output _site
-      - uses: actions/configure-pages@v6
-      - uses: actions/upload-pages-artifact@v5
+        run: bun run build
+      - name: Type-check
+        run: bun run check
+      - name: Links, anchors and absolute URLs
+        run: bun run check-links
+      - name: Configure Pages
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/configure-pages@v6
+      - name: Upload the site
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v5
         with:
-          path: _site
+          path: website/dist
 
   deploy:
     name: Deploy to GitHub Pages
+    # Only main publishes. A pull request or a manual run on another branch builds and checks it, and stops there.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 5
