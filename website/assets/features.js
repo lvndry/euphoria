@@ -197,7 +197,7 @@
 
   panels.innerHTML = FEATURES.map((feature, index) => {
     const figures = feature.term
-      ? `<pre class="term"><span class="p">$</span> euphoria analyze "~/Music/DJ tracks" --json
+      ? `<pre class="term"><span class="p">$</span> euphoria analyze ~/Music/"DJ tracks" --json
 <span class="p">$</span> euphoria quality ~/Music --m3u8 replace.m3u8
 <span class="p">$</span> euphoria export rekordbox ~/Music --beat-grid --cues
 <span class="p">$</span> euphoria export traktor ~/Music --beat-grid --cues

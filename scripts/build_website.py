@@ -11,6 +11,10 @@ name as images/... is copied from docs/images, so the screenshots and
 figures have one source shared with the documentation, and favicon.svg comes
 from assets/logo. The build fails, naming each one, when a page names an
 image or a page that does not exist. The default output is target/website.
+
+The output folder is deleted and made again, so the build refuses one that is,
+contains or lies inside its inputs (`--output .` or `--output website`), and
+only replaces a folder it made itself, which it marks with BUILD_MARKER.
 """
 
 import argparse
@@ -29,7 +33,27 @@ DEFAULT_OUTPUT = REPOSITORY / "target" / "website"
 NOT_PUBLISHED = ("README.md", "tsconfig.json")
 TEXT_SUFFIXES = {".html", ".css", ".js"}
 IMAGE_REFERENCE = re.compile(r"images/[A-Za-z0-9_./-]+\.(?:png|svg|jpg|webp)")
-PAGE_REFERENCE = re.compile(r"""href="([A-Za-z0-9_-]+\.html)(?:#[^"]*)?\"""")
+PAGE_REFERENCE = re.compile(r'href="([A-Za-z0-9_-]+\.html)(?:#[^"]*)?"')
+# Written into every build, so a later build knows the folder is one it may replace.
+BUILD_MARKER = ".euphoria-website-build"
+
+
+class UnsafeOutput(ValueError):
+    """The output folder would delete an input or a folder the build did not make."""
+
+
+def check_output(output, inputs):
+    """Raises UnsafeOutput unless `output` can be deleted and rebuilt without
+    touching `inputs` or anything the build did not make."""
+    output = output.resolve()
+    for path in inputs:
+        path = path.resolve()
+        if output == path or output in path.parents or path in output.parents:
+            raise UnsafeOutput(f"{output} overlaps the input {path}")
+    if output.exists() and not output.is_dir():
+        raise UnsafeOutput(f"{output} is a file, not a folder")
+    if output.is_dir() and any(output.iterdir()) and not (output / BUILD_MARKER).is_file():
+        raise UnsafeOutput(f"{output} is not empty and was not made by this build")
 
 
 def references(source):
@@ -47,7 +71,9 @@ def references(source):
 
 def build(source, images_folder, favicon, output):
     """Copies the site into `output` and returns the paths it names that do
-    not exist, which is empty when the build is complete."""
+    not exist, which is empty when the build is complete. Raises UnsafeOutput,
+    before deleting anything, when `output` is not safe to replace."""
+    check_output(output, [source, images_folder, favicon])
     images, pages = references(source)
     missing = [page for page in sorted(pages) if not (source / page).is_file()]
     missing += [image for image in sorted(images) if not (images_folder / image.removeprefix("images/")).is_file()]
@@ -64,6 +90,7 @@ def build(source, images_folder, favicon, output):
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(images_folder / image.removeprefix("images/"), destination)
     shutil.copy2(favicon, output / "favicon.svg")
+    (output / BUILD_MARKER).write_text("Made by scripts/build_website.py\n", encoding="utf-8")
     return []
 
 
@@ -72,7 +99,11 @@ def main():
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     arguments = parser.parse_args()
     output = arguments.output.resolve()
-    missing = build(SOURCE, IMAGES, FAVICON, output)
+    try:
+        missing = build(SOURCE, IMAGES, FAVICON, output)
+    except UnsafeOutput as error:
+        print(f"refusing to build: {error}", file=sys.stderr)
+        return 1
     if missing:
         for path in missing:
             print(f"missing: {path}", file=sys.stderr)

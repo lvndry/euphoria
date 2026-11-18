@@ -122,6 +122,23 @@
     return `<div class="interval"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="${ratio}" data-loop data-offset="${(1.2 + index * 0.45).toFixed(2)}" stroke-width="${strokeFor(larger, smaller, 2.6)}" style="color:oklch(0.6 0.14 ${keyHue})"></path></svg><b>${name}</b><span>${move} · ${ratio.replace(":", " : ")}</span></div>`;
   }).join("");
 
+  /** @type {WeakMap<SVGPathElement, string>} */
+  const drawn = new WeakMap();
+  /**
+   * Draws the stretch of a curve, rebuilding the path only when what is on screen changes.
+   * @param {SVGPathElement} path
+   * @param {number} larger
+   * @param {number} smaller
+   * @param {number} from
+   * @param {number} to
+   */
+  function draw(path, larger, smaller, from, to) {
+    const key = `${larger}:${smaller}:${from.toFixed(4)}:${to.toFixed(4)}`;
+    if (drawn.get(path) === key) return;
+    drawn.set(path, key);
+    path.setAttribute("d", curvePath(larger, smaller, from, to));
+  }
+
   const tracked = new Set(/** @type {NodeListOf<SVGPathElement>} */ (document.querySelectorAll("path[data-curve]")));
   /** @type {Map<SVGPathElement, number>} */
   const started = new Map();
@@ -136,18 +153,18 @@
       const [start, end] = spanFor(larger, smaller);
       const startedAt = started.get(path);
       if (startedAt === undefined) {
-        if (!path.getAttribute("d")) path.setAttribute("d", curvePath(larger, smaller, start, end));
+        draw(path, larger, smaller, start, end);
         return;
       }
       const seconds = (now - startedAt) / 1000 - Number(path.dataset.offset || 0);
       if (reduces) {
-        path.setAttribute("d", curvePath(larger, smaller, start, end));
+        draw(path, larger, smaller, start, end);
         path.style.strokeOpacity = String(1 - DEPTH * (0.5 - 0.5 * Math.cos(2 * Math.PI * Math.max(seconds, 0) / PULSE)));
         return;
       }
-      if (seconds < 0) { path.setAttribute("d", ""); return; }
+      if (seconds < 0) { draw(path, larger, smaller, start, start); return; }
       const [from, to] = span(seconds, start, end, path.hasAttribute("data-loop"));
-      path.setAttribute("d", curvePath(larger, smaller, from, to));
+      draw(path, larger, smaller, from, to);
     });
     beatFrame(now);
     requestAnimationFrame(frame);
@@ -165,7 +182,7 @@
     brandPath.dataset.curve = "3:2";
     tracked.add(brandPath);
     restart(brandPath);
-    setTimeout(() => { tracked.delete(brandPath); delete brandPath.dataset.curve; brandPath.setAttribute("d", fullMark); }, (DRAW + HOLD) * 1000);
+    setTimeout(() => { tracked.delete(brandPath); drawn.delete(brandPath); delete brandPath.dataset.curve; brandPath.setAttribute("d", fullMark); }, (DRAW + HOLD) * 1000);
   });
 
   const beats = document.getElementById("beats") || document.createElement("div");
@@ -357,7 +374,9 @@
       range.selectNodeContents(code);
       const selection = window.getSelection();
       if (selection) { selection.removeAllRanges(); selection.addRange(range); }
-      button.textContent = "Selected";
+      let copied = false;
+      try { copied = document.execCommand("copy"); } catch (error) { copied = false; }
+      button.textContent = copied ? "Copied" : "Selected, press ⌘C";
       reset();
     };
     try { navigator.clipboard.writeText(code.textContent ?? "").then(() => { button.textContent = "Copied"; reset(); }, fallback); } catch (error) { fallback(); }
