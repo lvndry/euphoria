@@ -22,6 +22,7 @@ use crate::deck_audio::DeckId;
 use crate::decks::{DeckMode, DeckView, SuggestionScope};
 use crate::format;
 use crate::player::fraction_along;
+use crate::playlist_flow::DraggedTracks;
 use crate::theme::Palette;
 use crate::views::artwork::cover_tile;
 use crate::views::controls::{choice_button, pressed_button, toggle_row};
@@ -458,6 +459,11 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
         .flex_1()
         .min_w_0()
         .gap(GAP_SMALL)
+        .rounded(RADIUS_SMALL)
+        .drag_over::<DraggedTracks>(move |style, _, _, _| style.bg(palette.accent.opacity(0.25)))
+        .on_drop(cx.listener(move |this, dragged: &DraggedTracks, _, cx| {
+            this.load_on_deck(deck, dragged.from_track, cx);
+        }))
         .child(header)
         .child(waveform_area)
         .children(lanes.into_iter().flatten().map(|lane| lane.element))

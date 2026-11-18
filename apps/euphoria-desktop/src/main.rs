@@ -27,6 +27,8 @@ mod command_palette;
 mod command_palette_ui_tests;
 mod cue_editing;
 mod deck_audio;
+#[cfg(test)]
+mod deck_drop_ui_tests;
 mod decks;
 #[cfg(test)]
 mod decks_open_ui_tests;
