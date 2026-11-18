@@ -60,7 +60,7 @@ Once a track is separated, the track detail offers **Full track**, **Acapella** 
 
 Acapella and Instrumental added together give back the track, apart from the model's own mistakes: on generated test stems at 44.1 kHz, 48 kHz and in mono, their sum matches the track to about 76 dB, the limit of rounding each stem to 16 bits, and lasts as long as the track to within a millisecond.
 
-**Remove stems**, under the three choices, deletes the saved stems of the track. The track detail then offers to separate it again. Stems are also removed on their own when the saved stems pass the size limit below.
+**Remove stems**, under the three choices, deletes the saved stems of the track. The track detail then offers to separate it again. From the command line, `euphoria stems <file> --remove` does the same. Stems are also removed on their own when the saved stems pass the size limit below.
 
 ## Saving stems
 
