@@ -195,3 +195,27 @@ fn closing_the_decks_drops_an_open_still_on_its_way(cx: &mut TestAppContext) {
         assert!(!decks.view(DeckId::B).playing);
     });
 }
+
+#[gpui::test]
+fn move_to_a_shows_only_once_deck_b_has_its_track(cx: &mut TestAppContext) {
+    let fixture = open(cx);
+    cx.update(|cx| {
+        fixture
+            .view
+            .update(cx, |app, cx| app.load_on_deck(DeckId::B, fixture.flac, cx))
+    });
+    settle(fixture.window, cx);
+    assert!(!crate::ui_tests::is_shown(
+        fixture.window,
+        "deck-move-to-a",
+        cx
+    ));
+
+    fixture.output.finish_opening();
+    settle(fixture.window, cx);
+    assert!(crate::ui_tests::is_shown(
+        fixture.window,
+        "deck-move-to-a",
+        cx
+    ));
+}

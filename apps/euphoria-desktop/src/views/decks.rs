@@ -643,18 +643,26 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
                 )),
         )
         .child(div().flex_1())
-        .when(deck == DeckId::B && view.track_index.is_some(), |row| {
-            row.child(
-                secondary_button("Move to A", &palette)
-                    .id("deck-move-to-a")
-                    .tooltip(|window, cx| {
-                        Tooltip::new("Puts this track on deck A where it is and empties deck B.")
+        .when(
+            deck == DeckId::B
+                && view.track_index.is_some()
+                && !view.loading
+                && view.problem.is_none(),
+            |row| {
+                row.child(
+                    secondary_button("Move to A", &palette)
+                        .id("deck-move-to-a")
+                        .tooltip(|window, cx| {
+                            Tooltip::new(
+                                "Puts this track on deck A where it is and empties deck B.",
+                            )
                             .build(window, cx)
-                    })
-                    .on_click(cx.listener(|this, _, _, cx| this.move_b_to_a(cx)))
-                    .test_support(),
-            )
-        })
+                        })
+                        .on_click(cx.listener(|this, _, _, cx| this.move_b_to_a(cx)))
+                        .test_support(),
+                )
+            },
+        )
         .children(add_to_playlist)
         .child(
             secondary_button("Load selected", &palette)
