@@ -71,17 +71,25 @@ pub(crate) fn energy_hint(move_hint: &str) -> String {
     format!("{move_hint}. {ENERGY_SCALE}")
 }
 
+/// The set stage a suggestion row shows for the track at `track_index`.
+pub(crate) fn suggestion_stage_label(
+    library: &crate::library::Library,
+    track_index: usize,
+) -> Option<&'static str> {
+    library.stage_at(track_index).map(|stage| stage.label())
+}
+
 /// The tooltip of an energy direction button.
 pub(crate) fn direction_hint(direction: EnergyDirection) -> &'static str {
     match direction {
         EnergyDirection::Up => {
-            "Ranks tracks one or two energy points above deck A first, on Euphoria's 1 to 10 scale."
+            "Favors tracks one or two energy points above deck A, on Euphoria's 1 to 10 scale. Key and tempo still count."
         }
         EnergyDirection::Same => {
-            "Ranks tracks at deck A's energy first, on Euphoria's 1 to 10 scale."
+            "Favors tracks at deck A's energy, on Euphoria's 1 to 10 scale. Key and tempo still count."
         }
         EnergyDirection::Down => {
-            "Ranks tracks one or two energy points below deck A first, on Euphoria's 1 to 10 scale."
+            "Favors tracks one or two energy points below deck A, on Euphoria's 1 to 10 scale. Key and tempo still count."
         }
     }
 }
@@ -1129,7 +1137,7 @@ fn suggestion_rows(
     let rows = decks.suggestions.iter().filter_map(|suggestion| {
         let track = library.track(suggestion.track_index)?;
         let track_index = suggestion.track_index;
-        let stage = library.stage_at(track_index);
+        let stage = suggestion_stage_label(library, track_index);
         let tempo = suggestion
             .tempo_difference_percent
             .map(format::signed_percent)
@@ -1203,19 +1211,19 @@ fn suggestion_rows(
                             })
                         }),
                 )
-                .child(
-                    div()
+                .child(match stage {
+                    Some(label) => div()
                         .id(("suggestion-stage", track_index))
                         .w(px(64.0))
                         .flex_shrink_0()
                         .text_size(SMALL_TEXT_SIZE)
                         .text_color(palette.text_secondary)
-                        .when_some(stage, |cell, stage| {
-                            cell.child(stage.label())
-                                .tooltip(|window, cx| Tooltip::new(STAGE_MEANING).build(window, cx))
-                        })
-                        .test_support(),
-                )
+                        .child(label)
+                        .tooltip(|window, cx| Tooltip::new(STAGE_MEANING).build(window, cx))
+                        .test_support()
+                        .into_any_element(),
+                    None => div().w(px(64.0)).flex_shrink_0().into_any_element(),
+                })
                 .child(
                     div()
                         .w(px(96.0))
@@ -1280,10 +1288,10 @@ mod energy_wording_tests {
     #[test]
     fn each_energy_direction_explains_itself_on_the_scale() {
         for direction in EnergyDirection::ALL {
-            assert!(
-                direction_hint(direction).contains("1 to 10 scale"),
-                "{direction:?}"
-            );
+            let hint = direction_hint(direction);
+            assert!(hint.contains("1 to 10 scale"), "{direction:?}");
+            assert!(hint.starts_with("Favors"), "{direction:?}");
+            assert!(hint.contains("Key and tempo still count"), "{direction:?}");
         }
         assert_ne!(
             direction_hint(EnergyDirection::Up),

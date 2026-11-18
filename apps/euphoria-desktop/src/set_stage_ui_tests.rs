@@ -154,17 +154,32 @@ fn the_deck_suggestions_show_each_tracks_set_stage(cx: &mut TestAppContext) {
         })
     });
     cx.run_until_parked();
-    let staged: Vec<usize> = cx.update(|cx| {
+    let rows: Vec<(usize, Option<&'static str>, Option<&'static str>)> = cx.update(|cx| {
         let app = view.read(cx);
+        let library = app.session.library();
         app.decks
             .suggestions
             .iter()
-            .map(|suggestion| suggestion.track_index)
-            .filter(|index| app.session.library().stage_at(*index).is_some())
+            .map(|suggestion| {
+                let index = suggestion.track_index;
+                (
+                    index,
+                    crate::views::decks::suggestion_stage_label(library, index),
+                    library.stage_at(index).map(|stage| stage.label()),
+                )
+            })
             .collect()
     });
-    assert!(!staged.is_empty(), "some suggestions have a stage");
-    for index in staged.iter().take(3) {
-        assert!(is_shown(window, ("suggestion-stage", *index), cx));
+    assert!(
+        rows.iter().any(|(_, shown, _)| shown.is_some()),
+        "some suggestions have a stage"
+    );
+    for (index, shown, expected) in rows.iter().take(6) {
+        assert_eq!(shown, expected, "row {index}");
+        assert_eq!(
+            is_shown(window, ("suggestion-stage", *index), cx),
+            expected.is_some(),
+            "row {index}"
+        );
     }
 }
