@@ -143,3 +143,28 @@ fn a_corrected_tempo_moves_a_track_to_another_stage(cx: &mut TestAppContext) {
     });
     assert_eq!(after, Some(SetStage::WarmUp));
 }
+
+#[gpui::test]
+fn the_deck_suggestions_show_each_tracks_set_stage(cx: &mut TestAppContext) {
+    let (window, view) = open(cx);
+    click(window, "toggle-decks", cx);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.load_on_deck(crate::deck_audio::DeckId::A, 0, cx)
+        })
+    });
+    cx.run_until_parked();
+    let staged: Vec<usize> = cx.update(|cx| {
+        let app = view.read(cx);
+        app.decks
+            .suggestions
+            .iter()
+            .map(|suggestion| suggestion.track_index)
+            .filter(|index| app.session.library().stage_at(*index).is_some())
+            .collect()
+    });
+    assert!(!staged.is_empty(), "some suggestions have a stage");
+    for index in staged.iter().take(3) {
+        assert!(is_shown(window, ("suggestion-stage", *index), cx));
+    }
+}
