@@ -37,9 +37,30 @@ else
 fi
 """,
                 "sleep": "#!/usr/bin/env bash\necho \"$1\" >> \"$TEST_STATE/pauses\"\n",
-                "curl": "#!/usr/bin/env bash\necho onnxruntime >> \"$TEST_STATE/installed\"\n",
+                "curl": """#!/usr/bin/env bash
+if [[ "${TEST_DOWNLOAD:-}" == failure ]]; then
+  echo 'curl: (22) The requested URL returned error: 404' >&2
+  exit 22
+fi
+echo onnxruntime >> "$TEST_STATE/installed"
+""",
                 "sha256sum": "#!/usr/bin/env bash\nexit 0\n",
-                "tar": "#!/usr/bin/env bash\nexit 0\n",
+                "mktemp": """#!/usr/bin/env bash
+mkdir -p "$TEST_STATE/temporary"
+if [[ "${1:-}" == -d ]]; then
+  exec /usr/bin/mktemp -d "$TEST_STATE/temporary/tmp.XXXXXX"
+fi
+exec /usr/bin/mktemp "$TEST_STATE/temporary/tmp.XXXXXX"
+""",
+                "unzip": """#!/usr/bin/env bash
+set -eu
+while (($#)); do
+  if [[ "$1" == -d ]]; then
+    touch "$2/libonnxruntime.so"
+  fi
+  shift
+done
+""",
             }
             for name, source in stubs.items():
                 path = root / name
@@ -54,6 +75,8 @@ fi
             count = int((root / "count").read_text()) if (root / "count").exists() else 0
             installed = (root / "installed").read_text() if (root / "installed").exists() else ""
             pauses = (root / "pauses").read_text().splitlines() if (root / "pauses").exists() else []
+            temporary = root / "temporary"
+            self.leftovers = sorted(temporary.iterdir()) if temporary.exists() else []
             return result, count, installed, pauses
 
     def test_nonzero_update_without_diagnostic_is_retried_and_fails(self):
@@ -83,6 +106,16 @@ fi
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(count, 0)
         self.assertEqual(installed.splitlines(), ["onnxruntime"])
+
+    def test_a_failed_download_fails_the_install_after_its_retries(self):
+        result, _, installed, pauses = self.run_install(
+            "failure",
+            {"EUPHORIA_APT_PACKAGES_INSTALLED": "1", "TEST_DOWNLOAD": "failure"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(installed, "")
+        self.assertEqual(pauses, ["15", "30", "45", "60"])
+        self.assertIn("giving up after 5 attempts: install_onnx_runtime", result.stderr)
+        self.assertEqual(self.leftovers, [], "each attempt removes its temporary files")
 
     def test_package_list_is_printed_without_installing_anything(self):
         result, count, installed, _ = self.run_install(

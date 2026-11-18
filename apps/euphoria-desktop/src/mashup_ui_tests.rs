@@ -13,6 +13,7 @@ use gpui::{AnyWindowHandle, Entity, TestAppContext};
 use crate::app::EuphoriaApp;
 use crate::deck_audio::DeckId;
 use crate::playback::testing::SilentOutput;
+use crate::tag_writing::testing::ScratchFolder;
 use crate::ui_tests::{click, deck_tracks, index_of_track, is_shown, open_window_on};
 
 /// The id of a deck's part button: Full 0, Vocals 1, Instrumental 2.
@@ -127,4 +128,61 @@ fn the_automatic_switch_never_overrides_a_choice_made_on_the_other_deck(cx: &mut
         Some(INSTRUMENTAL_ONLY),
         "a new track on B follows again"
     );
+}
+
+#[gpui::test]
+fn in_mix_mode_a_deck_takes_stems_separated_after_its_track_was_loaded(cx: &mut TestAppContext) {
+    let folder = ScratchFolder::new("deck-stems-mix-mode");
+    let (window, view) = open_window_on(deck_tracks(), Box::new(SilentOutput), cx);
+    click(window, "toggle-decks", cx);
+    let wav = index_of_track(&view, "sine-440hz-stereo.wav", cx);
+    cx.update(|cx| view.update(cx, |app, cx| app.load_on_deck(DeckId::B, wav, cx)));
+    cx.run_until_parked();
+    assert_eq!(
+        cx.update(|cx| view.read(cx).decks.mode),
+        crate::decks::DeckMode::NextTrack
+    );
+    assert!(!is_shown(window, part_button(DeckId::B, INSTRUMENTAL), cx));
+
+    let files = stem_files_in(&folder);
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            let path = app.decks.view(DeckId::B).path.clone().unwrap();
+            app.stems.mark_ready(&path, files);
+            app.stems_separated(path, cx);
+        })
+    });
+    cx.run_until_parked();
+
+    click(window, part_button(DeckId::B, INSTRUMENTAL), cx);
+    assert_eq!(playing(&view, DeckId::B, cx), Some(INSTRUMENTAL_ONLY));
+}
+
+/// Four copies of a stereo test file in `folder`, standing for separated
+/// stems.
+fn stem_files_in(folder: &ScratchFolder) -> StemFiles {
+    let stereo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../crates/euphoria-core/tests/fixtures/sine-440hz-stereo.wav");
+    let files = StemFiles::in_directory(folder.0.join("stems"));
+    std::fs::create_dir_all(files.directory()).unwrap();
+    for stem in euphoria_core::stems::Stem::ALL {
+        std::fs::copy(&stereo, files.path(stem)).unwrap();
+    }
+    files
+}
+
+#[gpui::test]
+fn a_deck_without_stems_offers_to_separate_them_instead_of_the_parts(cx: &mut TestAppContext) {
+    let (window, view) = open_window_on(deck_tracks(), Box::new(SilentOutput), cx);
+    click(window, "toggle-decks", cx);
+    let flac = index_of_track(&view, "sine-440hz-mono.flac", cx);
+    cx.update(|cx| view.update(cx, |app, cx| app.load_on_deck(DeckId::A, flac, cx)));
+    cx.run_until_parked();
+
+    assert!(!is_shown(window, part_button(DeckId::A, INSTRUMENTAL), cx));
+    assert!(is_shown(
+        window,
+        crate::views::decks::deck_part("deck-separate", DeckId::A),
+        cx
+    ));
 }

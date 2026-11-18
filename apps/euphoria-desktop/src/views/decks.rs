@@ -13,7 +13,7 @@ use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
 use gpui::{
     AnyElement, ClickEvent, Context, Div, FontWeight, MouseButton, MouseDownEvent, MouseMoveEvent,
-    ScrollEvent, SharedString, Stateful, TestSupportExt, div, px, relative,
+    ScrollEvent, SharedString, Stateful, TestSupportExt, canvas, div, px, relative,
 };
 
 use crate::app::EuphoriaApp;
@@ -23,6 +23,7 @@ use crate::decks::{DeckMode, DeckView, SuggestionScope};
 use crate::format;
 use crate::planner_playback::{PlanSource, PlanTiming};
 use crate::player::fraction_along;
+use crate::playlist_flow::DraggedTracks;
 use crate::theme::Palette;
 use crate::transition_plan::{window_detail, window_title};
 use crate::views::artwork::cover_tile;
@@ -30,6 +31,7 @@ use crate::views::controls::{choice_button, pressed_button, toggle_row};
 use crate::views::favorites;
 use crate::views::key_chip::key_chip;
 use crate::views::mashup;
+use crate::views::panel_edge;
 use crate::views::track_overview::{self, LaneFrame, LaneInputs};
 use crate::views::waveform::{SeenBounds, WaveformColours, waveform};
 use crate::views::{GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, LABEL_TEXT_SIZE, RADIUS_SMALL};
@@ -39,9 +41,6 @@ use euphoria_core::harmony::words::relation_name;
 
 /// Height of a deck's waveform.
 const DECK_WAVEFORM_HEIGHT: f32 = 64.0;
-
-/// Height of the list of tracks to play next.
-const SUGGESTIONS_HEIGHT: f32 = 150.0;
 
 /// The element id of a deck's part `name`.
 pub(crate) fn deck_part(name: &'static str, deck: DeckId) -> (&'static str, usize) {
@@ -54,6 +53,9 @@ fn deck_number(deck: DeckId) -> usize {
         DeckId::B => 1,
     }
 }
+
+/// Height of the list of tracks to play next.
+const SUGGESTIONS_HEIGHT: f32 = 150.0;
 
 /// The loop lengths a deck offers, in bars.
 pub(crate) const LOOP_BARS: [u32; 5] = [1, 2, 4, 8, 16];
@@ -130,7 +132,7 @@ where
         .h(px(18.0))
         .w_full()
         .child(
-            gpui::canvas(move |seen, _, _| bounds.set(Some(seen)), |_, _, _, _| ())
+            canvas(move |seen, _, _| bounds.set(Some(seen)), |_, _, _, _| ())
                 .absolute()
                 .size_full(),
         )
@@ -161,17 +163,25 @@ where
 }
 
 /// The decks, the mixer and the suggestions.
-pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
+pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> impl IntoElement {
     let palette = app.theme.palette;
-    div()
+    let seen_content = app.decks_content_bounds.clone();
+    let content = div()
+        .relative()
         .flex()
         .flex_col()
-        .flex_shrink_0()
         .gap(GAP_MEDIUM)
         .p(px(12.0))
-        .border_t_1()
-        .border_color(palette.line)
-        .bg(palette.panel)
+        .child(
+            canvas(
+                move |bounds, _, _| seen_content.set(Some(bounds)),
+                |_, _, _, _| (),
+            )
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full(),
+        )
         .children(back_to_plan(app, cx))
         .child(
             div()
@@ -186,7 +196,27 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
             DeckMode::NextTrack => suggestions(app, cx),
             DeckMode::Mashup => mashup::ideas(app, cx),
         })
-        .children(favorites::deck_transition(app, cx))
+        .children(favorites::deck_transition(app, cx));
+    div()
+        .id("decks")
+        .relative()
+        .flex()
+        .flex_col()
+        .flex_shrink_0()
+        .when_some(app.decks_height(), |decks, height| decks.h(height))
+        .border_t_1()
+        .border_color(palette.line)
+        .bg(palette.panel)
+        .child(
+            div()
+                .id("decks-scroll")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .child(content),
+        )
+        .child(panel_edge::decks_top(app, cx))
+        .test_support()
 }
 
 /// Where to mix from deck A into deck B, once the plan of the pair is
@@ -610,6 +640,11 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
         .flex_1()
         .min_w_0()
         .gap(GAP_SMALL)
+        .rounded(RADIUS_SMALL)
+        .drag_over::<DraggedTracks>(move |style, _, _, _| style.bg(palette.accent.opacity(0.25)))
+        .on_drop(cx.listener(move |this, dragged: &DraggedTracks, _, cx| {
+            this.load_on_deck(deck, dragged.from_track, cx);
+        }))
         .child(header)
         .child(waveform_area)
         .children(lanes.into_iter().flatten().map(|lane| lane.element))
