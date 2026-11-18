@@ -1750,6 +1750,35 @@ fn each_suggestion_says_how_its_best_window_sounds(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn a_suggestion_whose_plan_is_dropped_is_planned_again(cx: &mut TestAppContext) {
+    let setup = open_plans("suggestion-verdict-replanned", &[0, 1, 2], cx);
+    load_a_on_decks(&setup, cx);
+    let (index, label) = suggestion_labels(&setup, cx)[0];
+    assert_ne!(label, "\u{2013}");
+    let path = cx.update(|cx| {
+        setup.view.read(cx).session.library().tracks()[index]
+            .path
+            .clone()
+    });
+
+    cx.update(|cx| {
+        setup
+            .view
+            .update(cx, |app, cx| app.plans_of_track_changed(&path, cx))
+    });
+    for _ in 0..10 {
+        settle(setup.window, cx);
+        cx.run_until_parked();
+    }
+
+    let replanned = suggestion_labels(&setup, cx)
+        .into_iter()
+        .find(|(row, _)| *row == index)
+        .map(|(_, label)| label);
+    assert_eq!(replanned, Some(label), "the verdict comes back");
+}
+
+#[gpui::test]
 fn only_the_suggestions_in_view_are_planned_until_the_list_scrolls(cx: &mut TestAppContext) {
     let mut tracks = plan_tracks();
     for number in 0..16 {

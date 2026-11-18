@@ -496,7 +496,7 @@ impl EuphoriaApp {
     }
 
     /// Asks for the plans of deck A's track into the suggestions in view,
-    /// when they changed since last asked.
+    /// when they changed since last asked or a plan among them was dropped.
     pub(crate) fn request_suggestion_plans(&mut self, cx: &mut Context<'_, Self>) {
         if !self.decks.is_open || self.decks.mode != crate::decks::DeckMode::NextTrack {
             return;
@@ -512,7 +512,10 @@ impl EuphoriaApp {
             .map(|suggestion| suggestion.track_index)
             .collect();
         let wanted = Some((a_index, targets.clone()));
-        if self.decks.requested_suggestion_plans == wanted {
+        let all_known = targets
+            .iter()
+            .all(|b_index| self.pair_plan_state(a_index, *b_index).is_some());
+        if self.decks.requested_suggestion_plans == wanted && all_known {
             return;
         }
         self.decks.requested_suggestion_plans = wanted;
