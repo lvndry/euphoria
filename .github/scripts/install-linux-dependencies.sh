@@ -62,38 +62,58 @@ fi
 # The stem separation links the ONNX Runtime that the ort crate downloads,
 # pyke's prebuilt libonnxruntime.a, which was built with GCC 13 and asks
 # Ubuntu 22.04's libstdc++ for GLIBCXX_3.4.30 symbols that only GCC 13 and
-# later provide. The shared library Microsoft releases for the same ONNX
-# Runtime 1.31.0 needs only GLIBCXX_3.4.9, and libstdc++ is a base system
+# later provide. The shared library Microsoft builds for the same ONNX
+# Runtime 1.31.0 needs only GLIBCXX_3.4.22, and libstdc++ is a base system
 # library the packages never bundle, so linking that one lets the binaries
 # run on 22.04 without a newer C++ runtime. It is installed into
 # /usr/local/lib and found through it: the build passes
 # ORT_LIB_PATH=/usr/local/lib and ORT_PREFER_DYNAMIC_LINK=1, which make
 # ort-sys link libonnxruntime instead of downloading the static one.
+#
+# The library comes from Microsoft's signed NuGet package, published on
+# 9 October 2026, because the GitHub releases of microsoft/onnxruntime are
+# no longer available. The package holds the library for both architectures,
+# so one checksum covers both.
 onnx_runtime_version="1.31.0"
-# The release names use x64 and aarch64, whatever uname -m reports.
+onnx_runtime_package_checksum="7e35fdb4f5adb62f01e60798e2e5ed05108f5fbbe1cca03fbcc37903cf7c5e3b"
 case "$(uname -m)" in
-  x86_64) onnx_runtime_architecture="x64" ;;
-  arm64|aarch64) onnx_runtime_architecture="aarch64" ;;
+  x86_64) onnx_runtime_platform="linux-x64" ;;
+  arm64|aarch64) onnx_runtime_platform="linux-arm64" ;;
   *)
     echo "error: no pinned ONNX Runtime is available for $(uname -m)" >&2
     exit 1
     ;;
 esac
-case "$onnx_runtime_architecture" in
-  x64) onnx_runtime_checksum="cc5c72baf5ae5c8238a6841f0897227be2d02826b9cf98eaf02fdefaeeb03a57" ;;
-  aarch64) onnx_runtime_checksum="c5b8b3cca31f3d643a3b313b8f42e2d0f16a4fcefd02cda343d97bd5306afaab" ;;
-esac
+
+# The retry runs these as a condition, where set -e does not apply, so each
+# step returns on failure itself.
+fetch_onnx_runtime() {
+  local package="$1"
+  local folder="$2"
+  local library="libonnxruntime.so.${onnx_runtime_version}"
+  curl --silent --show-error --fail --location --output "$package" \
+    "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/${onnx_runtime_version}/microsoft.ml.onnxruntime.${onnx_runtime_version}.nupkg" ||
+    return 1
+  echo "$onnx_runtime_package_checksum  $package" | sha256sum --check --quiet || return 1
+  unzip -q -j "$package" "runtimes/${onnx_runtime_platform}/native/libonnxruntime.so" -d "$folder" ||
+    return 1
+  sudo install -m 0644 "$folder/libonnxruntime.so" "/usr/local/lib/$library" || return 1
+  sudo ln -sf "$library" /usr/local/lib/libonnxruntime.so.1 || return 1
+  sudo ln -sf libonnxruntime.so.1 /usr/local/lib/libonnxruntime.so || return 1
+  sudo ldconfig || return 1
+}
+
 install_onnx_runtime() {
-  local archive
+  local package
   local folder
-  archive="$(mktemp)"
-  folder="$(mktemp -d)"
-  curl --silent --show-error --fail --location --output "$archive" \
-    "https://github.com/microsoft/onnxruntime/releases/download/v${onnx_runtime_version}/onnxruntime-linux-${onnx_runtime_architecture}-${onnx_runtime_version}.tgz"
-  echo "$onnx_runtime_checksum  $archive" | sha256sum --check --quiet
-  tar -xzf "$archive" -C "$folder"
-  sudo cp "$folder"/onnxruntime-linux-${onnx_runtime_architecture}-${onnx_runtime_version}/lib/libonnxruntime.so* /usr/local/lib/
-  sudo ldconfig
-  rm -rf "$archive" "$folder"
+  local status=0
+  package="$(mktemp)" || return 1
+  if ! folder="$(mktemp -d)"; then
+    rm -f "$package"
+    return 1
+  fi
+  fetch_onnx_runtime "$package" "$folder" || status=$?
+  rm -rf "$package" "$folder"
+  return "$status"
 }
 retry install_onnx_runtime

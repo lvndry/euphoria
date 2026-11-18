@@ -18,6 +18,7 @@ ignore = [
   { id = "RUSTSEC-2026-0370", reason = "zvariant is unmaintained; required by GPUI" },
   { id = "RUSTSEC-2026-0371", reason = "zbus_names is unmaintained; required by GPUI" },
   { id = "RUSTSEC-2026-0372", reason = "zvariant_derive is unmaintained; required by GPUI" },
+  { id = "RUSTSEC-2026-0543", reason = "chrono is unmaintained; required by GPUI (gpui-base, gpui-component, gpui-pre), still in gpui-kit 0.10.0" },
 ]
 
 [licenses]

@@ -13,7 +13,7 @@ use gpui::component::tooltip::Tooltip;
 use gpui::prelude::*;
 use gpui::{
     AnyElement, ClickEvent, Context, Div, FontWeight, MouseButton, MouseDownEvent, MouseMoveEvent,
-    SharedString, Stateful, TestSupportExt, div, px, relative,
+    SharedString, Stateful, TestSupportExt, canvas, div, px, relative,
 };
 
 use crate::app::EuphoriaApp;
@@ -21,13 +21,17 @@ use crate::artwork::ThumbnailSize;
 use crate::deck_audio::DeckId;
 use crate::decks::{DeckMode, DeckView, SuggestionScope};
 use crate::format;
+use crate::planner_playback::{PlanSource, PlanTiming};
 use crate::player::fraction_along;
+use crate::playlist_flow::DraggedTracks;
 use crate::theme::Palette;
+use crate::transition_plan::{window_detail, window_title};
 use crate::views::artwork::cover_tile;
 use crate::views::controls::{choice_button, pressed_button, toggle_row};
 use crate::views::favorites;
 use crate::views::key_chip::key_chip;
 use crate::views::mashup;
+use crate::views::panel_edge;
 use crate::views::track_overview::{self, LaneFrame, LaneInputs};
 use crate::views::waveform::{SeenBounds, WaveformColours, waveform};
 use crate::views::{GAP_MEDIUM, GAP_SMALL, GAP_TIGHT, LABEL_TEXT_SIZE, RADIUS_SMALL};
@@ -37,9 +41,6 @@ use euphoria_core::harmony::words::relation_name;
 
 /// Height of a deck's waveform.
 const DECK_WAVEFORM_HEIGHT: f32 = 64.0;
-
-/// Height of the list of tracks to play next.
-const SUGGESTIONS_HEIGHT: f32 = 150.0;
 
 /// The element id of a deck's part `name`.
 pub(crate) fn deck_part(name: &'static str, deck: DeckId) -> (&'static str, usize) {
@@ -80,6 +81,9 @@ pub(crate) fn direction_hint(direction: EnergyDirection) -> &'static str {
         }
     }
 }
+
+/// Height of the list of tracks to play next.
+const SUGGESTIONS_HEIGHT: f32 = 150.0;
 
 /// The loop lengths a deck offers, in bars.
 pub(crate) const LOOP_BARS: [u32; 5] = [1, 2, 4, 8, 16];
@@ -156,7 +160,7 @@ where
         .h(px(18.0))
         .w_full()
         .child(
-            gpui::canvas(move |seen, _, _| bounds.set(Some(seen)), |_, _, _, _| ())
+            canvas(move |seen, _, _| bounds.set(Some(seen)), |_, _, _, _| ())
                 .absolute()
                 .size_full(),
         )
@@ -187,17 +191,25 @@ where
 }
 
 /// The decks, the mixer and the suggestions.
-pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div {
+pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> impl IntoElement {
     let palette = app.theme.palette;
-    div()
+    let seen_content = app.decks_content_bounds.clone();
+    let content = div()
+        .relative()
         .flex()
         .flex_col()
-        .flex_shrink_0()
         .gap(GAP_MEDIUM)
         .p(px(12.0))
-        .border_t_1()
-        .border_color(palette.line)
-        .bg(palette.panel)
+        .child(
+            canvas(
+                move |bounds, _, _| seen_content.set(Some(bounds)),
+                |_, _, _, _| (),
+            )
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full(),
+        )
         .children(back_to_plan(app, cx))
         .child(
             div()
@@ -207,11 +219,181 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Di
                 .child(mixer(app, cx))
                 .child(deck(app, DeckId::B, cx).test_support()),
         )
+        .children(transition_row(app, cx))
         .child(match app.decks.mode {
             DeckMode::NextTrack => suggestions(app, cx),
             DeckMode::Mashup => mashup::ideas(app, cx),
         })
-        .children(favorites::deck_transition(app, cx))
+        .children(favorites::deck_transition(app, cx));
+    div()
+        .id("decks")
+        .relative()
+        .flex()
+        .flex_col()
+        .flex_shrink_0()
+        .when_some(app.decks_height(), |decks, height| decks.h(height))
+        .border_t_1()
+        .border_color(palette.line)
+        .bg(palette.panel)
+        .child(
+            div()
+                .id("decks-scroll")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .child(content),
+        )
+        .child(panel_edge::decks_top(app, cx))
+        .test_support()
+}
+
+/// Where to mix from deck A into deck B, once the plan of the pair is
+/// worked out: the shown window, the other good places to switch to, and
+/// the button that plays the transition.
+fn transition_row(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Option<AnyElement> {
+    let (planned, shown) = app.deck_plan_window()?;
+    let palette = app.theme.palette;
+    let stems_checked = planned.stems_known() == (true, true);
+    let verdict = app.deck_window_verdict()?;
+    let shown_index = planned
+        .plan
+        .windows
+        .iter()
+        .position(|window| std::ptr::eq(window, shown))
+        .unwrap_or(0);
+    let markers = planned
+        .plan
+        .windows
+        .iter()
+        .enumerate()
+        .map(|(index, window)| {
+            let tip = format!(
+                "{}. {}",
+                window_title(planned, window),
+                window_detail(window, stems_checked)
+            );
+            let is_shown = index == shown_index;
+            div()
+                .id(("deck-plan-window", index))
+                .flex()
+                .items_center()
+                .justify_center()
+                .size(px(18.0))
+                .rounded(RADIUS_SMALL)
+                .cursor_pointer()
+                .text_size(LABEL_TEXT_SIZE)
+                .font_weight(FontWeight::SEMIBOLD)
+                .map(|marker| {
+                    if is_shown {
+                        marker.bg(palette.accent).text_color(palette.accent_ink)
+                    } else {
+                        marker
+                            .bg(palette.raised)
+                            .border_1()
+                            .border_color(palette.accent)
+                            .text_color(palette.text)
+                    }
+                })
+                .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                .child(format!("{}", window.rank))
+                .on_click(cx.listener(move |this, _, _, cx| this.select_deck_window(index, cx)))
+                .test_support()
+                .into_any_element()
+        })
+        .collect::<Vec<_>>();
+    let is_testing = app.plan_source() == Some(PlanSource::Decks);
+    Some(
+        div()
+            .id("deck-transition")
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap(GAP_SMALL)
+            .child(section_label("Mix A into B", &palette))
+            .children(markers)
+            .child(
+                div()
+                    .id("deck-transition-summary")
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(SMALL_TEXT_SIZE)
+                    .text_color(palette.text_secondary)
+                    .child(format!(
+                        "{}. {}",
+                        window_title(planned, shown),
+                        verdict.label()
+                    ))
+                    .test_support(),
+            )
+            .child(
+                secondary_button(
+                    if is_testing {
+                        "Stop"
+                    } else {
+                        "Test transition"
+                    },
+                    &palette,
+                )
+                .id("deck-test-transition")
+                .on_click(cx.listener(|this, _, _, cx| this.test_deck_transition(cx)))
+                .test_support(),
+            )
+            .test_support()
+            .into_any_element(),
+    )
+}
+
+/// The spans of the shown window on `deck`'s waveform, `duration` seconds
+/// long: where the deck mixes out or in, and where the bass swaps.
+fn transition_marks(app: &EuphoriaApp, deck: DeckId, duration: f64) -> Vec<AnyElement> {
+    let Some((planned, window)) = app.deck_plan_window() else {
+        return Vec::new();
+    };
+    let Some(timing) = PlanTiming::of(planned, window) else {
+        return Vec::new();
+    };
+    if duration <= 0.0 {
+        return Vec::new();
+    }
+    let palette = app.theme.palette;
+    let seconds_at = |bar: f64| match deck {
+        DeckId::A => timing.a_seconds_at(bar),
+        DeckId::B => timing.b_seconds_at(bar),
+    };
+    let fraction = |seconds: f64| (seconds / duration).clamp(0.0, 1.0) as f32;
+    let start = fraction(seconds_at(0.0));
+    let end = fraction(seconds_at(window.bars as f64));
+    let mut marks = vec![
+        div()
+            .id(deck_part("deck-transition-window", deck))
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .left(relative(start))
+            .w(relative((end - start).max(0.0)))
+            .border_x_1()
+            .border_color(palette.accent.opacity(0.7))
+            .bg(palette.accent.opacity(0.12))
+            .test_support()
+            .into_any_element(),
+    ];
+    if let Some(swap_bar) = window.bass_swap_bar {
+        let at = fraction(seconds_at(swap_bar.saturating_sub(1) as f64));
+        marks.push(
+            div()
+                .id(deck_part("deck-bass-swap", deck))
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .left(relative(at))
+                .w(px(2.0))
+                .bg(palette.text.opacity(0.7))
+                .test_support()
+                .into_any_element(),
+        );
+    }
+    marks
 }
 
 /// The button that goes back to the plan the decks were opened from.
@@ -486,6 +668,11 @@ fn deck(app: &EuphoriaApp, deck: DeckId, cx: &mut Context<'_, EuphoriaApp>) -> S
         .flex_1()
         .min_w_0()
         .gap(GAP_SMALL)
+        .rounded(RADIUS_SMALL)
+        .drag_over::<DraggedTracks>(move |style, _, _, _| style.bg(palette.accent.opacity(0.25)))
+        .on_drop(cx.listener(move |this, dragged: &DraggedTracks, _, cx| {
+            this.load_on_deck(deck, dragged.from_track, cx);
+        }))
         .child(header)
         .child(waveform_area)
         .children(lanes.into_iter().flatten().map(|lane| lane.element))
@@ -560,6 +747,7 @@ fn waveform_with_grid(
                 .into_any_element(),
         );
     }
+    marks.extend(transition_marks(app, deck, duration));
     if duration > 0.0 {
         for cue in &view.cues {
             marks.push(
@@ -1000,7 +1188,8 @@ fn suggestion_rows(
                     .text_color(palette.text_tertiary)
                     .text_size(SMALL_TEXT_SIZE)
                     .child(text)
-            })),
+            }))
+            .test_support(),
     )
 }
 

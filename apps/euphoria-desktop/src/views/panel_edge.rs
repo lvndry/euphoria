@@ -8,7 +8,8 @@
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, ClickEvent, Context, CursorStyle, MouseButton, TestSupportExt, Window, div, px,
+    AnyElement, ClickEvent, Context, CursorStyle, Div, MouseButton, Stateful, TestSupportExt,
+    Window, div, px,
 };
 
 use crate::app::EuphoriaApp;
@@ -27,30 +28,68 @@ pub(crate) fn render(
     window: &Window,
     cx: &mut Context<'_, EuphoriaApp>,
 ) -> AnyElement {
+    let half_grip = px(GRIP / 2.0);
+    match app.theme.layout {
+        Layout::InspectorRight => grip(
+            "panel-edge",
+            app,
+            PanelEdge::InspectorLeft,
+            CursorStyle::ResizeLeftRight,
+            cx,
+        )
+        .top_0()
+        .bottom_0()
+        .right(app.inspector_width(window) - half_grip)
+        .w(px(GRIP))
+        .test_support(),
+        Layout::DeckBelow => grip(
+            "panel-edge",
+            app,
+            PanelEdge::StripTop,
+            CursorStyle::ResizeUpDown,
+            cx,
+        )
+        .left_0()
+        .right_0()
+        .bottom(app.strip_height(window) - half_grip)
+        .h(px(GRIP))
+        .test_support(),
+    }
+    .into_any_element()
+}
+
+/// The edge along the top of the decks. Dragging it makes the list in the
+/// decks taller or shorter, giving the table the rest, and a double click
+/// returns the list to its usual height. It must be drawn inside the decks.
+pub(crate) fn decks_top(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> AnyElement {
+    grip(
+        "decks-edge",
+        app,
+        PanelEdge::DecksTop,
+        CursorStyle::ResizeUpDown,
+        cx,
+    )
+    .left_0()
+    .right_0()
+    .top(px(-GRIP / 2.0))
+    .h(px(GRIP))
+    .test_support()
+    .into_any_element()
+}
+
+fn grip(
+    id: &'static str,
+    app: &EuphoriaApp,
+    edge: PanelEdge,
+    cursor: CursorStyle,
+    cx: &mut Context<'_, EuphoriaApp>,
+) -> Stateful<Div> {
     let palette = app.theme.palette;
-    let (edge, cursor) = match app.theme.layout {
-        Layout::InspectorRight => (PanelEdge::InspectorLeft, CursorStyle::ResizeLeftRight),
-        Layout::DeckBelow => (PanelEdge::StripTop, CursorStyle::ResizeUpDown),
-    };
     let is_held = app.resizing == Some(edge);
     let highlight = palette.accent.opacity(0.5);
-    let half_grip = px(GRIP / 2.0);
-
     div()
-        .id("panel-edge")
+        .id(id)
         .absolute()
-        .map(|grip| match edge {
-            PanelEdge::InspectorLeft => grip
-                .top_0()
-                .bottom_0()
-                .right(app.inspector_width(window) - half_grip)
-                .w(px(GRIP)),
-            PanelEdge::StripTop => grip
-                .left_0()
-                .right_0()
-                .bottom(app.strip_height(window) - half_grip)
-                .h(px(GRIP)),
-        })
         .cursor(cursor)
         .when(is_held, |grip| grip.bg(highlight))
         .hover(move |style| style.bg(highlight))
@@ -63,6 +102,4 @@ pub(crate) fn render(
                 this.reset_size(edge, cx);
             }
         }))
-        .test_support()
-        .into_any_element()
 }
