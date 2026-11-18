@@ -225,6 +225,7 @@ mod tests {
                 sidebar_folded: true,
                 inspector_width: 412,
                 strip_height: 240,
+                decks_height: Some(300),
             },
             folder_tree: FolderTreeMemory {
                 expanded: Some(vec![PathBuf::from("/music/DJ tracks/afro_house")]),
@@ -372,7 +373,7 @@ mod tests {
             text,
             concat!(
                 r#"{"folders":[],"theme":"deck","#,
-                r#""panels":{"sidebar_folded":false,"inspector_width":320,"strip_height":180},"#,
+                r#""panels":{"sidebar_folded":false,"inspector_width":320,"strip_height":180,"decks_height":null},"#,
                 r#""folder_tree":{"expanded":null,"selected":null},"column_widths":{},"#,
                 r#""tags":{"program":"generic","key_notation":"camelot","#,
                 r#""write_tempo":true,"write_cue_markers":false,"#,
