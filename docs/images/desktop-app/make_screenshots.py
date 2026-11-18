@@ -24,6 +24,10 @@ emptied (needs ffmpeg), keeping their folder names, and the original files
 are only read. Their titles, artists and
 folder names then appear in the published images.
 
+Name shots to make only those, as the website does for its own:
+
+    python3 docs/images/desktop-app/make_screenshots.py focus-view decks
+
 EUPHORIA_APP names an app binary already built; otherwise the release build
 is made with cargo. EUPHORIA_PREVIEWS names the folder of previews when it is
 not bench/data/key/audio; the genre annotations are read from the dataset
@@ -76,22 +80,33 @@ SETTLE_INTERVAL_SECONDS = 0.75
 SETTLED_DIFFERENCE = 0.05
 # Mean difference in the inspector that shows another track was selected.
 SELECTION_CHANGED_DIFFERENCE = 1.0
+# Mean difference over the whole window that shows another view opened.
+WINDOW_CHANGED_DIFFERENCE = 0.5
 # How much darker the sidebar must get when a panel covers the window.
 PANEL_DIMMING = 0.8
 
 # Virtual key codes, and the keys pressed before each shot.
 KEY_A = 0
+KEY_B = 11
+KEY_D = 2
+KEY_K = 40
 KEY_T = 17
+KEY_RETURN = 36
 KEY_DOWN = 125
 KEY_HOME = 115
 # Home goes to the first row whichever track the app selected on its own,
 # so the same row is reached on every run.
 SELECT_A_TAGGED_TRACK = [(KEY_HOME, "")] + [(KEY_DOWN, "")] * 2
 OPEN_WRITE_TAGS = [(KEY_A, "cmd"), (KEY_T, "cmd,shift")]
+OPEN_FOCUS_VIEW = SELECT_A_TAGGED_TRACK + [(KEY_RETURN, "")]
+OPEN_DECKS = SELECT_A_TAGGED_TRACK + [(KEY_D, "cmd,shift")]
+BUILD_A_SET = [(KEY_B, "cmd,shift"), (KEY_RETURN, "cmd")]
+OPEN_COMMAND_PALETTE = [(KEY_K, "cmd")]
 
 # What each set of keys must visibly do before its shot is taken.
 SELECTS_ANOTHER_TRACK = "selects another track"
 OPENS_A_PANEL = "opens a panel"
+CHANGES_THE_VIEW = "changes the view"
 
 
 def main():
@@ -134,7 +149,37 @@ def main():
                 OPEN_WRITE_TAGS,
                 OPENS_A_PANEL,
             ),
+            (
+                "focus-view",
+                {"theme": "paper", "selected": house},
+                OPEN_FOCUS_VIEW,
+                CHANGES_THE_VIEW,
+            ),
+            (
+                "decks",
+                {"theme": "paper", "selected": house},
+                OPEN_DECKS,
+                CHANGES_THE_VIEW,
+            ),
+            (
+                "set-builder",
+                {"theme": "paper", "selected": house},
+                BUILD_A_SET,
+                CHANGES_THE_VIEW,
+            ),
+            (
+                "command-palette",
+                {"theme": "paper", "selected": house},
+                OPEN_COMMAND_PALETTE,
+                OPENS_A_PANEL,
+            ),
         ]
+        wanted = set(sys.argv[1:])
+        unknown = wanted - {name for name, *_ in shots}
+        if unknown:
+            raise SystemExit(f"no such shot: {', '.join(sorted(unknown))}")
+        if wanted:
+            shots = [shot for shot in shots if shot[0] in wanted]
         for name, choices, keys, expected in shots:
             data = work / "data" / name
             data.mkdir(parents=True)
@@ -394,6 +439,9 @@ def check_expected(before, after, expected, name):
         dimmed = brightness(region(after, *sidebar)) / max(brightness(region(before, *sidebar)), 1.0)
         if dimmed > PANEL_DIMMING:
             raise RuntimeError(f"{name}: the keys did not open the panel")
+    elif expected == CHANGES_THE_VIEW:
+        if difference(before, after) < WINDOW_CHANGED_DIFFERENCE:
+            raise RuntimeError(f"{name}: the keys did not open the view")
     else:
         raise ValueError(expected)
 
