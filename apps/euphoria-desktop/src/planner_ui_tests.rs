@@ -1539,3 +1539,194 @@ fn a_dragged_transition_is_locked_shown_again_and_unlocked(cx: &mut TestAppConte
         assert!(app.planner.custom.is_none());
     });
 }
+
+fn load_pair_on_decks(setup: &Setup, cx: &mut TestAppContext) -> usize {
+    use crate::deck_audio::DeckId;
+    let b_index = index_of(&setup.view, &setup.b.clone(), cx);
+    cx.update(|cx| {
+        setup.view.update(cx, |app, cx| {
+            app.toggle_decks(cx);
+            app.load_on_deck(DeckId::A, 0, cx);
+            app.load_on_deck(DeckId::B, b_index, cx);
+        })
+    });
+    for _ in 0..10 {
+        cx.run_until_parked();
+    }
+    settle(setup.window, cx);
+    b_index
+}
+
+fn deck_timing(setup: &Setup, cx: &mut TestAppContext) -> crate::planner_playback::PlanTiming {
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        let (planned, window) = app.deck_plan_window().unwrap();
+        crate::planner_playback::PlanTiming::of(planned, window).unwrap()
+    })
+}
+
+/// Where the shown window starts along `deck`'s waveform, as a fraction
+/// of its width, next to where the plan says it starts.
+fn window_start_on_deck(
+    setup: &Setup,
+    deck: crate::deck_audio::DeckId,
+    cx: &mut TestAppContext,
+) -> (f32, f32) {
+    use crate::deck_audio::DeckId;
+    use crate::views::decks::deck_part;
+    let timing = deck_timing(setup, cx);
+    let duration = cx.update(|cx| {
+        setup
+            .view
+            .read(cx)
+            .decks
+            .view(deck)
+            .duration_seconds
+            .expect("the deck knows its length")
+    });
+    let planned_start = match deck {
+        DeckId::A => timing.a_seconds_at(0.0),
+        DeckId::B => timing.b_seconds_at(0.0),
+    } / duration;
+    let drawn_start = cx
+        .update_window(setup.window, |_, window, cx| {
+            window.render_frame(cx);
+            let wave = window.find(deck_part("deck-waveform", deck)).bounds();
+            let span = window
+                .find(deck_part("deck-transition-window", deck))
+                .bounds();
+            (span.left() - wave.left()) / wave.size.width
+        })
+        .unwrap();
+    (drawn_start, planned_start as f32)
+}
+
+#[gpui::test]
+fn the_decks_show_where_to_mix_on_both_waveforms_and_the_markers_switch_it(
+    cx: &mut TestAppContext,
+) {
+    use crate::deck_audio::DeckId;
+    let setup = open_plans("deck-window", &[0, 1], cx);
+    load_pair_on_decks(&setup, cx);
+    assert!(is_shown(setup.window, "deck-transition", cx));
+    assert!(is_shown(setup.window, ("deck-plan-window", 0_usize), cx));
+    for deck in DeckId::BOTH {
+        let (drawn, planned) = window_start_on_deck(&setup, deck, cx);
+        assert!(
+            (drawn - planned).abs() < 0.01,
+            "{deck:?}: {drawn} {planned}"
+        );
+    }
+    let first_timing = deck_timing(&setup, cx);
+
+    let windows = cx.update(|cx| setup.view.read(cx).deck_plan().unwrap().plan.windows.len());
+    assert!(windows > 1, "{windows} windows");
+    click(setup.window, ("deck-plan-window", 1_usize), cx);
+    settle(setup.window, cx);
+    cx.update(|cx| assert_eq!(setup.view.read(cx).decks.plan_window, 1));
+    assert_ne!(deck_timing(&setup, cx), first_timing);
+    for deck in DeckId::BOTH {
+        let (drawn, planned) = window_start_on_deck(&setup, deck, cx);
+        assert!(
+            (drawn - planned).abs() < 0.01,
+            "{deck:?}: {drawn} {planned}"
+        );
+    }
+}
+
+#[gpui::test]
+fn a_pair_without_stems_shows_its_window_as_needing_stems(cx: &mut TestAppContext) {
+    let setup = open_plans("deck-window-no-stems", &[], cx);
+    load_pair_on_decks(&setup, cx);
+    assert!(is_shown(setup.window, "deck-transition-summary", cx));
+    cx.update(|cx| {
+        assert_eq!(
+            setup.view.read(cx).deck_window_verdict(),
+            Some(crate::transition_plan::ClashVerdict::NotChecked)
+        )
+    });
+}
+
+#[gpui::test]
+fn test_transition_plays_a_into_b_and_leaves_both_decks_playing(cx: &mut TestAppContext) {
+    use crate::deck_audio::DeckId;
+    use crate::planner_playback::PlanSource;
+    use crate::transition_plan::BARS_AFTER;
+    let setup = open_plans("deck-test-transition", &[0, 1], cx);
+    load_pair_on_decks(&setup, cx);
+    let timing = deck_timing(&setup, cx);
+    click(setup.window, "deck-test-transition", cx);
+    cx.update(|cx| assert_eq!(setup.view.read(cx).plan_source(), Some(PlanSource::Decks)));
+    let opens = opened(&setup, cx);
+    let last_open = |deck: DeckId| {
+        opens
+            .iter()
+            .rev()
+            .find(|(opened, _)| *opened == deck)
+            .unwrap()
+            .1
+    };
+    assert!((last_open(DeckId::A) - timing.a_seconds_at(-8.0)).abs() < 1e-9);
+    assert!((last_open(DeckId::B) - timing.b_seconds_at(0.0)).abs() < 1e-9);
+
+    assert!(tick(&setup, 0.0, 0.0, cx));
+    assert!(tick(&setup, timing.a_seconds_at(-0.3), 0.0, cx));
+    let end = (timing.window_bars + BARS_AFTER) as f64;
+    assert!(!tick(
+        &setup,
+        timing.a_seconds_at(end),
+        timing.b_seconds_at(end),
+        cx
+    ));
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        assert!(app.planner.playback.is_none());
+        assert!(app.decks.view(DeckId::A).playing && app.decks.view(DeckId::B).playing);
+        assert_eq!(app.decks.crossfader, 1.0, "the sound is left on B");
+    });
+
+    click(setup.window, "deck-test-transition", cx);
+    cx.update(|cx| assert!(setup.view.read(cx).plan_is_playing()));
+    click(setup.window, "deck-test-transition", cx);
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        assert!(app.planner.playback.is_none());
+        assert!(!app.decks.view(DeckId::A).playing && !app.decks.view(DeckId::B).playing);
+    });
+}
+
+#[gpui::test]
+fn moving_b_to_a_during_a_test_transition_ends_it_without_stopping_the_sound(
+    cx: &mut TestAppContext,
+) {
+    use crate::deck_audio::DeckId;
+    let setup = open_plans("deck-move-during-transition", &[0, 1], cx);
+    load_pair_on_decks(&setup, cx);
+    let timing = deck_timing(&setup, cx);
+    click(setup.window, "deck-test-transition", cx);
+    assert!(tick(&setup, 0.0, 0.0, cx));
+    assert!(tick(&setup, timing.a_seconds_at(-0.3), 0.0, cx));
+    assert!(tick(
+        &setup,
+        timing.a_seconds_at(1.0),
+        timing.b_seconds_at(1.0),
+        cx
+    ));
+    let b_index = cx.update(|cx| {
+        let app = setup.view.read(cx);
+        assert!(app.decks.view(DeckId::B).playing, "the mix has started");
+        app.decks.view(DeckId::B).track_index
+    });
+
+    cx.update(|cx| setup.view.update(cx, |app, cx| app.move_b_to_a(cx)));
+
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        assert!(app.planner.playback.is_none(), "the transition is over");
+        assert_eq!(app.decks.view(DeckId::A).track_index, b_index);
+        assert!(
+            app.decks.view(DeckId::B).playing,
+            "B plays on until A has opened"
+        );
+    });
+}
