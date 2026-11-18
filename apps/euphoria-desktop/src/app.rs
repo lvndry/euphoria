@@ -267,6 +267,10 @@ pub(crate) struct EuphoriaApp {
     pub(crate) resizing: Option<PanelEdge>,
     /// Where the table and the track detail were last drawn, together.
     pub(crate) detail_area_bounds: SeenBounds,
+    /// Where the column holding the table and the decks was last drawn.
+    pub(crate) decks_column_bounds: SeenBounds,
+    /// Where the content of the decks was last laid out, scrolled or not.
+    pub(crate) decks_content_bounds: SeenBounds,
     /// What the player is doing with the selected track.
     pub(crate) player: Player,
     /// Where the waveform was last drawn, for turning a click into a
@@ -645,6 +649,8 @@ impl EuphoriaApp {
             panels: settings.panels,
             resizing: None,
             detail_area_bounds: Rc::new(Cell::new(None)),
+            decks_column_bounds: Rc::new(Cell::new(None)),
+            decks_content_bounds: Rc::new(Cell::new(None)),
             player: Player::default(),
             waveform_bounds: Rc::new(Cell::new(None)),
             progress_line_bounds: Rc::new(Cell::new(None)),
@@ -2812,6 +2818,20 @@ impl EuphoriaApp {
                     area.size.height / px(1.0),
                 );
             }
+            Some(PanelEdge::DecksTop) => {
+                let (Some(column), Some(content)) = (
+                    self.decks_column_bounds.get(),
+                    self.decks_content_bounds.get(),
+                ) else {
+                    return;
+                };
+                self.panels.drag_decks_edge_to(
+                    position.y / px(1.0),
+                    column.bottom() / px(1.0),
+                    column.size.height / px(1.0),
+                    content.size.height / px(1.0),
+                );
+            }
         }
         cx.notify();
     }
@@ -2831,6 +2851,7 @@ impl EuphoriaApp {
         match edge {
             PanelEdge::InspectorLeft => self.panels.reset_inspector_width(),
             PanelEdge::StripTop => self.panels.reset_strip_height(),
+            PanelEdge::DecksTop => self.panels.reset_decks_height(),
         }
         self.resizing = None;
         self.remember_panels(cx);
@@ -2860,6 +2881,16 @@ impl EuphoriaApp {
             None => window.viewport_size().height,
         };
         px(self.panels.strip_height_in(available_height / px(1.0)))
+    }
+
+    /// The height to draw the decks at once the user has dragged their edge
+    /// and they have been drawn. Until then they fit their content.
+    pub(crate) fn decks_height(&self) -> Option<Pixels> {
+        let column = self.decks_column_bounds.get()?;
+        let content = self.decks_content_bounds.get()?;
+        self.panels
+            .decks_height_in(column.size.height / px(1.0), content.size.height / px(1.0))
+            .map(px)
     }
 
     /// Notes that the first analysis has ended once the library has tracks
@@ -3183,11 +3214,21 @@ impl Render for EuphoriaApp {
                 )
                 .child(
                     div()
+                        .relative()
                         .flex()
                         .flex_col()
                         .flex_1()
                         .min_w_0()
                         .min_h_0()
+                        .child({
+                            let seen_column = self.decks_column_bounds.clone();
+                            canvas(
+                                move |bounds, _, _| seen_column.set(Some(bounds)),
+                                |_, _, _, _| (),
+                            )
+                            .absolute()
+                            .size_full()
+                        })
                         .when(self.shows_first_run(), |column| {
                             column.child(views::first_run::card(self, cx))
                         })

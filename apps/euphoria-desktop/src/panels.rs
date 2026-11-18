@@ -40,6 +40,10 @@ pub(crate) const TALLEST_STRIP: f32 = 420.0;
 /// The fewest table rows left visible above the strip, as a height.
 pub(crate) const SHORTEST_TABLE: f32 = 200.0;
 
+/// The shortest the decks get once their edge is dragged down: their
+/// content scrolls inside.
+pub(crate) const SHORTEST_DECKS: f32 = 120.0;
+
 /// An edge of the track detail that can be dragged to resize it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PanelEdge {
@@ -47,6 +51,8 @@ pub(crate) enum PanelEdge {
     InspectorLeft,
     /// The top edge of the strip under the table.
     StripTop,
+    /// The top edge of the decks under the table.
+    DecksTop,
 }
 
 /// How the user has arranged the window. Kept in the settings file.
@@ -59,6 +65,9 @@ pub(crate) struct Panels {
     pub(crate) inspector_width: u32,
     /// The height the user chose for the strip under the table, in pixels.
     pub(crate) strip_height: u32,
+    /// The height the user chose for the decks, in pixels, or none while
+    /// they fit their content.
+    pub(crate) decks_height: Option<u32>,
 }
 
 impl Default for Panels {
@@ -67,6 +76,7 @@ impl Default for Panels {
             sidebar_folded: false,
             inspector_width: DEFAULT_INSPECTOR_WIDTH,
             strip_height: DEFAULT_STRIP_HEIGHT,
+            decks_height: None,
         }
     }
 }
@@ -108,6 +118,18 @@ impl Panels {
         (self.strip_height as f32).clamp(SHORTEST_STRIP, tallest)
     }
 
+    /// The height to draw the decks at, once the user has dragged their edge,
+    /// in a column `column_height` tall that holds the table and the decks,
+    /// when their content is `content_height` tall: the chosen height, never
+    /// taller than the content, at least the shortest decks, and leaving the
+    /// table its shortest height. None while the decks fit their content.
+    pub(crate) fn decks_height_in(&self, column_height: f32, content_height: f32) -> Option<f32> {
+        let chosen = self.decks_height? as f32;
+        let shortest = SHORTEST_DECKS.min(content_height);
+        let tallest = (column_height - SHORTEST_TABLE).max(SHORTEST_DECKS);
+        Some(chosen.min(content_height).clamp(shortest, tallest))
+    }
+
     /// Folds the sidebar away, or brings it back.
     pub(crate) fn toggle_sidebar(&mut self) {
         self.sidebar_folded = !self.sidebar_folded;
@@ -133,6 +155,23 @@ impl Panels {
         self.strip_height = self.strip_height_in(available_height).round() as u32;
     }
 
+    /// The top edge of the decks is dragged to `pointer_y`, in a column that
+    /// ends at `column_bottom` and is `column_height` tall, with the decks'
+    /// content `content_height` tall. The height chosen is the one that fits
+    /// there.
+    pub(crate) fn drag_decks_edge_to(
+        &mut self,
+        pointer_y: f32,
+        column_bottom: f32,
+        column_height: f32,
+        content_height: f32,
+    ) {
+        self.decks_height = Some((column_bottom - pointer_y).max(0.0).round() as u32);
+        self.decks_height = self
+            .decks_height_in(column_height, content_height)
+            .map(|height| height.round() as u32);
+    }
+
     /// Returns the inspector to the width it has before any drag.
     pub(crate) fn reset_inspector_width(&mut self) {
         self.inspector_width = DEFAULT_INSPECTOR_WIDTH;
@@ -141,6 +180,11 @@ impl Panels {
     /// Returns the strip to the height it has before any drag.
     pub(crate) fn reset_strip_height(&mut self) {
         self.strip_height = DEFAULT_STRIP_HEIGHT;
+    }
+
+    /// Lets the decks fit their content again, as before any drag.
+    pub(crate) fn reset_decks_height(&mut self) {
+        self.decks_height = None;
     }
 }
 
@@ -244,8 +288,10 @@ mod tests {
         let mut panels = Panels::default();
         panels.drag_inspector_edge_to(900.0, 1_440.0);
         panels.drag_strip_edge_to(400.0, 800.0, 700.0);
+        panels.drag_decks_edge_to(500.0, 800.0, 700.0, 600.0);
         panels.reset_inspector_width();
         panels.reset_strip_height();
+        panels.reset_decks_height();
         assert_eq!(panels, Panels::default());
     }
 
@@ -274,11 +320,37 @@ mod tests {
     }
 
     #[test]
+    fn the_decks_fit_their_content_until_dragged_then_leave_table_rows() {
+        let chosen = |decks_height| Panels {
+            decks_height,
+            ..Panels::default()
+        };
+        assert_eq!(chosen(None).decks_height_in(860.0, 900.0), None);
+        assert_eq!(chosen(Some(300)).decks_height_in(860.0, 650.0), Some(300.0));
+        assert_eq!(chosen(Some(800)).decks_height_in(860.0, 650.0), Some(650.0));
+        assert_eq!(chosen(Some(800)).decks_height_in(860.0, 900.0), Some(660.0));
+        assert_eq!(chosen(Some(10)).decks_height_in(860.0, 650.0), Some(120.0));
+        assert_eq!(chosen(Some(10)).decks_height_in(860.0, 80.0), Some(80.0));
+        assert_eq!(chosen(Some(300)).decks_height_in(250.0, 650.0), Some(120.0));
+    }
+
+    #[test]
+    fn dragging_the_decks_edge_sets_the_height_that_fits_under_the_pointer() {
+        let mut panels = Panels::default();
+        panels.drag_decks_edge_to(600.0, 900.0, 860.0, 650.0);
+        assert_eq!(panels.decks_height, Some(300));
+        panels.drag_decks_edge_to(890.0, 900.0, 860.0, 650.0);
+        assert_eq!(panels.decks_height, Some(120));
+        panels.drag_decks_edge_to(0.0, 900.0, 860.0, 650.0);
+        assert_eq!(panels.decks_height, Some(650));
+    }
+
+    #[test]
     fn the_arrangement_is_stored_by_field_and_missing_fields_take_defaults() {
         let stored = serde_json::to_string(&panels(480, true)).unwrap();
         assert_eq!(
             stored,
-            r#"{"sidebar_folded":true,"inspector_width":480,"strip_height":180}"#
+            r#"{"sidebar_folded":true,"inspector_width":480,"strip_height":180,"decks_height":null}"#
         );
         let partial: Panels = serde_json::from_str(r#"{"sidebar_folded":true}"#).unwrap();
         assert_eq!(partial, panels(320, true));
