@@ -1,5 +1,24 @@
+// @ts-check
+
+/** @typedef {{ src: string, alt: string, chart?: boolean, caption?: string }} Figure */
+/**
+ * @typedef {object} Feature
+ * @property {string} id Its address on the page, as in features.html#decks.
+ * @property {string} name
+ * @property {[number, number]} ratio The interval its icon curve draws.
+ * @property {number} hue Its Camelot key colour.
+ * @property {string} line One line under its name in the rail.
+ * @property {string} pitch
+ * @property {Figure[]} [figures]
+ * @property {boolean} [term] Shows commands instead of figures.
+ * @property {string[]} text
+ * @property {string[]} can
+ * @property {Array<[string, string]>} keys Shortcuts and what they do.
+ * @property {string} guide Path of its guide under docs/guides.
+ */
 (function () {
   const GUIDE = "https://github.com/lvndry/euphoria/blob/main/docs/guides/";
+  /** @type {Feature[]} */
   const FEATURES = [
     {
       id: "library", name: "Library and analysis", ratio: [3, 2], hue: 240,
@@ -115,7 +134,27 @@
     },
   ];
 
+  /**
+   * @param {string} id
+   * @returns {HTMLElement}
+   */
+  function required(id) {
+    const element = document.getElementById(id);
+    if (!element) throw new Error(`#${id} is missing from the page`);
+    return element;
+  }
+  /**
+   * @param {number} larger
+   * @param {number} smaller
+   * @param {number} turn
+   * @returns {[number, number]}
+   */
   const point = (larger, smaller, turn) => [32 + 24 * Math.sin(larger * 2 * Math.PI * turn), 32 + 24 * Math.cos(smaller * 2 * Math.PI * turn)];
+  /**
+   * @param {number} larger
+   * @param {number} smaller
+   * @returns {[number, number]}
+   */
   function spanFor(larger, smaller) {
     for (let step = 0; step <= 200; step++) {
       const turn = 0.25 + 0.5 * step / 200;
@@ -125,6 +164,12 @@
     }
     return [0.25, 0.75];
   }
+  /**
+   * @param {number} larger
+   * @param {number} smaller
+   * @param {number} from
+   * @param {number} to
+   */
   function curvePath(larger, smaller, from, to) {
     const [start, end] = spanFor(larger, smaller);
     const count = Math.max(2, Math.ceil((to - from) / (end - start) * Math.max(300, (larger + smaller) * 70) * (end - start) / 0.5));
@@ -135,14 +180,20 @@
     }
     return path;
   }
-  const fullCurve = (larger, smaller) => curvePath(larger, smaller, ...spanFor(larger, smaller));
-  const strokeFor = (larger, smaller, base) => (base * Math.min(1, Math.sqrt(7 / (larger + smaller)))).toFixed(2);
-  document.querySelectorAll("path.full").forEach((path) => path.setAttribute("d", fullCurve(3, 2)));
-  const tick = fullCurve(3, 2);
+  /** @param {[number, number]} ratio */
+  const fullCurve = ([larger, smaller]) => curvePath(larger, smaller, ...spanFor(larger, smaller));
+  /**
+   * @param {[number, number]} ratio
+   * @param {number} base
+   */
+  const strokeFor = ([larger, smaller], base) => (base * Math.min(1, Math.sqrt(7 / (larger + smaller)))).toFixed(2);
+  document.querySelectorAll("path.full").forEach((path) => path.setAttribute("d", fullCurve([3, 2])));
+  const tick = fullCurve([3, 2]);
+  const narrow = () => window.matchMedia("(max-width: 980px)").matches;
 
-  const rail = document.getElementById("rail");
-  const panels = document.getElementById("panels");
-  rail.innerHTML = FEATURES.map((feature) => `<button class="tab" role="tab" type="button" id="tab-${feature.id}" aria-controls="panel-${feature.id}" aria-selected="false" style="--hue:${feature.hue}"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="${feature.ratio.join(":")}" stroke-width="${strokeFor(...feature.ratio, 3.4)}" d="${fullCurve(...feature.ratio)}"></path></svg></span><span><b>${feature.name}</b><span>${feature.line}</span></span></button>`).join("");
+  const rail = required("rail");
+  const panels = required("panels");
+  rail.innerHTML = FEATURES.map((feature) => `<button class="tab" role="tab" type="button" id="tab-${feature.id}" aria-controls="panel-${feature.id}" aria-selected="false" style="--hue:${feature.hue}"><span class="icon"><svg viewBox="0 0 64 64" aria-hidden="true"><path class="mark-path" data-curve="${feature.ratio.join(":")}" stroke-width="${strokeFor(feature.ratio, 3.4)}" d="${fullCurve(feature.ratio)}"></path></svg></span><span><b>${feature.name}</b><span>${feature.line}</span></span></button>`).join("");
 
   panels.innerHTML = FEATURES.map((feature, index) => {
     const figures = feature.term
@@ -152,10 +203,10 @@
 <span class="p">$</span> euphoria export traktor ~/Music --beat-grid --cues
 <span class="p">$</span> euphoria tags write --serato-markers ~/Music
 <span class="p">$</span> euphoria tags undo</pre>`
-      : `<div class="${feature.figures.length > 1 ? "figures-two" : ""}">${feature.figures.map((figure) => `<figure class="figure${figure.chart ? " chart" : ""}" style="margin:0"><img src="${figure.src}" alt="${figure.alt}" loading="${index ? "lazy" : "eager"}">${figure.caption ? `<figcaption>${figure.caption}</figcaption>` : ""}</figure>`).join("")}</div>`;
+      : `<div class="${(feature.figures ?? []).length > 1 ? "figures-two" : ""}">${(feature.figures ?? []).map((figure) => `<figure class="figure${figure.chart ? " chart" : ""}" style="margin:0"><img src="${figure.src}" alt="${figure.alt}" loading="${index ? "lazy" : "eager"}">${figure.caption ? `<figcaption>${figure.caption}</figcaption>` : ""}</figure>`).join("")}</div>`;
     const keys = feature.keys.length ? `<div class="keys">${feature.keys.map(([key, what]) => `<span class="kbd"><kbd>${key}</kbd>${what}</span>`).join("")}</div>` : "";
-    const previous = FEATURES[(index - 1 + FEATURES.length) % FEATURES.length];
-    const next = FEATURES[(index + 1) % FEATURES.length];
+    const previous = FEATURES[(index - 1 + FEATURES.length) % FEATURES.length] ?? feature;
+    const next = FEATURES[(index + 1) % FEATURES.length] ?? feature;
     return `<section class="panel" role="tabpanel" id="panel-${feature.id}" aria-labelledby="tab-${feature.id}" style="--hue:${feature.hue}" hidden>
       <div class="panel-title"><h2>${feature.name}</h2><p class="pitch">${feature.pitch}</p></div>
       ${figures}
@@ -167,30 +218,42 @@
     </section>`;
   }).join("");
 
+  /**
+   * Shows one feature's panel, keeps its address in the URL, and on a phone brings its chip and panel into view.
+   * @param {string} id
+   * @param {boolean} scroll
+   */
   function show(id, scroll) {
-    const feature = FEATURES.find((candidate) => candidate.id === id) || FEATURES[0];
+    const feature = FEATURES.find((candidate) => candidate.id === id) ?? FEATURES[0];
+    if (!feature) return;
     FEATURES.forEach((candidate) => {
       const selected = candidate === feature;
-      document.getElementById(`tab-${candidate.id}`).setAttribute("aria-selected", String(selected));
-      document.getElementById(`panel-${candidate.id}`).hidden = !selected;
+      required(`tab-${candidate.id}`).setAttribute("aria-selected", String(selected));
+      required(`panel-${candidate.id}`).hidden = !selected;
     });
-    const tab = document.getElementById(`tab-${feature.id}`);
-    if (tab.scrollIntoView && window.matchMedia("(max-width: 980px)").matches) tab.scrollIntoView({ inline: "center", block: "nearest" });
+    if (narrow()) required(`tab-${feature.id}`).scrollIntoView({ inline: "center", block: "nearest" });
     if (location.hash.slice(1) !== feature.id) history.replaceState(null, "", `#${feature.id}`);
-    if (scroll) document.getElementById("panels").scrollIntoView({ block: "start" });
+    if (scroll) panels.scrollIntoView({ block: "start" });
   }
-  rail.addEventListener("click", (event) => { const tab = event.target.closest(".tab"); if (tab) show(tab.id.slice(4), window.matchMedia("(max-width: 980px)").matches); });
+  rail.addEventListener("click", (event) => {
+    const tab = event.target instanceof Element ? event.target.closest(".tab") : null;
+    if (tab) show(tab.id.slice(4), narrow());
+  });
   rail.addEventListener("keydown", (event) => {
     if (!["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
     event.preventDefault();
-    const tabs = Array.from(rail.querySelectorAll(".tab"));
-    const index = tabs.indexOf(document.activeElement);
+    const tabs = /** @type {HTMLElement[]} */ (Array.from(rail.querySelectorAll(".tab")));
+    const index = tabs.findIndex((tab) => tab === document.activeElement);
     const step = event.key === "ArrowDown" || event.key === "ArrowRight" ? 1 : -1;
     const target = tabs[(index + step + tabs.length) % tabs.length];
+    if (!target) return;
     target.focus();
     show(target.id.slice(4), false);
   });
-  panels.addEventListener("click", (event) => { const button = event.target.closest("[data-go]"); if (button) show(button.dataset.go, true); });
+  panels.addEventListener("click", (event) => {
+    const button = event.target instanceof Element ? event.target.closest("[data-go]") : null;
+    if (button instanceof HTMLElement && button.dataset.go) show(button.dataset.go, true);
+  });
   window.addEventListener("hashchange", () => show(location.hash.slice(1), false));
   show(location.hash.slice(1), false);
 })();

@@ -24,7 +24,8 @@ class BuildWebsiteTest(unittest.TestCase):
             self.assertTrue(images)
             for image in images:
                 self.assertTrue((output / image).is_file(), image)
-            self.assertFalse((output / "README.md").exists())
+            for unpublished in build_website.NOT_PUBLISHED:
+                self.assertFalse((output / unpublished).exists(), unpublished)
 
     def test_a_missing_image_or_page_fails_the_build_and_writes_nothing(self):
         with tempfile.TemporaryDirectory() as folder:

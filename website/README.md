@@ -10,6 +10,14 @@ The Euphoria website: three static pages with no framework and no build tools be
 
 `assets/site.css` and `assets/site.js` serve the home page and the mixing page, `assets/features.css` and `assets/features.js` the features page. The curves are the logo's own: the Lissajous figure of two notes, drawn tip to tip with the timing of `apps/euphoria-desktop/src/logo_motion.rs`.
 
+## Type checking
+
+The scripts are plain JavaScript, served as they are, and type-checked as TypeScript: each starts with `// @ts-check` and declares its types in JSDoc, and `website/tsconfig.json` checks them in strict mode. CI runs the same command:
+
+```
+npx --yes -p typescript@latest tsc -p website/tsconfig.json
+```
+
 ## Build and preview
 
 ```

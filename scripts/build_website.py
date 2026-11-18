@@ -25,6 +25,8 @@ IMAGES = REPOSITORY / "docs" / "images"
 FAVICON = REPOSITORY / "assets" / "logo" / "favicon.svg"
 DEFAULT_OUTPUT = REPOSITORY / "target" / "website"
 
+# Files in website/ that describe or check the site rather than serve it.
+NOT_PUBLISHED = ("README.md", "tsconfig.json")
 TEXT_SUFFIXES = {".html", ".css", ".js"}
 IMAGE_REFERENCE = re.compile(r"images/[A-Za-z0-9_./-]+\.(?:png|svg|jpg|webp)")
 PAGE_REFERENCE = re.compile(r"""href="([A-Za-z0-9_-]+\.html)(?:#[^"]*)?\"""")
@@ -56,7 +58,7 @@ def build(source, images_folder, favicon, output):
 
     if output.exists():
         shutil.rmtree(output)
-    shutil.copytree(source, output, ignore=shutil.ignore_patterns("README.md"))
+    shutil.copytree(source, output, ignore=shutil.ignore_patterns(*NOT_PUBLISHED))
     for image in sorted(images):
         destination = output / image
         destination.parent.mkdir(parents=True, exist_ok=True)
