@@ -214,26 +214,24 @@ impl EuphoriaApp {
 
     /// The files of the selected tracks, in the order the table shows them.
     pub(crate) fn selected_paths(&self) -> Vec<PathBuf> {
+        self.paths_of(self.selected_tracks())
+    }
+
+    /// The files a drag or a right-click on the row of the track at
+    /// `track_index` covers, in the order the table shows them: the
+    /// selection when the row is part of it, that row alone otherwise.
+    pub(crate) fn row_paths(&self, track_index: usize) -> Vec<PathBuf> {
+        self.paths_of(self.row_tracks(track_index))
+    }
+
+    /// The files of the tracks at `indexes` that the library has.
+    fn paths_of(&self, indexes: Vec<usize>) -> Vec<PathBuf> {
         let library = self.session.library();
-        self.selected_tracks()
+        indexes
             .into_iter()
             .filter_map(|index| library.track(index))
             .map(|track| track.path.clone())
             .collect()
-    }
-
-    /// The files dragged: the selection when the drag started on a selected
-    /// row, that row alone otherwise.
-    pub(crate) fn dragged_paths(&self, dragged: DraggedTracks) -> Vec<PathBuf> {
-        if self.is_marked(dragged.from_track) {
-            self.selected_paths()
-        } else {
-            self.session
-                .library()
-                .track(dragged.from_track)
-                .map(|track| vec![track.path.clone()])
-                .unwrap_or_default()
-        }
     }
 
     /// Tracks dropped on a playlist in the sidebar go to its end.
@@ -243,7 +241,7 @@ impl EuphoriaApp {
         dragged: DraggedTracks,
         cx: &mut Context<'_, Self>,
     ) {
-        let paths = self.dragged_paths(dragged);
+        let paths = self.row_paths(dragged.from_track);
         self.add_to_playlist(id, &paths, cx);
     }
 
@@ -296,7 +294,7 @@ impl EuphoriaApp {
         target_index: usize,
         cx: &mut Context<'_, Self>,
     ) {
-        let dragged_paths = self.dragged_paths(dragged);
+        let dragged_paths = self.row_paths(dragged.from_track);
         if !self.can_reorder_playlist() {
             return;
         }

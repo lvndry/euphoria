@@ -502,6 +502,7 @@ fn row(
         locatable: revealable && track.is_missing(),
         is_missing: track.is_missing(),
         reanalyzable: app.rows_to_analyze_again(track_index).len(),
+        copyable: app.row_tracks(track_index).len(),
         track_index,
     };
     let cells: Vec<AnyElement> = app

@@ -316,13 +316,15 @@ pub(crate) struct TrackMenuState {
     pub(crate) is_missing: bool,
     /// How many tracks of the row's selection can be analyzed again.
     pub(crate) reanalyzable: usize,
+    /// How many tracks a copy of the row's paths covers.
+    pub(crate) copyable: usize,
     /// The row the menu is for.
     pub(crate) track_index: usize,
 }
 
 /// The menu of the table's rows: add the selection to a playlist, make a
-/// playlist of it, take it out of the playlist on show, or open the row's
-/// file in the file manager.
+/// playlist of it, take it out of the playlist on show, open the row's file
+/// in the file manager, or copy the paths of its files.
 pub(crate) fn track_menu(
     menu: PopupMenu,
     app: &WeakEntity<EuphoriaApp>,
@@ -393,13 +395,27 @@ pub(crate) fn track_menu(
         PopupMenuItem::new("Prepare files\u{2026}")
             .on_click(on_app(app, |this, _, cx| this.open_prepare_files(cx))),
     );
+    let copy_label = crate::copy_path::menu_label(state.copyable);
+    let menu = if state.revealable || copy_label.is_some() {
+        menu.separator()
+    } else {
+        menu
+    };
     let menu = if state.revealable {
-        menu.separator().item(
+        menu.item(
             PopupMenuItem::new(crate::reveal::reveal_label())
                 .on_click(on_app(app, |this, _, _| this.reveal_selected_track())),
         )
     } else {
         menu
+    };
+    let menu = match copy_label {
+        Some(label) => menu.item(
+            PopupMenuItem::new(label).on_click(on_app(app, move |this, _, cx| {
+                this.copy_row_paths(track_index, cx)
+            })),
+        ),
+        None => menu,
     };
     let menu = if state.locatable {
         menu.separator().item(
