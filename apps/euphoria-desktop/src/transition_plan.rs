@@ -28,7 +28,7 @@ use crate::app::EuphoriaApp;
 use crate::camelot::CamelotPosition;
 use crate::cue_editing::UndoGroup;
 use crate::deck_audio::DeckId;
-use crate::focus::clock;
+use crate::format::clock;
 use crate::library::Track;
 use crate::views::cues::shown_cues;
 

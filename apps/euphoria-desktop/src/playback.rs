@@ -945,14 +945,18 @@ impl Decoder {
         let samples_per_frame = self.samples_per_frame();
         let crossfade_frames =
             (LOOP_CROSSFADE_SECONDS * f64::from(self.state.sample_rate())).round() as usize;
-        let mut looping = self.state.lock_looping();
+        // The region this chunk is decoded under, read and published under
+        // the loop's lock, which the window holds only while it changes the
+        // loop: the file reads below run with the lock free. The region is
+        // fixed for the whole chunk, as it was while the lock was held.
+        let region = self.state.lock_looping().region;
         let mut segment = Vec::new();
         let mut has_more = self.stream.read_chunk(&mut segment)?;
         let mut segment_start = self.input_frame;
         let mut output = Vec::new();
         for _ in 0..MOST_WRAPS_PER_CHUNK {
             let segment_end = segment_start + (segment.len() / samples_per_frame) as u64;
-            let crosses_end = looping.region.filter(|region| {
+            let crosses_end = region.filter(|region| {
                 segment_start <= region.end
                     && segment_end > region.start
                     && (segment_end > region.end || !has_more)
@@ -988,8 +992,11 @@ impl Decoder {
             segment = head;
             segment_start = reached;
         }
-        looping.decoded_input_frame = self.input_frame;
-        looping.decoded_wraps = self.wraps;
+        {
+            let mut looping = self.state.lock_looping();
+            looping.decoded_input_frame = self.input_frame;
+            looping.decoded_wraps = self.wraps;
+        }
         if output.is_empty() && !has_more {
             return Ok(None);
         }
