@@ -1541,7 +1541,12 @@ mod tests {
     }
 
     fn text(bytes: &[u8]) -> String {
-        String::from_utf8(bytes.to_vec()).unwrap()
+        // A checkout may hand the fixtures CRLF line endings while the value
+        // Serato writes uses LF; the round trip is about the content, not the
+        // checkout's line endings.
+        String::from_utf8(bytes.to_vec())
+            .unwrap()
+            .replace("\r\n", "\n")
     }
 
     #[test]

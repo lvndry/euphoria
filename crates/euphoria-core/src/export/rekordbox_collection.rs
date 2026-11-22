@@ -162,7 +162,7 @@ mod tests {
                 <TRACK Name="Streamed" Location="https://example.com/a"><POSITION_MARK/></TRACK>
                 <TRACK Name="Nowhere"><POSITION_MARK/></TRACK>
                 </COLLECTION></DJ_PLAYLISTS>"#,
-                present.display()
+                present.display().to_string().replace('\\', "/")
             ),
         )
         .unwrap();
