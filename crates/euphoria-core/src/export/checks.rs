@@ -216,8 +216,15 @@ mod tests {
         std::fs::write(&input, b"an audio file").expect("the file is written");
         std::fs::create_dir_all(folder.path().join("sub")).expect("the folder is created");
         let relinked = std::fs::canonicalize(&input).expect("the file resolves");
-        let sub = relinked.parent().unwrap_or_else(|| Path::new("."));
-        let error = check_output_is_not_an_input(&sub.join("in.MP3"), &[], &[sub.to_path_buf()]);
+        // Production folders arrive with the long-path marker removed, so the
+        // test feeds the folder the same way.
+        let sub = plain(
+            relinked
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .to_path_buf(),
+        );
+        let error = check_output_is_not_an_input(&sub.join("in.MP3"), &[], &[sub.clone()]);
         assert!(error.is_err(), "{error:?}");
     }
 }
