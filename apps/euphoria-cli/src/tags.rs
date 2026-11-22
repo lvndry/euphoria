@@ -560,7 +560,11 @@ fn undo(arguments: &UndoArguments) -> Result<ExitCode> {
     });
     identities.report(&mut std::io::stderr().lock(), &Theme::stderr())?;
     let Some(undone) = outcome.map_err(with_causes)? else {
-        eprintln!("There is no tag write to undo.");
+        let _ = output::write_note(
+            &mut std::io::stderr().lock(),
+            &Theme::stderr(),
+            "no tag write to undo",
+        );
         return Ok(ExitCode::SUCCESS);
     };
     let mut standard_output = std::io::stdout().lock();

@@ -744,8 +744,10 @@ fn export_to_virtualdj(arguments: &VirtualDjArguments) -> Result<ExitCode> {
             ),
             Some(false) => {}
             None => {
-                eprintln!(
-                    "warning: could not check whether VirtualDJ is running; close it before exporting"
+                let _ = output::write_warning(
+                    &mut std::io::stderr().lock(),
+                    &Theme::stderr(),
+                    "could not check whether VirtualDJ is running; close it before exporting",
                 );
             }
         }
@@ -978,9 +980,13 @@ fn export_to_engine(arguments: &EngineArguments) -> Result<ExitCode> {
                  Close Engine DJ and export again."
             ),
             Some(false) => {}
-            None => eprintln!(
-                "warning: could not check whether Engine DJ is running; close it before exporting"
-            ),
+            None => {
+                let _ = output::write_warning(
+                    &mut std::io::stderr().lock(),
+                    &Theme::stderr(),
+                    "could not check whether Engine DJ is running; close it before exporting",
+                );
+            }
         }
     }
     // Checked before the analysis, which can take hours on a large library.
@@ -1233,12 +1239,16 @@ fn export_to_m3u8(arguments: &M3u8Arguments) -> Result<ExitCode> {
         })
         .collect();
     write_m3u8_file(&output_file, &playlist.name, &tracks, existing).map_err(with_causes)?;
-    eprintln!(
-        "Exported {} {} of {} to {}",
-        tracks.len(),
-        if tracks.len() == 1 { "track" } else { "tracks" },
-        Printable(&playlist.name),
-        Printable(output_file.display())
+    let _ = output::write_note(
+        &mut std::io::stderr().lock(),
+        &Theme::stderr(),
+        format_args!(
+            "exported {} {} of {} to {}",
+            tracks.len(),
+            if tracks.len() == 1 { "track" } else { "tracks" },
+            Printable(&playlist.name),
+            Printable(output_file.display())
+        ),
     );
     if left_out_of_playlist.missing > 0 {
         output::write_missing_summary(&mut std::io::stderr().lock(), left_out_of_playlist.missing)?;
