@@ -88,6 +88,7 @@ pub fn check_output_is_not_a_collection(
         let Ok(collection) = std::fs::canonicalize(collection) else {
             continue;
         };
+
         if output == collection {
             return Err(CheckError::message(format!(
                 "the output {} is the {program_name} collection in {}; choose another output \
@@ -113,7 +114,7 @@ pub fn check_output_is_not_an_input(
     for audio_file in audio_files {
         if audio_file
             .canonicalize()
-            .is_ok_and(|resolved_input| resolved_input == resolved_output)
+            .is_ok_and(|resolved_input| plain(resolved_input) == resolved_output)
         {
             return Err(CheckError::message(format!(
                 "{} is one of the files to export, and the export would replace it. Choose another output file.",
@@ -140,7 +141,7 @@ pub fn check_output_is_not_an_input(
 /// folder.
 pub fn resolve_output(output_file: &Path) -> Result<PathBuf> {
     if let Ok(resolved) = output_file.canonicalize() {
-        return Ok(resolved);
+        return Ok(plain(resolved));
     }
     let cannot_use = || format!("cannot use {} as the output", output_file.display());
     let folder = output_file
@@ -152,7 +153,16 @@ pub fn resolve_output(output_file: &Path) -> Result<PathBuf> {
     let resolved_folder = folder
         .canonicalize()
         .map_err(|error| CheckError::new(cannot_use(), error))?;
-    Ok(resolved_folder.join(file_name))
+    Ok(plain(resolved_folder.join(file_name)))
+}
+
+/// The path with its Windows long-path marker removed, so that a
+/// canonicalized path compares and nests like the plain folders the
+/// collection carries; a path without the marker comes back unchanged.
+fn plain(path: PathBuf) -> PathBuf {
+    let s = path.to_string_lossy();
+    let s = s.strip_prefix(r"\\?\").unwrap_or(&s);
+    PathBuf::from(s)
 }
 
 /// Removes the tracks at `paths` from the collection and from every
@@ -181,4 +191,41 @@ pub fn leave_out(library: &mut Library, paths: &HashSet<PathBuf>) -> usize {
     library.tracks.retain(|track| !is_cued(&track.path));
     from_nodes(&mut library.playlists, &is_cued);
     before - library.tracks.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plain_strips_the_long_path_marker_and_leaves_other_paths_alone() {
+        assert_eq!(
+            plain(PathBuf::from(r"\\?\C:\x\out.MP3")),
+            PathBuf::from(r"C:\x\out.MP3")
+        );
+        let unmarked = PathBuf::from("/x/out.MP3");
+        assert_eq!(plain(unmarked.clone()), unmarked);
+        let unmarked_windows = PathBuf::from(r"C:\x\out.MP3");
+        assert_eq!(plain(unmarked_windows.clone()), unmarked_windows);
+    }
+
+    #[test]
+    fn an_output_that_renames_an_audio_file_is_refused() {
+        let folder = tempfile::tempdir().expect("the folder is created");
+        let input = folder.path().join("in.MP3");
+        std::fs::write(&input, b"an audio file").expect("the file is written");
+        std::fs::create_dir_all(folder.path().join("sub")).expect("the folder is created");
+        let relinked = std::fs::canonicalize(&input).expect("the file resolves");
+        // Production folders arrive with the long-path marker removed, so the
+        // test feeds the folder the same way.
+        let sub = plain(
+            relinked
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .to_path_buf(),
+        );
+        let error =
+            check_output_is_not_an_input(&sub.join("in.MP3"), &[], std::slice::from_ref(&sub));
+        assert!(error.is_err(), "{error:?}");
+    }
 }

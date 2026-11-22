@@ -185,6 +185,9 @@ impl NmlLocation {
 /// location contains characters XML cannot represent.
 pub fn nml_location(path: &Path, startup_volume: &str) -> Result<NmlLocation, ExportProblem> {
     let text = path.to_str().ok_or(ExportProblem::PathNotUnicode)?;
+    // A canonicalized Windows path may carry the long-path marker;
+    // the remainder is an ordinary absolute path.
+    let text = text.strip_prefix(r"\\?\").unwrap_or(text);
     let bytes = text.as_bytes();
     let has_drive_letter = bytes.len() >= 3
         && bytes[0].is_ascii_alphabetic()
@@ -665,6 +668,10 @@ mod tests {
         assert_eq!(
             location(r"C:\Music\Sets\c.wav").unwrap().primary_key(),
             "C:/:Music/:Sets/:c.wav"
+        );
+        assert_eq!(
+            location(r"\\?\C:\Music\Sets\d.wav").unwrap().primary_key(),
+            "C:/:Music/:Sets/:d.wav"
         );
         assert_eq!(location("/a.mp3").unwrap().directory, "/:");
         assert_eq!(

@@ -520,8 +520,10 @@ fn export_library(
     write: impl FnOnce(&Path, &Library, ExistingFile) -> Result<(), EuphoriaError>,
 ) -> Result<ExitCode> {
     let program = request.program;
-    let output_file = std::path::absolute(request.output)
-        .with_context(|| format!("cannot use {} as the output", request.output.display()))?;
+    let output_file = plain(
+        std::path::absolute(request.output)
+            .with_context(|| format!("cannot use {} as the output", request.output.display()))?,
+    );
     let existing = if request.force {
         ExistingFile::Replace
     } else {
@@ -724,7 +726,7 @@ fn export_library(
 }
 fn export_to_virtualdj(arguments: &VirtualDjArguments) -> Result<ExitCode> {
     let database = match &arguments.database {
-        Some(path) => std::path::absolute(path)?,
+        Some(path) => plain(std::path::absolute(path)?),
         None => program_files::default_virtualdj_database().ok_or_else(|| {
             anyhow!(
                 "no VirtualDJ database.xml was found in your home folder; give it with --database"
@@ -958,8 +960,10 @@ fn export_to_virtualdj(arguments: &VirtualDjArguments) -> Result<ExitCode> {
 
 fn export_to_engine(arguments: &EngineArguments) -> Result<ExitCode> {
     let library = match &arguments.library {
-        Some(folder) => std::path::absolute(folder)
-            .with_context(|| format!("cannot use {} as the library", folder.display()))?,
+        Some(folder) => plain(
+            std::path::absolute(folder)
+                .with_context(|| format!("cannot use {} as the library", folder.display()))?,
+        ),
         None => program_files::default_engine_library().ok_or_else(|| {
             anyhow!(
                 "no Engine Library folder was found in your Music folder; give it with --library"
@@ -1209,8 +1213,10 @@ fn export_to_engine(arguments: &EngineArguments) -> Result<ExitCode> {
 }
 
 fn export_to_m3u8(arguments: &M3u8Arguments) -> Result<ExitCode> {
-    let output_file = std::path::absolute(&arguments.output)
-        .with_context(|| format!("cannot use {} as the output", arguments.output.display()))?;
+    let output_file = plain(
+        std::path::absolute(&arguments.output)
+            .with_context(|| format!("cannot use {} as the output", arguments.output.display()))?,
+    );
     let existing = if arguments.force {
         ExistingFile::Replace
     } else {
@@ -1436,7 +1442,7 @@ fn resolve(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
     paths
         .iter()
         .map(|path| {
-            path.canonicalize().with_context(|| {
+            let full = path.canonicalize().with_context(|| {
                 if matches!(path.try_exists(), Ok(false)) {
                     format!(
                         "{} is missing: moved, deleted, or on a drive that is not connected",
@@ -1445,7 +1451,37 @@ fn resolve(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
                 } else {
                     format!("cannot read {}", path.display())
                 }
-            })
+            })?;
+            Ok(plain(full))
         })
         .collect()
+}
+
+/// Drops the Windows long-path prefix, so the paths the user is shown and
+/// compared against keep the plain form, e.g. `C:\Music` and not `\\?\C:\Music`.
+/// `Path::strip_prefix` is component-based and never matches the marker, so
+/// the prefix is removed from the path's string form instead.
+fn plain(path: PathBuf) -> PathBuf {
+    let s = path.to_string_lossy().into_owned();
+    let s = s.strip_prefix(r"\\?\").unwrap_or(&s);
+    PathBuf::from(s)
+}
+
+#[cfg(test)]
+mod plain_tests {
+    use super::plain;
+    use std::path::PathBuf;
+
+    #[test]
+    fn the_long_path_prefix_is_dropped() {
+        assert_eq!(
+            plain(PathBuf::from(r"\\?\C:\Music\a.mp3")),
+            PathBuf::from("C:\\Music\\a.mp3")
+        );
+    }
+
+    #[test]
+    fn a_path_without_the_prefix_is_untouched() {
+        assert_eq!(plain(PathBuf::from("/C:/x")), PathBuf::from("/C:/x"));
+    }
 }
