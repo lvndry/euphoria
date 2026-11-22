@@ -387,15 +387,9 @@ jobs:
           # releases/latest/download/Euphoria-x86_64.AppImage always leads
           # to the newest.
           cp "target/release/bundle/Euphoria-$VERSION-x86_64.AppImage" dist/Euphoria-x86_64.AppImage
-          # The minisign public key, so that the release carries it once,
-          # from either build, for the publish job to sign with. A tag
-          # made before the key existed has no file of its own; the key in
-          # the repository does not change, so main's copy is the one.
-          if git cat-file -e "v$VERSION:release/minisign.pub" 2> /dev/null; then
-            git show "v$VERSION:release/minisign.pub" > dist/minisign.pub
-          else
-            git show "origin/main:release/minisign.pub" > dist/minisign.pub
-          fi
+          # The minisign public key is staged by the macOS build, which the
+          # publish job always runs; a file in both builds would stop the
+          # publish, which refuses two files of the same name.
       - name: Check that the files run on a clean system
         run: ./scripts/release/check-linux-packages.sh dist
       - name: Read the oldest glibc the files run on
@@ -538,7 +532,11 @@ jobs:
           # release is signed. The minisign binary itself goes out as an
           # asset, because install.sh verifies the signatures with it,
           # without needing minisign installed; its checksum is in
-          # SHA256SUMS, so it is checked like every other file.
+          # SHA256SUMS, so it is checked like every other file. An
+          # unsigned release carries no verifier at all: install.sh
+          # treats the absence of minisign.pub and the minisign binary as
+          # "no signatures to check", while a signed release missing its
+          # signatures still fails, because it does carry them.
           # Pinned and checksummed like every other downloaded tool. The
           # binary is a statically linked musl build.
           tarball="$RUNNER_TEMP/minisign-0.12-linux.tar.gz"
@@ -548,21 +546,29 @@ jobs:
           echo "9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73  $tarball" | sha256sum --check --strict
           tar -xzf "$tarball" -C "$RUNNER_TEMP"
           minisign="$RUNNER_TEMP/minisign-linux/x86_64/minisign"
-          cp "$minisign" dist/minisign-0.12-linux-x86_64
-          chmod 755 dist/minisign-0.12-linux-x86_64
-          (umask 077 && printf '%s\n' "$MINISIGN_PRIVKEY_KEY" > "$RUNNER_TEMP/minisign.key")
           if [ -z "$MINISIGN_PRIVKEY_KEY" ]; then
             if gh release view "v$VERSION" > /dev/null 2>&1; then
               echo "::error::MINISIGN_PRIVKEY_KEY is not set, but a release exists for v$VERSION, so its files cannot be minisigned. Set the secret and run the workflow again to finish the release with its signatures."
               exit 1
             fi
             echo "::warning title=Release files are not minisigned::MINISIGN_PRIVKEY_KEY is not set and no release exists for v$VERSION yet, so its files go out without minisign signatures. Set the secret and run the workflow again to finish the release with its signatures; every later release is signed."
+            # The release publishes no verifier: no signatures, so no key
+            # and no minisign binary, and SHA256SUMS holds no line for
+            # them. install.sh checks the files with their checksums only,
+            # and a signed release missing a signature still fails, because
+            # it does carry them.
+            rm dist/minisign.pub
+            sed -i '/minisign\.pub$/d' dist/SHA256SUMS
+            (cd dist && sha256sum --check SHA256SUMS)
             exit 0
           fi
+          cp "$minisign" dist/minisign-0.12-linux-x86_64
+          chmod 755 dist/minisign-0.12-linux-x86_64
+          (umask 077 && printf '%s\n' "$MINISIGN_PRIVKEY_KEY" > "$RUNNER_TEMP/minisign.key")
           cd dist
-          # The binary was copied after the checksums were written, so its
-          # line goes in before the files are signed, and the check below
-          # covers it like every other file.
+          # The binary went into dist after the checksums were written,
+          # so its line goes in before the files are signed, and the
+          # check below covers it like every other file.
           sha256sum minisign-0.12-linux-x86_64 >> SHA256SUMS
           # minisign asks for the key's password on its standard input.
           for file in *; do

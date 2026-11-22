@@ -176,7 +176,7 @@ The Developer ID certificate has its own expiry date, which can come sooner than
 
 ## Signing the release's files
 
-Every file in a release is signed with [minisign](https://jedisct1.github.io/minisign/). `scripts/install.sh` verifies the checksums first, then the signatures: it fetches the release's `minisign.pub` and the `minisign-0.12-linux-x86_64` asset (both in `SHA256SUMS`), checks that the public key holds the key pinned in the script, and runs `minisign -V -p minisign.pub -x <file>.minisig -m <file>` for each file it downloads. A MITM could change the release, but not the key the script pins. Releases published before the secret below existed carry no `*.minisig` files; `install.sh` checks those with checksums only and prints one warning.
+Every file in a release is signed with [minisign](https://jedisct1.github.io/minisign/). `scripts/install.sh` verifies the checksums first, then the signatures: it fetches the release's `minisign.pub` and the `minisign-0.12-linux-x86_64` asset (both in `SHA256SUMS`), checks that the public key holds the key pinned in the script, and runs `minisign -V -p minisign.pub -x <file>.minisig -m <file>` for each file it downloads. A MITM could change the release, but not the key the script pins. The absence of `minisign.pub` and the minisign binary is what tells the script a release has no signatures, so an unsigned release publishes neither: those releases carry no `*.minisig` files, and `install.sh` checks them with checksums only and prints one warning. A signed release missing one of its signatures still fails, because it does carry them.
 
 The workflow downloads minisign 0.12 (a pinned, checksummed musl static binary), copies it into the release as `minisign-0.12-linux-x86_64`, and signs every file with `echo github-actions | minisign -S -m <file> -s <key>` — the password is read from standard input, minisign has no `-p` flag for it.
 
@@ -194,4 +194,4 @@ Running the Release workflow by hand offers the boolean input `allow-adhoc-fallb
 
 ## The first release after this lands
 
-The assets are the usual files plus `minisign.pub`, one `*.minisig` per file, and `minisign-0.12-linux-x86_64`. `install.sh` from that release fetches the key and the binary from the release itself, verifies the pinned key, and checks every signature; `install.sh` from older releases only sees the extra assets and keeps working with checksums alone.
+The assets are the usual files plus `minisign.pub`, one `*.minisig` per file, and `minisign-0.12-linux-x86_64`; a release published while `MINISIGN_PRIVKEY_KEY` is not set is the usual files only. `install.sh` from a signed release fetches the key and the binary from the release itself, verifies the pinned key, and checks every signature; `install.sh` from an unsigned release, or from older releases, keeps working with checksums alone.
