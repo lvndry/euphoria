@@ -563,7 +563,7 @@ fn undo(arguments: &UndoArguments) -> Result<ExitCode> {
         let _ = output::write_note(
             &mut std::io::stderr().lock(),
             &Theme::stderr(),
-            "no tag write to undo",
+            "There is no tag write to undo.",
         );
         return Ok(ExitCode::SUCCESS);
     };
