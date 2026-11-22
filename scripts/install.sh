@@ -299,7 +299,9 @@ say "Downloading Euphoria $version"
 downloads="$temporary_dir/downloads"
 mkdir "$downloads"
 for asset in SHA256SUMS $wanted_assets; do
-  fetch "$download_base/$asset" "$downloads/$asset" || fail "could not download $download_base/$asset"
+  if ! fetch "$download_base/$asset" "$downloads/$asset"; then
+    fail "could not download $download_base/$asset. Check your connection and try again"
+  fi
 done
 for asset in $wanted_assets; do
   expected=$(awk -v name="$asset" '{ file = $2; sub(/^\*/, "", file); if (file == name) { print $1; exit } }' "$downloads/SHA256SUMS")
