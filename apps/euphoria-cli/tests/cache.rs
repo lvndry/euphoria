@@ -400,11 +400,11 @@ fn a_relative_data_folder_is_taken_from_the_current_directory() {
 
     assert_success(&output);
     let expected = working_directory
-        .join("relative/data/analysis-cache.sqlite3")
-        // The CLI prints the resolved location; normalize the expected path
-        // the same way so Windows' long-path form cannot skew the comparison.
+        // The CLI prints the resolved location; normalize the base the same
+        // way so Windows' long-path form cannot skew the comparison.
         .canonicalize()
-        .expect("the cache folder was created");
+        .expect("the working directory exists")
+        .join("relative/data/analysis-cache.sqlite3");
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).trim_end(),
         text(&expected)
