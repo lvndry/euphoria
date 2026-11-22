@@ -1316,6 +1316,7 @@ fn hot_cues_are_coloured_by_the_energy_of_their_section_unless_colours_are_fixed
     assert!(standard_error(&without_cues).contains("--cues"));
 }
 
+#[cfg(unix)]
 #[test]
 fn a_symlinked_track_is_left_out_when_the_collection_lists_its_target() {
     let euphoria = Euphoria::new();
@@ -1514,6 +1515,7 @@ fn a_grid_rated_low_is_left_out_and_not_counted() {
     assert!(with_tempo[0].ends_with("steady.wav"), "{with_tempo:?}");
 }
 
+#[cfg(unix)]
 #[test]
 fn the_collection_is_never_the_output_even_with_force() {
     let euphoria = Euphoria::new();
