@@ -355,7 +355,6 @@ fn a_loop_changed_while_the_decoder_reads_drops_the_chunk_decoded_under_the_old_
         shift: Shift::new(1, 1, SAMPLE_RATE, 0, PlaybackTempo::default()).unwrap(),
         input_frame: reached,
         folds: VecDeque::new(),
-        folds_snapshot: VecDeque::new(),
         wraps: 0,
     };
 
@@ -441,7 +440,6 @@ fn a_loop_changed_between_the_check_and_the_publication_is_discarded() {
         shift: Shift::new(1, 1, SAMPLE_RATE, 0, PlaybackTempo::default()).unwrap(),
         input_frame: reached,
         folds: VecDeque::new(),
-        folds_snapshot: VecDeque::new(),
         wraps: 0,
     };
 

@@ -409,7 +409,7 @@ fn a_relative_data_folder_is_taken_from_the_current_directory() {
     let printed = String::from_utf8_lossy(&output.stdout)
         .trim_end()
         .to_string();
-    assert_eq!(strip_long(printed), strip_long(expected));
+    assert_eq!(strip_long(&printed), strip_long(&expected));
 }
 
 #[test]
