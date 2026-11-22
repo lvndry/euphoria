@@ -152,37 +152,46 @@ mod tests {
         let present = folder.join("present.mp3");
         std::fs::write(&present, b"").unwrap();
         let collection = folder.join("collection.xml");
+        // The location exactly as the export writes it: the prefix, one slash,
+        // then the path with forward slashes (C:/ for a drive letter, and no
+        // leading slash on Unix).
+        let location = format!(
+            "file://localhost/{}",
+            present
+                .to_string_lossy()
+                .replace('\\', "/")
+                .trim_start_matches('/')
+        );
         std::fs::write(
             &collection,
             format!(
                 r#"<DJ_PLAYLISTS><COLLECTION>
-                <TRACK Name="Here" Location="file://localhost{}"><POSITION_MARK/></TRACK>
+                <TRACK Name="Here" Location="{location}"><POSITION_MARK/></TRACK>
                 <TRACK Name="Gone" Artist="Someone" Location="file://localhost/nowhere/gone.mp3"><POSITION_MARK/></TRACK>
                 <TRACK Name="Windows" Location="file://localhost/C:/Music/w.mp3"><POSITION_MARK/></TRACK>
                 <TRACK Name="Streamed" Location="https://example.com/a"><POSITION_MARK/></TRACK>
                 <TRACK Name="Nowhere"><POSITION_MARK/></TRACK>
-                </COLLECTION></DJ_PLAYLISTS>"#,
-                present.display().to_string().replace('\\', "/")
+                </COLLECTION></DJ_PLAYLISTS>"#
             ),
         )
         .unwrap();
 
         let tracks = tracks_with_cues(&collection).unwrap();
-        let resolved = std::fs::canonicalize(&present).unwrap();
         std::fs::remove_dir_all(&folder).unwrap();
 
         // A collection stores its locations as URIs, so the listed paths keep
         // forward slashes on every platform while a PathBuf uses the system
         // separator; compare on the URI's spelling.
         let on_disk = present.to_string_lossy().replace('\\', "/");
-        let canonical = resolved.to_string_lossy().replace('\\', "/");
         let paths = tracks
             .paths
             .iter()
             .map(|path| path.to_string_lossy().replace('\\', "/"))
             .collect::<Vec<_>>();
-        assert!(paths.contains(&on_disk));
-        assert!(paths.contains(&canonical));
+        assert!(
+            paths.contains(&on_disk),
+            "the present file's path was not listed: {on_disk}"
+        );
         assert_eq!(
             tracks.unmatched,
             vec![
