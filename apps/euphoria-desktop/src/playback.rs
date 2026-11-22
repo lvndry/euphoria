@@ -142,6 +142,10 @@ struct LoopShared {
     decoded_input_frame: u64,
     /// How many times the decoder has jumped back to a loop's start.
     decoded_wraps: u64,
+    /// One more each time the loop changes, so a chunk the decoder reads
+    /// under the old loop can tell the new one arrived before it was
+    /// published.
+    loop_generation: u64,
 }
 
 /// What the sound of one track is doing, shared between the decoder, the
@@ -175,6 +179,20 @@ pub(crate) struct VoiceState {
     loop_end_frame: AtomicU64,
     /// The decoder's count of loop jumps as of the chunk being heard.
     heard_wraps: AtomicU64,
+    /// A test takes this before the decoder reads its next chunk, to change
+    /// the loop where a window's `set_loop` lands in a live run.
+    #[cfg(test)]
+    next_decode_hook: TestDecodeHook,
+}
+
+#[cfg(test)]
+struct TestDecodeHook(Mutex<Option<Arc<dyn Fn() + Send + Sync>>>);
+
+#[cfg(test)]
+impl std::fmt::Debug for TestDecodeHook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TestDecodeHook").finish_non_exhaustive()
+    }
 }
 
 impl VoiceState {
@@ -197,6 +215,8 @@ impl VoiceState {
             loop_start_frame: AtomicU64::new(u64::MAX),
             loop_end_frame: AtomicU64::new(u64::MAX),
             heard_wraps: AtomicU64::new(0),
+            #[cfg(test)]
+            next_decode_hook: TestDecodeHook(Mutex::new(None)),
         }
     }
 
@@ -334,6 +354,7 @@ impl VoiceState {
         let decoded_another_way = looping.decoded_wraps > self.heard_wraps.load(Ordering::Relaxed)
             || region.is_some_and(|region| looping.decoded_input_frame > region.end);
         looping.region = region;
+        looping.loop_generation = looping.loop_generation.saturating_add(1);
         let (start, end) = region.map_or((u64::MAX, u64::MAX), |region| (region.start, region.end));
         self.loop_start_frame.store(start, Ordering::Relaxed);
         self.loop_end_frame.store(end, Ordering::Relaxed);
@@ -358,6 +379,32 @@ impl VoiceState {
 
     fn lock_looping(&self) -> MutexGuard<'_, LoopShared> {
         self.looping.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The seam a test takes to change the loop between the decoder's read
+    /// of it and the chunk's publication, where the window's `set_loop`
+    /// lands in a live run.
+    #[cfg(test)]
+    pub(crate) fn note_next_decode(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
+        *self
+            .next_decode_hook
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = hook;
+    }
+
+    /// Runs the seam a test left for the decoder's next chunk, clearing it.
+    #[cfg(test)]
+    pub(crate) fn fire_next_decode(&self) {
+        if let Some(hook) = self
+            .next_decode_hook
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+        {
+            hook();
+        }
     }
 
     /// Jumps to `seconds` from the beginning. What was decoded ahead is
@@ -945,62 +992,101 @@ impl Decoder {
         let samples_per_frame = self.samples_per_frame();
         let crossfade_frames =
             (LOOP_CROSSFADE_SECONDS * f64::from(self.state.sample_rate())).round() as usize;
-        // The region this chunk is decoded under, read and published under
-        // the loop's lock, which the window holds only while it changes the
-        // loop: the file reads below run with the lock free. The region is
-        // fixed for the whole chunk, as it was while the lock was held.
-        let region = self.state.lock_looping().region;
-        let mut segment = Vec::new();
-        let mut has_more = self.stream.read_chunk(&mut segment)?;
-        let mut segment_start = self.input_frame;
-        let mut output = Vec::new();
-        for _ in 0..MOST_WRAPS_PER_CHUNK {
-            let segment_end = segment_start + (segment.len() / samples_per_frame) as u64;
-            let crosses_end = region.filter(|region| {
-                segment_start <= region.end
-                    && segment_end > region.start
-                    && (segment_end > region.end || !has_more)
-            });
-            let Some(region) = crosses_end else {
-                self.input_frame = segment_end;
-                output.append(&mut segment);
-                break;
+        loop {
+            // The region this chunk is decoded under, and the generation of
+            // the loop it was read under, both under the loop's lock, which the
+            // window holds only while it changes the loop: the file reads below
+            // run with the lock free. The region is fixed for the whole chunk,
+            // as it was while the lock was held.
+            let (region, loop_generation) = {
+                let looping = self.state.lock_looping();
+                (looping.region, looping.loop_generation)
             };
-            let kept_frames = (region.end.min(segment_end) - segment_start) as usize;
-            let mut outgoing = segment.split_off(kept_frames * samples_per_frame);
-            output.append(&mut segment);
-            let mut more = Vec::new();
-            while has_more && outgoing.len() < crossfade_frames * samples_per_frame {
-                has_more = self.stream.read_chunk(&mut more)?;
-                outgoing.append(&mut more);
+            // A test takes this to change the loop where the window's
+            // `set_loop` lands in a live run: after the snapshot above, before
+            // the file I/O below.
+            #[cfg(test)]
+            {
+                self.state.fire_next_decode();
             }
-            outgoing.truncate(crossfade_frames * samples_per_frame);
-            let reached = self.stream.seek_frame(region.start)?;
-            let mut head = Vec::new();
-            has_more = true;
-            while has_more && head.len() < crossfade_frames * samples_per_frame {
-                has_more = self.stream.read_chunk(&mut more)?;
-                head.append(&mut more);
+            let read_from = self.input_frame;
+            let wraps_at_snapshot = self.wraps;
+            let folds_at_snapshot = self.folds.clone();
+            let mut segment = Vec::new();
+            let mut has_more = self.stream.read_chunk(&mut segment)?;
+            let mut segment_start = self.input_frame;
+            let mut output = Vec::new();
+            let mut stale = false;
+            for _ in 0..MOST_WRAPS_PER_CHUNK {
+                // The loop may have changed while the reads above ran with the
+                // lock free. The chunk is decoded under the region read at the
+                // top, so a change means its sound was decoded the old way:
+                // discard it and let the loop change stand, and the chunk is
+                // read again under the new loop.
+                let generation = self.state.lock_looping().loop_generation;
+                if generation != loop_generation {
+                    self.input_frame = self.stream.seek_frame(read_from)?;
+                    self.wraps = wraps_at_snapshot;
+                    self.folds = folds_at_snapshot;
+                    segment.clear();
+                    output.clear();
+                    stale = true;
+                    break;
+                }
+                let segment_end = segment_start + (segment.len() / samples_per_frame) as u64;
+                let crosses_end = region.filter(|region| {
+                    segment_start <= region.end
+                        && segment_end > region.start
+                        && (segment_end > region.end || !has_more)
+                });
+                let Some(region) = crosses_end else {
+                    self.input_frame = segment_end;
+                    output.append(&mut segment);
+                    break;
+                };
+                let kept_frames = (region.end.min(segment_end) - segment_start) as usize;
+                let mut outgoing = segment.split_off(kept_frames * samples_per_frame);
+                output.append(&mut segment);
+                let mut more = Vec::new();
+                while has_more && outgoing.len() < crossfade_frames * samples_per_frame {
+                    has_more = self.stream.read_chunk(&mut more)?;
+                    outgoing.append(&mut more);
+                }
+                outgoing.truncate(crossfade_frames * samples_per_frame);
+                let reached = self.stream.seek_frame(region.start)?;
+                let mut head = Vec::new();
+                has_more = true;
+                while has_more && head.len() < crossfade_frames * samples_per_frame {
+                    has_more = self.stream.read_chunk(&mut more)?;
+                    head.append(&mut more);
+                }
+                if head.is_empty() {
+                    self.input_frame = reached;
+                    break;
+                }
+                crossfade_into(&mut head, &outgoing, samples_per_frame, crossfade_frames);
+                self.wraps += 1;
+                self.folds.push_back(region);
+                segment = head;
+                segment_start = reached;
             }
-            if head.is_empty() {
-                self.input_frame = reached;
-                break;
+            if stale {
+                // A loop change landed while the chunk was being read: the
+                // stream is rewound where the read began, the chunk is thrown
+                // away, and the read is run again under the new loop. Returning
+                // empty here would read as the end of the sound to the sound.
+                continue;
             }
-            crossfade_into(&mut head, &outgoing, samples_per_frame, crossfade_frames);
-            self.wraps += 1;
-            self.folds.push_back(region);
-            segment = head;
-            segment_start = reached;
+            {
+                let mut looping = self.state.lock_looping();
+                looping.decoded_input_frame = self.input_frame;
+                looping.decoded_wraps = self.wraps;
+            }
+            if output.is_empty() && !has_more {
+                return Ok(None);
+            }
+            return Ok(Some(output));
         }
-        {
-            let mut looping = self.state.lock_looping();
-            looping.decoded_input_frame = self.input_frame;
-            looping.decoded_wraps = self.wraps;
-        }
-        if output.is_empty() && !has_more {
-            return Ok(None);
-        }
-        Ok(Some(output))
     }
 
     /// Waits for room in the read ahead and puts `message` there. Gives the
