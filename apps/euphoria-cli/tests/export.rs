@@ -48,6 +48,56 @@ fn resolved(path: &Path) -> PathBuf {
     PathBuf::from(s)
 }
 
+/// Whether `s` is a Windows drive-letter path such as `C:\...` or `C:/...`.
+fn drive_letter(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'\\' | b'/')
+}
+
+/// What production writes after the `file://localhost` of a Location: a
+/// Windows drive-letter path becomes `/C:/Users/...` with its backslashes as
+/// `/`, any other absolute path stays as-is.
+fn rekordbox_location(path: &Path) -> String {
+    let s = text(path);
+    let s = s.strip_prefix(r"\\?\").unwrap_or(s);
+    if drive_letter(s) {
+        format!("/{}/{}", &s[..2], s[3..].replace('\\', "/"))
+    } else {
+        s.to_string()
+    }
+}
+
+/// The form the test's parser stores a read-back path: a Windows drive-letter
+/// path comes back as `/C:/Users/...`, any other path as-is.
+fn export_path(path: &Path) -> PathBuf {
+    let s = text(path);
+    let s = s.strip_prefix(r"\\?\").unwrap_or(s);
+    if drive_letter(s) {
+        PathBuf::from(format!("/{}/{}", &s[..2], s[3..].replace('\\', "/")))
+    } else {
+        PathBuf::from(s)
+    }
+}
+
+/// Whether two paths name the same exported file: on Windows, up to the
+/// long-path marker, the leading slash, separators and case; everywhere else,
+/// exactly equal.
+fn same_export_path(a: &Path, b: &Path) -> bool {
+    if cfg!(windows) {
+        let normalize = |path: &Path| {
+            let s = text(path);
+            let s = s.strip_prefix(r"\\?\").unwrap_or(s);
+            s.trim_start_matches('/').replace('\\', "/").to_lowercase()
+        };
+        normalize(a) == normalize(b)
+    } else {
+        a == b
+    }
+}
+
 fn assert_success(output: &Output) {
     assert!(
         output.status.success(),
@@ -200,7 +250,7 @@ impl ExportedLibrary {
     fn track(&self, path: &Path) -> &ExportedTrack {
         self.tracks
             .iter()
-            .find(|track| track.path == path)
+            .find(|track| same_export_path(&track.path, path))
             .unwrap_or_else(|| panic!("{} is in the export", path.display()))
     }
 }
@@ -289,7 +339,7 @@ fn exports_every_fixture_with_its_location_key_and_tempo() {
             "fixtures".to_string(),
             AUDIO_FIXTURES
                 .iter()
-                .map(|name| fixtures.join(name))
+                .map(|name| export_path(&fixtures.join(name)))
                 .collect()
         )]
     );
@@ -781,17 +831,23 @@ fn playlists_mirror_the_folders_and_named_files_get_their_own() {
             ExportedNode::Folder(
                 "My Library".to_string(),
                 vec![
-                    ExportedNode::Playlist("House".to_string(), vec![house]),
+                    ExportedNode::Playlist("House".to_string(), vec![export_path(&house)],),
                     ExportedNode::Folder(
                         "Techno".to_string(),
                         vec![
-                            ExportedNode::Playlist("Techno".to_string(), vec![techno]),
-                            ExportedNode::Playlist("Deep".to_string(), vec![deep_techno.clone()]),
+                            ExportedNode::Playlist(
+                                "Techno".to_string(),
+                                vec![export_path(&techno)],
+                            ),
+                            ExportedNode::Playlist(
+                                "Deep".to_string(),
+                                vec![export_path(&deep_techno)],
+                            ),
                         ]
                     ),
                 ]
             ),
-            ExportedNode::Playlist("friday set".to_string(), vec![named_directly]),
+            ExportedNode::Playlist("friday set".to_string(), vec![export_path(&named_directly)],),
         ]
     );
     assert_eq!(library.track(&deep_techno).name.as_deref(), Some("été"));
@@ -1104,7 +1160,7 @@ fn cues_are_written_only_for_tracks_without_cues_in_the_collection() {
              <TRACK TrackID=\"1\" Location=\"file://localhost{}\">\
              <POSITION_MARK Name=\"mine\" Type=\"0\" Start=\"4.0\" Num=\"0\"/>\
              </TRACK></COLLECTION></DJ_PLAYLISTS>",
-            text(&track)
+            rekordbox_location(&track)
         ),
     )
     .expect("the collection is written");
@@ -1426,7 +1482,7 @@ fn the_cues_the_user_set_replace_the_automatic_ones_in_the_json_and_the_export()
              <TRACK TrackID=\"1\" Location=\"file://localhost{}\">\
              <POSITION_MARK Name=\"mine\" Type=\"0\" Start=\"4.0\" Num=\"0\"/>\
              </TRACK></COLLECTION></DJ_PLAYLISTS>",
-            text(&track)
+            rekordbox_location(&track)
         ),
     )
     .expect("the collection is written");
@@ -1727,22 +1783,40 @@ fn unmatched_collection_metadata_cannot_rewrite_terminal_messages() {
     );
 }
 
-/// The NML location Traktor would give `path` on a Mac whose startup
-/// volume is `Test HD`.
+/// The NML location key production writes for `path`: a Windows drive-letter
+/// path keeps the letter as its volume, then `/:` after every folder; a Unix
+/// path under `/Volumes/<name>` is on the volume `<name>`; any other absolute
+/// path is on the `Test HD` startup volume.
 fn traktor_key(path: &Path) -> String {
     let text = text(path);
-    let (volume, rest) = match text.strip_prefix("/Volumes/") {
-        Some(rest) => rest.split_once('/').expect("a volume and a path"),
-        None => ("Test HD", &text[1..]),
-    };
-    let (folders, file) = rest.rsplit_once('/').unwrap_or(("", rest));
-    let mut key = format!("{volume}/:");
-    for folder in folders.split('/').filter(|folder| !folder.is_empty()) {
-        key.push_str(folder);
-        key.push_str("/:");
+    let text = text.strip_prefix(r"\\?\").unwrap_or(text);
+    if drive_letter(text) {
+        let parts: Vec<&str> = text[3..]
+            .split(['\\', '/'])
+            .filter(|part| !part.is_empty())
+            .collect();
+        let (file, folders) = parts.split_last().expect("a file");
+        let mut key = format!("{}/:", &text[..2]);
+        for folder in folders {
+            key.push_str(folder);
+            key.push_str("/:");
+        }
+        key.push_str(file);
+        key
+    } else {
+        let (volume, rest) = match text.strip_prefix("/Volumes/") {
+            Some(rest) => rest.split_once('/').expect("a volume and a path"),
+            None => ("Test HD", &text[1..]),
+        };
+        let (folders, file) = rest.rsplit_once('/').unwrap_or(("", rest));
+        let mut key = format!("{volume}/:");
+        for folder in folders.split('/').filter(|folder| !folder.is_empty()) {
+            key.push_str(folder);
+            key.push_str("/:");
+        }
+        key.push_str(file);
+        key
     }
-    key.push_str(file);
-    key
 }
 
 fn traktor_entry_key(entry: roxmltree::Node<'_, '_>) -> String {
