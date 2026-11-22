@@ -145,7 +145,7 @@ impl EuphoriaApp {
                 .play_metronome(Metronome::running(self.metronome.control.clone()))
             {
                 Ok(voice) => self.metronome.voice = Some(voice),
-                Err(problem) => self.notice = Some(problem.message().to_string()),
+                Err(problem) => self.notice = vec![problem.message().to_string()],
             }
         }
         cx.notify();
@@ -175,9 +175,9 @@ impl EuphoriaApp {
                 self.sync_metronome_tempo();
             }
             None => {
-                self.notice = Some(
+                self.notice = vec![
                     "Type a metronome tempo from 30 to 300, such as 127.5 or 127,5.".to_string(),
-                );
+                ];
             }
         }
         self.window_focus.focus(window, cx);
@@ -258,7 +258,7 @@ impl EuphoriaApp {
                 .play_metronome(Metronome::preview(self.metronome.control.clone()))
             {
                 Ok(voice) => self.metronome.preview = Some(voice),
-                Err(problem) => self.notice = Some(problem.message().to_string()),
+                Err(problem) => self.notice = vec![problem.message().to_string()],
             }
         }
         if let Some(problem) = self.save_settings() {

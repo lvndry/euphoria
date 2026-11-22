@@ -131,7 +131,7 @@ pub(crate) fn open_window_with(
             cx.new(|cx| {
                 let mut session = Session::start(None).unwrap();
                 session.add_demo_tracks(tracks);
-                EuphoriaApp::new(session, settings, settings_path, None, output, window, cx)
+                EuphoriaApp::new(session, settings, settings_path, vec![], output, window, cx)
             })
         })
         .unwrap();
@@ -1507,7 +1507,7 @@ fn open_folders(
                     session,
                     settings,
                     settings_path,
-                    None,
+                    vec![],
                     Box::new(SilentOutput),
                     window,
                     cx,
@@ -2861,7 +2861,7 @@ fn files_written_from_the_window_are_served_from_the_cache_on_the_next_launch(
                     session,
                     Settings::default(),
                     None,
-                    None,
+                    vec![],
                     Box::new(SilentOutput),
                     window,
                     cx,
@@ -4206,7 +4206,7 @@ pub(crate) fn open_with_playlist_store(
                     session,
                     Settings::default(),
                     None,
-                    None,
+                    vec![],
                     Box::new(SilentOutput),
                     window,
                     cx,
@@ -4603,7 +4603,7 @@ fn the_editor_asks_for_a_change_and_for_a_selection(cx: &mut TestAppContext) {
     cx.update(|cx| {
         let app = view.read(cx);
         assert!(app.tag_panel.is_none());
-        assert!(app.notice.is_some());
+        assert!(!app.notice.is_empty());
     });
 }
 
@@ -5348,10 +5348,7 @@ fn a_tone_without_an_audio_output_says_so(cx: &mut TestAppContext) {
     cx.update(|cx| {
         let app = view.read(cx);
         assert_eq!(app.by_ear.drone_key(), None);
-        assert_eq!(
-            app.notice.as_deref(),
-            Some(PlaybackProblem::NoOutput.message())
-        );
+        assert_eq!(app.notice.as_slice(), [PlaybackProblem::NoOutput.message()]);
     });
 }
 
@@ -5900,7 +5897,7 @@ fn the_decks_without_an_audio_output_say_so(cx: &mut TestAppContext) {
     cx.update(|cx| {
         let app = view.read(cx);
         assert!(!app.decks.is_open);
-        assert!(app.notice.is_some());
+        assert!(!app.notice.is_empty());
     });
 }
 
@@ -7488,7 +7485,7 @@ fn the_track_player_hides_while_the_decks_are_open(cx: &mut TestAppContext) {
     assert!(!is_shown(window, "player-bar", cx));
     cx.update(|cx| {
         let app = view.read(cx);
-        assert_eq!(app.notice, None, "no notice asks to close the decks");
+        assert!(app.notice.is_empty(), "no notice asks to close the decks");
         assert!(!app.player.offers_pause(), "the player stays silent");
     });
     cx.update(|cx| view.update(cx, |app, cx| app.toggle_decks(cx)));

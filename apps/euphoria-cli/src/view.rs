@@ -23,19 +23,36 @@ use crate::terminal::Printable;
 /// The width used when the output is not a terminal.
 pub const DEFAULT_WIDTH: usize = 100;
 
+/// The width the terminal should wrap to, or [`DEFAULT_WIDTH`].
+///
+/// `EUPHORIA_WIDTH` overrides it, which is how a pipe or a script asks for a
+/// width when there is no terminal to measure. A non-positive or malformed
+/// value is ignored in favor of the measured terminal, and a value above
+/// [`u16::MAX`] is dropped because the width cannot be represented.
+fn wrap_width(term: &console::Term) -> Option<u16> {
+    if let Some(width) = std::env::var("EUPHORIA_WIDTH")
+        .ok()
+        .and_then(|asked| asked.trim().parse::<i64>().ok())
+        .filter(|width| *width > 0)
+    {
+        // A value above `u16::MAX` cannot be represented, so fall back to
+        // the measured terminal.
+        return u16::try_from(width)
+            .ok()
+            .or(term.size_checked().map(|(_, columns)| columns));
+    }
+    term.size_checked().map(|(_, columns)| columns)
+}
+
 /// The width of the terminal standard output goes to, or
 /// [`DEFAULT_WIDTH`].
 pub fn terminal_width() -> usize {
-    console::Term::stdout()
-        .size_checked()
-        .map_or(DEFAULT_WIDTH, |(_, columns)| usize::from(columns))
+    wrap_width(&console::Term::stdout()).map_or(DEFAULT_WIDTH, usize::from)
 }
 
 /// The width of the terminal standard error goes to, when it is one.
 pub fn standard_error_width() -> Option<usize> {
-    console::Term::stderr()
-        .size_checked()
-        .map(|(_, columns)| usize::from(columns))
+    wrap_width(&console::Term::stderr()).map(usize::from)
 }
 
 /// `text` with every line longer than `width` broken between words, the
@@ -1249,11 +1266,10 @@ mod tests {
 
     #[test]
     fn a_wide_table_shows_every_column_without_the_common_folder() {
-        let expected = "\
-Key             BPM  Energy              Quality  Time  Review  File
- 8A  A minor  124.9       7  ━━━━━━━───  weak     6:48          house/low tide.flac
- 8A  A minor  124.9       7  ━━━━━━━───  weak     6:48  key     techno/a rather long name of a track (extended mix).mp3
-";
+        let separator = std::path::MAIN_SEPARATOR.to_string();
+        let expected = format!(
+            "Key             BPM  Energy              Quality  Time  Review  File\n 8A  A minor  124.9       7  ━━━━━━━───  weak     6:48          house{separator}low tide.flac\n 8A  A minor  124.9       7  ━━━━━━━───  weak     6:48  key     techno{separator}a rather long name of a track (extended mix).mp3\n"
+        );
         assert_eq!(table(200), expected);
     }
 

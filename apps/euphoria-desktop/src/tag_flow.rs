@@ -233,6 +233,17 @@ impl EuphoriaApp {
             .collect()
     }
 
+    /// Library indexes of the tracks a drag or a right-click on the row of
+    /// the track at `track_index` covers: the selection when the row is part
+    /// of it, that row alone otherwise.
+    pub(crate) fn row_tracks(&self, track_index: usize) -> Vec<usize> {
+        if self.is_marked(track_index) {
+            self.selected_tracks()
+        } else {
+            vec![track_index]
+        }
+    }
+
     /// What a write needs to know about each of the tracks at `paths`, those
     /// the library still has.
     pub(crate) fn write_targets(&self, paths: &[std::path::PathBuf]) -> Vec<WriteTarget> {
@@ -649,10 +660,7 @@ impl EuphoriaApp {
     }
 
     fn report_problem(&mut self, problem: &str, cx: &mut Context<'_, Self>) {
-        self.notice = Some(match self.notice.take() {
-            Some(earlier) => format!("{earlier} {problem}"),
-            None => problem.to_string(),
-        });
+        self.report(problem.to_string());
         cx.notify();
     }
 

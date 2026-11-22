@@ -522,7 +522,7 @@ impl EuphoriaApp {
     /// off the main thread.
     pub(crate) fn export_mashup(&mut self, cx: &mut Context<'_, Self>) {
         let Some(layers) = self.mashup_layers() else {
-            self.notice = Some("Load a track on both decks to export a mashup.".to_string());
+            self.notice = vec!["Load a track on both decks to export a mashup.".to_string()];
             cx.notify();
             return;
         };
@@ -551,7 +551,7 @@ impl EuphoriaApp {
                 Ok(Ok(None)) | Err(_) => return,
                 Ok(Err(error)) => {
                     this.update(cx, |this, cx| {
-                        this.notice = Some(format!("Could not open the save dialog: {error:#}"));
+                        this.notice = vec![format!("Could not open the save dialog: {error:#}")];
                         cx.notify();
                     })
                     .ok();
@@ -560,7 +560,7 @@ impl EuphoriaApp {
             };
             let running = this
                 .update(cx, |this, cx| {
-                    this.notice = Some("Rendering the mashup…".to_string());
+                    this.notice = vec!["Rendering the mashup…".to_string()];
                     this.begin_background_job("Rendering the mashup", cx)
                 })
                 .ok();
@@ -580,10 +580,11 @@ impl EuphoriaApp {
                     Ok(written) => {
                         if this
                             .notice
-                            .as_deref()
+                            .first()
                             .is_some_and(|notice| notice.starts_with("Rendering"))
+                            && this.notice.len() == 1
                         {
-                            this.notice = None;
+                            this.notice.clear();
                         }
                         let seconds = written.frames as f32
                             / euphoria_core::mashup::MASHUP_SAMPLE_RATE as f32;
@@ -604,7 +605,7 @@ impl EuphoriaApp {
                     }
                     Err(error) => {
                         this.notice =
-                            Some(format!("Could not export the mashup: {}", error.chain()));
+                            vec![format!("Could not export the mashup: {}", error.chain())];
                     }
                 }
                 cx.notify();

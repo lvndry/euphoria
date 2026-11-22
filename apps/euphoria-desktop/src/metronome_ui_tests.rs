@@ -182,7 +182,7 @@ fn a_tempo_out_of_range_is_refused_and_the_old_one_stays(cx: &mut TestAppContext
     type_tempo(window, "140", cx);
     type_tempo(window, "500", cx);
     assert_eq!(tempo(&view, cx), 140.0);
-    cx.update(|cx| assert!(view.read(cx).notice.is_some()));
+    cx.update(|cx| assert!(!view.read(cx).notice.is_empty()));
 }
 
 #[gpui::test]
@@ -225,7 +225,7 @@ fn a_computer_without_output_says_so_and_does_not_click(cx: &mut TestAppContext)
     cx.update(|cx| {
         let app = view.read(cx);
         assert!(!app.metronome.is_running());
-        assert!(app.notice.is_some());
+        assert!(!app.notice.is_empty());
     });
 }
 

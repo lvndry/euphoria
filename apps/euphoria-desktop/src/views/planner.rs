@@ -19,8 +19,9 @@ use gpui::{
 };
 
 use crate::app::EuphoriaApp;
-use crate::focus::{SectionKind, clock};
+use crate::focus::SectionKind;
 use crate::format;
+use crate::format::clock;
 use crate::planner_playback::PlanTiming;
 use crate::stems::StemStatus;
 use crate::theme::Palette;

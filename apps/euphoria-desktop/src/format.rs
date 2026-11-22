@@ -11,6 +11,12 @@ pub(crate) fn duration(seconds: f32) -> String {
     format!("{}:{:02}", whole_seconds / 60, whole_seconds % 60)
 }
 
+/// The time as minutes and whole seconds, rounded down, as a clock reads.
+pub(crate) fn clock(seconds: f64) -> String {
+    let whole = seconds.max(0.0) as u64;
+    format!("{}:{:02}", whole / 60, whole % 60)
+}
+
 /// A length that may run past an hour, for example "1:53:50", or "48:30"
 /// under an hour.
 pub(crate) fn long_duration(seconds: f32) -> String {

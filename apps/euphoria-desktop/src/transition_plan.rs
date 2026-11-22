@@ -28,7 +28,7 @@ use crate::app::EuphoriaApp;
 use crate::camelot::CamelotPosition;
 use crate::cue_editing::UndoGroup;
 use crate::deck_audio::DeckId;
-use crate::focus::clock;
+use crate::format::clock;
 use crate::library::Track;
 use crate::views::cues::shown_cues;
 
@@ -733,7 +733,7 @@ impl EuphoriaApp {
             }
             None => {
                 self.planner.open_when_ready = false;
-                self.notice = Some("This pair of tracks cannot be planned yet.".to_string());
+                self.notice = vec!["This pair of tracks cannot be planned yet.".to_string()];
                 cx.notify();
             }
         }

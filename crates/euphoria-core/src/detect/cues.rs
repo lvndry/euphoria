@@ -1165,4 +1165,137 @@ mod tests {
         assert_eq!(CueSection::from_name("Section 03"), None);
         assert_eq!(CueSection::from_name("Section "), None);
     }
+
+    #[cfg(test)]
+    mod properties {
+        use ::proptest::prelude::*;
+
+        use super::*;
+        use crate::track_cues::HotCue;
+
+        proptest! {
+            /// Every section name Euphoria shows names that section and only
+            /// that section: the numbered ones count the start as 1, so they
+            /// run from 2 up.
+            #[test]
+            fn cue_names_round_trip_through_from_name(number in 2u8..=255u8) {
+                let section = CueSection::Section(number);
+                prop_assert_eq!(CueSection::from_name(&section.name()), Some(section));
+            }
+
+            /// The numbered cues the detector keeps are the capped cue times:
+            /// the start first, then the largest changes of at least the
+            /// numbered strength, at most eight, in time order numbered from 2.
+            #[test]
+            fn the_numbered_cues_are_sorted_unique_and_capped(
+                generated in prop::collection::vec((any::<f64>(), any::<f32>()), 0..64)
+            ) {
+                // Distinct times in (0, 100] and distinct strengths, so the
+                // expected top set has no ties.
+                let (seconds, strengths): (Vec<f64>, Vec<f32>) = generated
+                    .iter()
+                    .enumerate()
+                    .map(|(offset, (time, strength))| {
+                        let offset = offset as f64;
+                        let value = time.abs() % 100.0;
+                        let seconds = ((offset + value) / 65.0 * 100.0).max(0.001);
+                        let raw = f64::from(strength.abs()) % 1.0;
+                        (seconds, ((offset + raw) / 65.0 * 1.5) as f32)
+                    })
+                    .unzip();
+                let start = Segment {
+                    start: 0,
+                    bars: 1,
+                    seconds: 0.0,
+                    strength: 1.0,
+                };
+                let rest: Vec<Segment> = seconds
+                    .iter()
+                    .zip(strengths)
+                    .map(|(&seconds, strength)| Segment {
+                        start: 0,
+                        bars: 1,
+                        seconds,
+                        strength,
+                    })
+                    .collect();
+                // The rest are the largest qualifying changes, capped, in
+                // time order, numbered from 2. Work from `rest` before it is
+                // moved into `segments`.
+                let mut expected: Vec<(f64, f32)> = rest
+                    .iter()
+                    .map(|segment| (segment.seconds, segment.strength))
+                    .filter(|(_, strength)| *strength >= NUMBERED_SECTION_STRENGTH)
+                    .collect();
+                expected.sort_by(|left, right| right.1.total_cmp(&left.1));
+                expected.truncate(MAXIMUM_CUES - 1);
+                expected.sort_by(|left, right| left.0.total_cmp(&right.0));
+                let segments = std::iter::once(start).chain(rest).collect::<Vec<_>>();
+                let cues = numbered_cues(&segments);
+                prop_assert!(cues.len() <= MAXIMUM_CUES);
+                expected.truncate(MAXIMUM_CUES - 1);
+                expected.sort_by(|left, right| left.0.total_cmp(&right.0));
+                prop_assert_eq!(cues.len(), 1 + expected.len());
+                if !cues.is_empty() {
+                    prop_assert_eq!(cues[0], (0.0, CueSection::Start));
+                    for (offset, ((seconds, section), (want_seconds, _))) in
+                        cues[1..].iter().zip(&expected).enumerate()
+                    {
+                        prop_assert_eq!(*seconds, *want_seconds);
+                        prop_assert_eq!(*section, CueSection::Section((offset + 2) as u8));
+                    }
+                }
+            }
+
+            /// Every pad from A to H is a valid pad and its letter is its
+            /// own; letters past H are not pads.
+            #[test]
+            fn hot_cue_pads_round_trip_through_their_letters(pad in 0u8..=255u8) {
+                match HotCue::from_pad(pad) {
+                    Some(hot_cue) => {
+                        prop_assert_eq!(hot_cue.pad(), pad);
+                        prop_assert_eq!(HotCue::from_letter(hot_cue.letter()).map(HotCue::pad), Some(pad));
+                    }
+                    None => prop_assert!(usize::from(pad) >= MAXIMUM_CUES),
+                }
+            }
+
+            /// The level the detector reads out of a section's bars is the
+            /// median of those bars, never below the lowest bar or above the
+            /// highest.
+            #[test]
+            fn the_level_of_a_section_is_the_median_of_its_bars(
+                bars in prop::collection::vec((any::<f32>(), any::<f32>()), 1..=64)
+            ) {
+                let measures: Vec<BarMeasure> = bars
+                    .into_iter()
+                    .map(|(low, kick)| BarMeasure {
+                        loudness: 0.0,
+                        low: low.abs(),
+                        high: 0.0,
+                        kick: kick.abs(),
+                    })
+                    .collect();
+                let segment = Segment {
+                    start: 0,
+                    bars: measures.len(),
+                    seconds: 0.0,
+                    strength: 1.0,
+                };
+                let level = section_level(&segment, &measures);
+                let lowest = measures
+                    .iter()
+                    .map(|measure| measure.low)
+                    .fold(f32::INFINITY, f32::min);
+                let highest = measures
+                    .iter()
+                    .map(|measure| measure.low)
+                    .fold(f32::NEG_INFINITY, f32::max);
+                prop_assert!(!level.low.is_nan());
+                prop_assert!(level.low >= lowest);
+                prop_assert!(level.low <= highest);
+                prop_assert!((0.0_f32..=1.0).contains(&level.kick_share));
+            }
+        }
+    }
 }

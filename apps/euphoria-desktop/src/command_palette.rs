@@ -18,11 +18,12 @@ use gpui::component::input::InputState;
 use gpui::{Action, Entity, ScrollHandle};
 
 use crate::actions::{
-    AddCueAtPlayhead, AddFolder, AnalyzeAgain, EditTags, ExportLibrary, FocusSearch,
+    AddCueAtPlayhead, AddFolder, AnalyzeAgain, CopyTrackPath, EditTags, ExportLibrary, FocusSearch,
     OpenCommandPalette, OpenFocusView, OpenLive, OpenSetBuilder, OpenSettings, PlanTransition,
-    RescanFolders, ResetColumnWidths, RevealTrack, SelectAllTracks, SeparateStems, StopAnalysis,
-    ToggleDecks, ToggleFavorite, ToggleMetronome, TogglePlayback, ToggleSidebar, UndoCueEdit,
-    UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UsePaperTheme, UseSlateTheme, WriteTags,
+    RescanFolders, ResetColumnWidths, RevealTrack, SelectAllTracks, SeparateStems, ShowFirstRun,
+    StopAnalysis, ToggleDecks, ToggleFavorite, ToggleMetronome, TogglePlayback, ToggleSidebar,
+    UndoCueEdit, UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UsePaperTheme, UseSlateTheme,
+    WriteTags,
 };
 use crate::library::Track;
 use crate::metronome::parse_bpm;
@@ -235,6 +236,14 @@ pub(crate) const COMMANDS: &[CommandEntry] = &[
         StopAnalysis
     ),
     command!(
+        "show-first-run",
+        "Show first run",
+        [
+            "first", "run", "start", "get", "going", "setup", "welcome", "steps", "not now"
+        ],
+        ShowFirstRun
+    ),
+    command!(
         "separate-stems",
         "Separate stems",
         [
@@ -318,6 +327,12 @@ pub(crate) const COMMANDS: &[CommandEntry] = &[
             "finder", "explorer", "show", "file", "folder", "locate", "reveal"
         ],
         RevealTrack
+    ),
+    command!(
+        "copy-track-path",
+        "Copy path",
+        ["copy", "path", "paths", "file", "location", "clipboard"],
+        CopyTrackPath
     ),
     command!(
         "reset-column-widths",

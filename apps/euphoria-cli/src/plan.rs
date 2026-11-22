@@ -125,7 +125,7 @@ pub fn run(arguments: &PlanArguments) -> Result<ExitCode> {
         Ok(plan) => plan,
         Err(error) => {
             let theme = Theme::stderr();
-            writeln!(std::io::stderr().lock(), "{} {error}", theme.error_label())?;
+            crate::output::write_error(&mut std::io::stderr().lock(), &theme, error)?;
             return Ok(ExitCode::FAILURE);
         }
     };

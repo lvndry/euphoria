@@ -269,7 +269,7 @@ impl EuphoriaApp {
                         _voice: voice,
                     });
                 }
-                Err(problem) => self.notice = Some(problem.message().to_string()),
+                Err(problem) => self.notice = vec![problem.message().to_string()],
             }
         }
         cx.notify();
@@ -307,7 +307,7 @@ impl EuphoriaApp {
                 true
             }
             Err(problem) => {
-                self.notice = Some(problem.message().to_string());
+                self.notice = vec![problem.message().to_string()];
                 cx.notify();
                 false
             }
@@ -420,10 +420,10 @@ impl EuphoriaApp {
                 .await;
             if let Err(error) = kept {
                 this.update(cx, |this, cx| {
-                    this.notice = Some(format!(
+                    this.notice = vec![format!(
                         "The correction shows, but it could not be kept for next time: {}",
                         error.chain()
-                    ));
+                    )];
                     cx.notify();
                 })
                 .ok();

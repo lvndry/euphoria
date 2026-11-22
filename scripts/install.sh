@@ -9,7 +9,18 @@
 #
 # Run with --help for the options. Every file is checked against the
 # release's SHA256SUMS before anything is installed, and the files installed
-# are listed in a manifest so that --uninstall removes exactly those.
+# are listed in a manifest so that --uninstall removes exactly those. When
+# the release carries minisign signatures, the files are verified against the
+# release's minisign.pub, whose key is pinned in this script, so that a
+# changed release and a changed public key do not pass each other off as the
+# real ones. Releases without signatures are checked with the checksums only.
+
+
+# The key that signs the release's files, pinned here so that a changed
+# release and a changed minisign.pub would not pass each other off as the
+# real ones. See the "Signing the release's files" section of
+# docs/development/releasing.md.
+minisign_pinned_key="RWTXpSIgOpSVBK7N301TWI11jjnnhB9peLGu/RNf5J7TcjJ44MQfNNr7"
 
 set -eu
 
@@ -242,7 +253,7 @@ fi
 release_json="$temporary_dir/release.json"
 fetch "$release_url" "$release_json" || fail "could not read $release_label from $release_url. Check the version and your connection; see $releases_page"
 
-tag=$(tr ',' '\n' < "$release_json" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+tag=$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$release_json" | head -n 1)
 [ -n "$tag" ] || fail "$release_url did not describe a release"
 version=${tag#v}
 tr ',' '\n' < "$release_json" | sed -n 's/.*"browser_download_url"[[:space:]]*:[[:space:]]*"[^"]*\/\([^"/]*\)".*/\1/p' > "$temporary_dir/assets.txt"
@@ -288,7 +299,9 @@ say "Downloading Euphoria $version"
 downloads="$temporary_dir/downloads"
 mkdir "$downloads"
 for asset in SHA256SUMS $wanted_assets; do
-  fetch "$download_base/$asset" "$downloads/$asset" || fail "could not download $download_base/$asset"
+  if ! fetch "$download_base/$asset" "$downloads/$asset"; then
+    fail "could not download $download_base/$asset. Check your connection and try again"
+  fi
 done
 for asset in $wanted_assets; do
   expected=$(awk -v name="$asset" '{ file = $2; sub(/^\*/, "", file); if (file == name) { print $1; exit } }' "$downloads/SHA256SUMS")
@@ -299,6 +312,54 @@ for asset in $wanted_assets; do
   fi
   say "Verified $asset"
 done
+
+# Minisign signatures complement the checksums: a checksum proves a file is
+# the one the release says, and the signature proves the release says it,
+# because the key that signs is pinned in this script, so that a changed
+# release and a changed minisign.pub do not pass each other off as the real
+# ones. The verification runs the minisign binary the release itself ships,
+# which is checked against SHA256SUMS like every other file. A release made
+# before the signatures exist goes without them, with one warning.
+
+minisign_tool_name="minisign-0.12-linux-x86_64"
+if has_asset minisign.pub && has_asset "$minisign_tool_name"; then
+  for asset in minisign.pub "$minisign_tool_name"; do
+    fetch "$download_base/$asset" "$downloads/$asset" || fail "could not download $download_base/$asset"
+    expected=$(awk -v name="$asset" '{ file = $2; sub(/^\*/, "", file); if (file == name) { print $1; exit } }' "$downloads/SHA256SUMS")
+    [ -n "$expected" ] || fail "SHA256SUMS does not list $asset; nothing was installed"
+    actual=$($checksum_tool "$downloads/$asset" | awk '{ print $1 }')
+    [ "$actual" = "$expected" ] || fail "checksum mismatch for $asset (expected $expected, got $actual). The download is damaged or was tampered with; nothing was installed"
+  done
+  # The pinned key: its line is in the public key the release carries, and
+  # it is the one this script was written with.
+  pub_key=$(awk -v name="$minisign_pinned_key" '$0 == name { found = 1 } END { print found }' "$downloads/minisign.pub")
+  if [ "$pub_key" != 1 ]; then
+    fail "minisign.pub does not hold the key this install script was written with ($minisign_pinned_key). The release was made by a different key; nothing was installed"
+  fi
+  chmod 755 "$downloads/$minisign_tool_name"
+  say "Checking the signatures with minisign"
+  for asset in $wanted_assets; do
+    signature="$downloads/$asset.minisig"
+    if ! fetch "$download_base/$asset.minisig" "$signature" 2> /dev/null; then
+      fail "$asset has no signature, but the release carries minisign.pub; the release is damaged or incomplete; nothing was installed"
+    fi
+    if [ "$platform" = macos-arm64 ]; then
+      # The binary is a Linux x86_64 build; on an Apple Silicon Mac it runs
+      # under Rosetta 2, which those Macs carry.
+      if ! arch -x86_64 "$downloads/$minisign_tool_name" -V -p "$downloads/minisign.pub" -x "$signature" -m "$downloads/$asset" 2> /dev/null; then
+        "$downloads/$minisign_tool_name" -V -p "$downloads/minisign.pub" -x "$signature" -m "$downloads/$asset" 2> /dev/null ||
+          fail "the signature of $asset does not match the release's key. The download was tampered with or the release was republished by a different key; nothing was installed"
+      fi
+    else
+      "$downloads/$minisign_tool_name" -V -p "$downloads/minisign.pub" -x "$signature" -m "$downloads/$asset" 2> /dev/null ||
+        fail "the signature of $asset does not match the release's key. The download was tampered with or the release was republished by a different key; nothing was installed"
+    fi
+    say "Signature OK for $asset"
+  done
+else
+  echo "This release has no minisign signatures; its files are checked with their checksums only." >&2
+fi
+
 
 # Prepare everything before touching the install folders, so that a failure
 # leaves the previous installation as it was.

@@ -297,7 +297,7 @@ impl EuphoriaApp {
             .map(|track| (track.key(), track.bpm()))
             .collect();
         if tracks.is_empty() {
-            self.notice = Some("Select the tracks whose tags you want to edit.".to_string());
+            self.notice = vec!["Select the tracks whose tags you want to edit.".to_string()];
             cx.notify();
             return;
         }

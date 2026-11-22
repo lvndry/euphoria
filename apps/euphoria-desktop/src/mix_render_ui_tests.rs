@@ -157,8 +157,8 @@ fn rendering_the_same_mix_again_replaces_its_side_files(cx: &mut TestAppContext)
         let app = view.read(cx);
         assert!(
             app.notice
-                .as_ref()
-                .is_none_or(|notice| !notice.contains("already exists"))
+                .iter()
+                .all(|notice| !notice.contains("already exists"))
         );
     });
 }
@@ -182,8 +182,8 @@ fn a_new_mix_format_does_not_overwrite_an_existing_side_file(cx: &mut TestAppCon
         assert!(app.set_builder.render.is_none());
         assert!(
             app.notice
-                .as_ref()
-                .is_some_and(|notice| notice.contains("already exists"))
+                .iter()
+                .any(|notice| notice.contains("already exists"))
         );
     });
 }

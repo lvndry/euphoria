@@ -20,16 +20,26 @@ fetch_dataset() {
   fi
   mkdir -p "${dataset_directory}/audio"
 
+  # The $1, $2 and $3 expand in the bash that xargs starts, not in this
+  # script, so the command goes into a single-quoted heredoc.
+  # read -d '' exits 1 when it reaches the end of the heredoc without finding
+  # the delimiter; the script runs under set -e, so the non-zero status is
+  # tolerated explicitly and the guard below proves the command did load.
+  read -r -d '' download_one <<'DOWNLOAD' || true
+    track_name="$(basename "$3" .md5)"
+    target_file="$1/audio/${track_name}.mp3"
+    if [ ! -s "${target_file}" ]; then
+      curl --silent --fail --location --retry 3 \
+        --output "${target_file}" "$2/${track_name}.mp3" ||
+        { rm -f "${target_file}"; echo "failed: ${track_name}" >&2; }
+    fi
+DOWNLOAD
+  # read -d '' exits 1 when it reaches the end of the heredoc without finding
+  # the delimiter; the script runs under set -e, so the non-zero status is
+  # tolerated explicitly.
+  [ -n "$download_one" ] || { echo "download_one did not load" >&2; exit 1; }
   find "${dataset_directory}/md5" -name '*.md5' -print0 |
-    xargs -0 -n 1 -P 8 bash -c '
-      track_name="$(basename "$3" .md5)"
-      target_file="$1/audio/${track_name}.mp3"
-      if [ ! -s "${target_file}" ]; then
-        curl --silent --fail --location --retry 3 \
-          --output "${target_file}" "$2/${track_name}.mp3" ||
-          { rm -f "${target_file}"; echo "failed: ${track_name}" >&2; }
-      fi
-    ' _ "${dataset_directory}" "${audio_base_url}"
+    xargs -0 -n 1 -P 8 bash -c "$download_one" _ "${dataset_directory}" "${audio_base_url}"
 
   local downloaded_count
   downloaded_count="$(find "${dataset_directory}/audio" -name '*.mp3' | wc -l | tr -d ' ')"

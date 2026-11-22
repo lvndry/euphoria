@@ -22,7 +22,7 @@ use gpui::{
 use crate::app::EuphoriaApp;
 use crate::artwork::ThumbnailSize;
 use crate::focus::{
-    CueSections, Lane, PlanTab, SectionBand, SectionKind, SectionSource, StemsLane, Viewport, clock,
+    CueSections, Lane, PlanTab, SectionBand, SectionKind, SectionSource, StemsLane, Viewport,
 };
 use crate::format;
 use crate::library::Track;
@@ -811,19 +811,22 @@ fn timeline(track: &Track, app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>)
         .test_support();
 
     let readout = app.focus_readout();
-    let readout_line =
-        div()
-            .id("focus-readout")
-            .flex()
-            .items_center()
-            .h(px(20.0))
-            .pl(px(GUTTER + LANE_GAP))
-            .text_size(SMALL_TEXT_SIZE)
-            .text_color(palette.text_secondary)
-            .child(readout.unwrap_or_else(|| {
-                format!("{} to {}", clock(viewport.start), clock(viewport.end()))
-            }))
-            .test_support();
+    let readout_line = div()
+        .id("focus-readout")
+        .flex()
+        .items_center()
+        .h(px(20.0))
+        .pl(px(GUTTER + LANE_GAP))
+        .text_size(SMALL_TEXT_SIZE)
+        .text_color(palette.text_secondary)
+        .child(readout.unwrap_or_else(|| {
+            format!(
+                "{} to {}",
+                format::clock(viewport.start),
+                format::clock(viewport.end())
+            )
+        }))
+        .test_support();
 
     div()
         .id("focus-timeline")

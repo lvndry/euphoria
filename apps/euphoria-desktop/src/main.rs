@@ -25,6 +25,7 @@ mod columns;
 mod command_palette;
 #[cfg(test)]
 mod command_palette_ui_tests;
+mod copy_path;
 mod cue_editing;
 mod deck_audio;
 #[cfg(test)]
@@ -208,11 +209,11 @@ use gpui::{
 };
 
 use crate::actions::{
-    AddCueAtPlayhead, AddFolder, AddToSet, AnalyzeAgain, BuildSet, CloseFocusView, DoubleLoop,
-    EditTags, ExportLibrary, FocusSearch, HalveLoop, OpenCommandPalette, OpenEuphoria,
+    AddCueAtPlayhead, AddFolder, AddToSet, AnalyzeAgain, BuildSet, CloseFocusView, CopyTrackPath,
+    DoubleLoop, EditTags, ExportLibrary, FocusSearch, HalveLoop, OpenCommandPalette, OpenEuphoria,
     OpenFocusView, OpenLive, OpenSetBuilder, OpenSettings, PlanTransition, PlayNextRow,
     PlayPaletteTrack, Quit, RescanFolders, ResetColumnWidths, RevealTrack, SelectAllTracks,
-    SeparateStems, StopAnalysis, ToggleDecks, ToggleFavorite, ToggleLiveKeepRunning,
+    SeparateStems, ShowFirstRun, StopAnalysis, ToggleDecks, ToggleFavorite, ToggleLiveKeepRunning,
     ToggleLiveListening, ToggleLiveOpenAtLogin, ToggleLoop, ToggleMetronome, TogglePlayback,
     ToggleSidebar, UndoCueEdit, UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UsePaperTheme,
     UseSlateTheme, WriteTags,
@@ -311,7 +312,7 @@ fn open_main_window(cx: &mut App) -> Result<(), String> {
         .chain(cache_problem)
         .chain(playlist_problem)
         .collect();
-    let notice = (!problems.is_empty()).then(|| problems.join(" "));
+    let notice = problems;
     if let Some(count) = demo::requested_track_count() {
         session.add_demo_folder(PathBuf::from(demo::DEMO_FOLDER));
         session.add_demo_tracks(demo::tracks(count));
@@ -472,6 +473,7 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         // In the list of tracks to play next, Enter plays the one selected.
         KeyBinding::new("enter", PlayNextRow, Some(views::NEXT_RAIL_KEY_CONTEXT)),
         KeyBinding::new("cmd-shift-r", RevealTrack, Some(SPACE_BAR_CONTEXT)),
+        KeyBinding::new("cmd-alt-c", CopyTrackPath, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("cmd-,", OpenSettings, None),
         KeyBinding::new("cmd-shift-t", WriteTags, None),
         KeyBinding::new("cmd-i", EditTags, None),
@@ -497,6 +499,8 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         KeyBinding::new("ctrl-r", RescanFolders, None),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-shift-r", RevealTrack, Some(SPACE_BAR_CONTEXT)),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-alt-c", CopyTrackPath, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("ctrl-f", FocusSearch, None),
     ]);
 
@@ -544,6 +548,7 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
     register_view_command::<RevealTrack>(view, cx, |view, _| {
         view.reveal_selected_track();
     });
+    register_view_command::<CopyTrackPath>(view, cx, |view, cx| view.copy_selected_paths(cx));
 
     let weak_view = view.downgrade();
     cx.on_action(move |_: &AddFolder, cx| {
@@ -578,6 +583,7 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
     register_view_command::<RescanFolders>(view, cx, |view, cx| view.rescan_folders(cx));
     register_view_command::<StopAnalysis>(view, cx, |view, cx| view.stop_analysis(cx));
     register_view_command::<SeparateStems>(view, cx, |view, cx| view.separate_selected_stems(cx));
+    register_view_command::<ShowFirstRun>(view, cx, |view, cx| view.show_first_run(cx));
 
     register_theme_command::<UseSlateTheme>(ThemeName::Slate, view, cx);
     register_theme_command::<UsePaperTheme>(ThemeName::Paper, view, cx);
@@ -651,12 +657,14 @@ pub(crate) fn build_menus(current_theme: ThemeName, sidebar_folded: bool) -> Vec
             MenuItem::action("Live", OpenLive),
             MenuItem::action("Set Builder", OpenSetBuilder),
             MenuItem::action("Focus View", OpenFocusView),
+            MenuItem::action("First Run\u{2026}", ShowFirstRun),
             MenuItem::separator(),
             MenuItem::action("Command Palette\u{2026}", OpenCommandPalette),
             MenuItem::action("Search", FocusSearch),
             MenuItem::action("Select All Tracks", SelectAllTracks),
             MenuItem::action("Star or Unstar Selection", ToggleFavorite),
             MenuItem::action(reveal::reveal_label(), RevealTrack),
+            MenuItem::action("Copy Path", CopyTrackPath),
             MenuItem::separator(),
             MenuItem::action("Reset Column Widths", ResetColumnWidths),
             MenuItem::separator(),

@@ -312,7 +312,7 @@ impl EuphoriaApp {
                         Ok(Err(error)) => {
                             this.update(cx, |this, cx| {
                                 this.notice =
-                                    Some(format!("Could not open the save dialog: {error:#}"));
+                                    vec![format!("Could not open the save dialog: {error:#}")];
                                 cx.notify();
                             })
                             .ok();
@@ -366,7 +366,7 @@ impl EuphoriaApp {
     }
 
     fn run_stem_export(&mut self, request: StemExportRequest, cx: &mut Context<'_, Self>) {
-        self.notice = Some(format!("Saving {}…", request.description()));
+        self.notice = vec![format!("Saving {}…", request.description())];
         let job = self.begin_background_job("Exporting stems", cx);
         cx.spawn(async move |this, cx| {
             let outcome = cx
@@ -380,13 +380,10 @@ impl EuphoriaApp {
                 this.background_jobs.finish(job);
                 match outcome {
                     Ok(done) => {
-                        if this
-                            .notice
-                            .as_deref()
-                            .is_some_and(|notice| notice.starts_with("Saving "))
-                        {
-                            this.notice = None;
-                        }
+                        // Take back only the notice of this export; a save
+                        // that started later must not lose its "Saving …".
+                        let saving = format!("Saving {}\u{2026}", request.description());
+                        this.notice.retain(|notice| *notice != saving);
                         this.show_toast(
                             done.message(&request),
                             Some(crate::toast::ToastAction::Reveal(done.shown_path())),
@@ -394,11 +391,11 @@ impl EuphoriaApp {
                         );
                     }
                     Err(error) => {
-                        this.notice = Some(format!(
+                        this.notice = vec![format!(
                             "Could not save {}: {}",
                             request.description(),
                             error.chain()
-                        ));
+                        )];
                     }
                 }
                 cx.notify();

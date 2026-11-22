@@ -249,20 +249,38 @@ fn model(setup: Setup, cx: &mut TestAppContext) -> (Entity<LiveModel>, Arc<Mutex
     (model, seen)
 }
 
+/// Waits for `tick` to hold instead of sleeping for a fixed time: it
+/// checks the condition, then pumps the app and draws what the tick asks
+/// for, every few milliseconds, until the condition holds or `max`
+/// elapses. A slow CI runner never flips a test to red for wanting its
+/// sleep a little longer.
+fn settle(
+    cx: &mut TestAppContext,
+    max: Duration,
+    mut tick: impl FnMut(&mut TestAppContext) -> bool,
+) {
+    let deadline = Instant::now() + max;
+    loop {
+        if tick(cx) {
+            return;
+        }
+        if Instant::now() > deadline {
+            return;
+        }
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
 fn poll_until(
     model: &Entity<LiveModel>,
     cx: &mut TestAppContext,
     ready: impl Fn(&LiveModel) -> bool,
 ) {
-    let deadline = Instant::now() + Duration::from_secs(60);
-    loop {
+    settle(cx, Duration::from_secs(60), |cx| {
         cx.update(|cx| model.update(cx, |model, cx| model.poll(cx)));
-        cx.run_until_parked();
-        if cx.update(|cx| ready(model.read(cx))) || Instant::now() > deadline {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
+        cx.update(|cx| ready(model.read(cx)))
+    })
 }
 
 fn hear_c_major(model: &Entity<LiveModel>, cx: &mut TestAppContext) {
@@ -358,8 +376,13 @@ fn it_says_listening_and_shows_nothing_guessed_while_the_audio_is_silent(cx: &mu
     start(&model, cx);
     let window = open_panel(&model, cx);
     poll_until(&model, cx, |model| model.reading.heard_seconds == 0.0);
-    std::thread::sleep(Duration::from_millis(400));
-    cx.update(|cx| model.update(cx, |model, cx| model.poll(cx)));
+    // Keep polling across a real interval: a regression that guesses after
+    // continued silent input has to show up in these later reads.
+    for _ in 0..10 {
+        cx.executor().advance_clock(Duration::from_millis(100));
+        poll_until(&model, cx, |model| model.reading.heard_seconds >= 0.0);
+    }
+    cx.run_until_parked();
     cx.update(|cx| {
         let model = model.read(cx);
         assert_eq!(model.state, ListenState::Listening);
@@ -844,13 +867,20 @@ fn a_change_of_the_level_alone_moves_the_dot_and_leaves_the_next_list_alone(
     let renders_before = list_renders(&view, cx);
     let mut positions = Vec::new();
     for step in 0..6 {
-        std::thread::sleep(crate::motion::FAST + Duration::from_millis(10));
-        cx.update(|cx| {
-            model.update(cx, |model, cx| {
-                let reading = with_level(model, -40.0 + 12.0 * (step % 3) as f32);
-                model.pretend_polled(reading, cx);
+        let reading = cx.update(|cx| with_level(model.read(cx), -40.0 + 12.0 * (step % 3) as f32));
+        let target = reading.level.unwrap().meter_position();
+        // The dot moves at most once per crate::motion::FAST, so wait for
+        // the timer instead of sleeping for the full duration.
+        settle(cx, Duration::from_secs(2), |cx| {
+            cx.update(|cx| {
+                model
+                    .read(cx)
+                    .level
+                    .read(cx)
+                    .can_move(target, Instant::now())
             })
         });
+        cx.update(|cx| model.update(cx, |model, cx| model.pretend_polled(reading, cx)));
         draw_frames(window, cx);
         positions.push(cx.update(|cx| model.read(cx).level.read(cx).position));
     }
@@ -922,9 +952,15 @@ fn scrolling_the_next_list_never_resizes_the_window_and_a_change_waits_for_it_to
         )
     });
 
-    std::thread::sleep(crate::motion::LAYOUT + Duration::from_millis(30));
-    cx.executor().advance_clock(crate::motion::LAYOUT);
-    draw_frames(window, cx);
+    // The opened picker resizes the window once the scroll has settled, so
+    // wait for that resize instead of sleeping past the settle timer. The
+    // resize is recorded while rendering, so each tick draws before it reads
+    // the count.
+    settle(cx, Duration::from_secs(5), |cx| {
+        cx.executor().advance_clock(crate::motion::LAYOUT);
+        draw_frames(window, cx);
+        cx.update(|cx| view.read(cx).resizes.len() == 1)
+    });
     cx.update(|cx| {
         assert_eq!(
             view.read(cx).resizes.len(),

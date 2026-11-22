@@ -616,11 +616,6 @@ fn pill(text: SharedString, is_key: bool, palette: &Palette) -> Div {
         .child(text)
 }
 
-fn clock(seconds: f32) -> String {
-    let whole = seconds.max(0.0) as u32;
-    format!("{}:{:02}", whole / 60, whole % 60)
-}
-
 /// The words for how a matched track is played compared with the file.
 pub(crate) fn playback_words(playback: Playback) -> Option<String> {
     let change = (playback.tempo_ratio - 1.0) * 100.0;
@@ -803,7 +798,7 @@ fn state_line(model: &LiveModel) -> AnyElement {
     };
     let listening = model
         .listening_for()
-        .map(|elapsed| format!(" \u{b7} listening {}", clock(elapsed.as_secs_f32())))
+        .map(|elapsed| format!(" \u{b7} listening {}", format::clock(elapsed.as_secs_f64())))
         .unwrap_or_default();
     div()
         .id(STATE_ID)
@@ -993,8 +988,14 @@ fn library_card(model: &LiveModel, cx: &Context<'_, LiveView>) -> Option<AnyElem
     let (track, found) = model.matched_track()?;
     let position = model.match_position_seconds()?;
     let times = match track.duration_seconds() {
-        Some(duration) => format!("{} / {}", clock(position), clock(duration)),
-        None => clock(position),
+        Some(duration) => {
+            format!(
+                "{} / {}",
+                format::clock(position as f64),
+                format::clock(duration as f64)
+            )
+        }
+        None => format::clock(position as f64),
     };
     let detail = [
         track.shown_artist().map(std::borrow::Cow::into_owned),

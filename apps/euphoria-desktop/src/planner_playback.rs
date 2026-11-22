@@ -360,7 +360,7 @@ impl EuphoriaApp {
                     .iter()
                     .find_map(|deck| self.decks.view(*deck).problem.clone())
                 {
-                    self.notice = Some(problem);
+                    self.notice = vec![problem.to_string()];
                     self.stop_plan_playback(cx);
                     return false;
                 }

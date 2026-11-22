@@ -18,9 +18,11 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Pull requests run the checks that catch most breakage in a few minutes:
-# formatting, Clippy on macOS and Linux, the unit tests and the desktop
-# headless UI tests on macOS. Pushes to main and manual runs (Run workflow on
-# any branch) also run the integration tests, the Linux tests and packaging.
+# formatting, Clippy on macOS and Linux, the unit tests, the desktop headless
+# UI tests on macOS, a fast part of the integration tests on macOS and the
+# command line and core on Windows. Pushes to main and manual runs (Run
+# workflow on any branch) also run the full integration tests, the Linux tests
+# and packaging.
 # A job left out of a pull request run shows as skipped, never as pending.
 env:
   RUST_BACKTRACE: 1
@@ -142,8 +144,8 @@ jobs:
         run: uv run --no-project --python 3.12 python -m unittest discover -s scripts/release -p 'test_*.py'
       - name: Benchmark scripts
         run: uv run --no-project --python 3.12 --with numpy --with scipy python -m unittest discover -s bench -p 'test_*.py'
-      - name: Install script lint
-        run: shellcheck --shell=sh scripts/install.sh
+      - name: Shell script lint
+        run: shellcheck --severity=warning scripts/*.sh scripts/release/*.sh .github/scripts/*.sh bench/*.sh
       - name: Install script against a fake release
         run: uv run --no-project --python 3.12 python -m unittest scripts/test_install_script.py
 
@@ -316,6 +318,86 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  test-macos-fast-integration:
+    name: Fast integration tests on macOS
+    needs: changes
+    # Pull request only: main runs the full --test '*' integration suite,
+    # which covers everything this explicit list does. The list covers the
+    # tag writers and readers, the exporters, the analysis pipeline and the
+    # command line, none of which needs the audio the full run analyses.
+    if: >-
+      ${{ !cancelled() && github.event_name == 'pull_request'
+      && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true') }}
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos-integration
+          # Pull request only, but it restores the cache main's
+          # integration run saves.
+          save-if: false
+      - name: Core integration tests, the suites that need no audio download
+        run: |
+          cargo test -p euphoria-core --locked \
+            --test tags --test tags_edit --test tags_history --test tags_ogg \
+            --test tags_raw --test tags_riff --test tags_safety --test tags_serato \
+            --test tags_keep_existing --test track_name --test track_name_key \
+            --test decode --test artwork --test rekordbox_export --test rekordbox_grid \
+            --test traktor_export --test virtualdj_export --test engine_export \
+            --test playlist_rewrites --test detector_contract --test stages \
+            --test export_library --test energy --test analysis
+      - name: Command line integration tests, the suites that need no audio download
+        run: |
+          cargo test -p euphoria-cli --locked \
+            --test tags --test tags_set --test tag_key --test export \
+            --test playlists --test rekordbox_grid --test corrections --test parity \
+            --test plan --test prepare --test cache --test quality --test set_render \
+            --test shift
+  test-windows:
+    name: Core and command line tests on Windows
+    needs: changes
+    # MSVC, the default on the runner, compiles the C++ shim through cc.
+    # The desktop app is not built here: its window and audio code has never
+    # run on Windows, so a failing build would only block pull requests.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true') }}
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-2022
+      - name: Core and command line unit tests
+        run: cargo test -p euphoria-core -p euphoria-cli --lib --bins --locked
+      - name: Core integration tests, the suites that need no audio download
+        run: |
+          cargo test -p euphoria-core --locked \
+            --test tags --test tags_edit --test tags_history --test tags_ogg \
+            --test tags_raw --test tags_riff --test tags_safety --test tags_serato \
+            --test tags_keep_existing --test track_name --test track_name_key \
+            --test decode --test artwork --test rekordbox_export --test rekordbox_grid \
+            --test traktor_export --test virtualdj_export --test engine_export \
+            --test playlist_rewrites --test detector_contract --test stages \
+            --test export_library --test energy --test analysis
+      - name: Command line integration tests, the suites that need no audio download
+        run: |
+          cargo test -p euphoria-cli --locked \
+            --test tags --test tags_set --test tag_key --test export \
+            --test playlists --test rekordbox_grid --test corrections --test parity \
+            --test plan --test prepare --test cache --test quality --test set_render \
+            --test shift
+
   macos-packages:
     name: macOS app and tarball with the ad hoc signature
     needs: changes
@@ -350,10 +432,9 @@ jobs:
             codesign --verify --strict --verbose=2 "$executable"
             "$executable" --version
           done
-
   test-macos-result:
     name: Tests on macOS
-    needs: [test-macos, test-macos-integration]
+    needs: [test-macos, test-macos-integration, test-macos-fast-integration]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -362,8 +443,9 @@ jobs:
         env:
           UNIT: ${{ needs.test-macos.result }}
           INTEGRATION: ${{ needs.test-macos-integration.result }}
+          FAST_INTEGRATION: ${{ needs.test-macos-fast-integration.result }}
         run: |
-          for result in "$UNIT" "$INTEGRATION"; do
+          for result in "$UNIT" "$INTEGRATION" "$FAST_INTEGRATION"; do
             [[ "$result" == success || "$result" == skipped ]]
           done
 

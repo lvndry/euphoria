@@ -503,7 +503,7 @@ fn separating_stems_without_a_selection_says_so(cx: &mut TestAppContext) {
     ask(window, "separate stems", cx);
     press(window, "enter", cx);
     cx.update(|cx| {
-        let notice = view.read(cx).notice.clone().unwrap_or_default();
+        let notice = view.read(cx).notice.join(" ");
         assert!(notice.contains("Select a track"), "{notice}");
     });
 }

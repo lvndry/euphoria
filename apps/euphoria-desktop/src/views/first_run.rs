@@ -16,7 +16,7 @@ use crate::tag_settings::ProgramChoice;
 use crate::theme::Palette;
 use crate::views::controls::choice_button;
 use crate::views::{GAP_SMALL, GAP_TIGHT, LABEL_TEXT_SIZE, RADIUS_LARGE};
-use crate::views::{SMALL_TEXT_SIZE, primary_button};
+use crate::views::{SMALL_TEXT_SIZE, primary_button, secondary_button};
 
 /// What the third step promises, in the words of the tag settings.
 pub(crate) const TAGS_PROMISE: &str =
@@ -138,17 +138,33 @@ pub(crate) fn card(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div 
         )
     });
 
+    let not_now = secondary_button("Not now", &palette)
+        .id("first-run-not-now")
+        .on_click(cx.listener(|this, _, _, cx| {
+            this.first_run.dismiss();
+            this.save_first_run();
+            cx.notify();
+        }))
+        .test_support();
+
     div().w_full().child(
         div()
             .id("first-run")
-            .grid()
-            .grid_cols(3)
-            .gap(GAP_SMALL)
+            .flex()
+            .flex_col()
+            .gap(GAP_TIGHT)
             .px(px(12.0))
             .py(px(10.0))
-            .child(add_music.test_support())
-            .child(analyze.test_support())
-            .child(fill_in_tags.test_support())
+            .child(
+                div()
+                    .grid()
+                    .grid_cols(3)
+                    .gap(GAP_SMALL)
+                    .child(add_music.test_support())
+                    .child(analyze.test_support())
+                    .child(fill_in_tags.test_support()),
+            )
+            .child(div().flex().items_center().self_end().child(not_now))
             .test_support(),
     )
 }

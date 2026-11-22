@@ -68,6 +68,7 @@ objc2-foundation = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+proptest.workspace = true
 roxmltree.workspace = true
 tempfile.workspace = true
 

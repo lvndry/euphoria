@@ -250,7 +250,7 @@ impl EuphoriaApp {
             .track()
             .and_then(|path| self.session.library().index_of(path));
         let Some(index) = playing.or(self.selected) else {
-            self.notice = Some("Play or select a track to plan a transition from.".to_string());
+            self.notice = vec!["Play or select a track to plan a transition from.".to_string()];
             cx.notify();
             return;
         };
@@ -264,7 +264,7 @@ impl EuphoriaApp {
             return;
         }
         if self.focus.selected_match.is_none() {
-            self.notice = Some("No track in the library mixes with this one yet.".to_string());
+            self.notice = vec!["No track in the library mixes with this one yet.".to_string()];
             cx.notify();
             return;
         }
@@ -275,7 +275,7 @@ impl EuphoriaApp {
     /// Asks the stems of the selected track to be separated.
     pub(crate) fn separate_selected_stems(&mut self, cx: &mut Context<'_, Self>) {
         if self.selected_track().is_none() {
-            self.notice = Some("Select a track to separate its stems.".to_string());
+            self.notice = vec!["Select a track to separate its stems.".to_string()];
             cx.notify();
             return;
         }

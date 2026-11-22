@@ -97,10 +97,10 @@ impl EuphoriaApp {
         let (from, to) = match entries {
             Ok(entries) => entries,
             Err(error) => {
-                self.notice = Some(format!(
+                self.notice = vec![format!(
                     "The transition could not be locked: {}",
                     error.chain()
-                ));
+                )];
                 cx.notify();
                 return;
             }
@@ -140,10 +140,10 @@ impl EuphoriaApp {
             let saved = cx.background_executor().spawn(async move { save() }).await;
             if let Err(error) = saved {
                 this.update(cx, |this, cx| {
-                    this.notice = Some(format!(
+                    this.notice = vec![format!(
                         "The locked transitions could not be kept: {}",
                         error.chain()
-                    ));
+                    )];
                     cx.notify();
                 })
                 .ok();

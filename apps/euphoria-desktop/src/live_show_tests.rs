@@ -58,7 +58,7 @@ fn open_main(cx: &mut App, tracks: Vec<crate::demo::DemoTrack>) -> Entity<Euphor
                     session,
                     settings,
                     None,
-                    None,
+                    vec![],
                     Box::new(SilentOutput),
                     window,
                     cx,

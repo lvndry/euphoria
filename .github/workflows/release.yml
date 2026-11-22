@@ -18,6 +18,12 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      allow-adhoc-fallback:
+        description: Build with the ad hoc signature and publish, instead of failing, when signing or notarization fails. For a new version the ad hoc fallback is allowed automatically, because no release exists for that version yet; for a version a release already carries, this input is what allows it.
+        required: false
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -138,6 +144,8 @@ jobs:
       notarized: ${{ steps.packages.outputs.notarized }}
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
+      MODE: ${{ needs.prepare.outputs.mode }}
+      AD_HOC_FALLBACK: ${{ inputs.allow-adhoc-fallback }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -232,19 +240,33 @@ jobs:
             ./scripts/bundle-macos.sh
             ./scripts/release/package-cli.sh dist
           }
+          notarized=
           if [ "${SIGNING_AVAILABLE}" = true ]; then
             if (build_packages); then
-              echo "notarized=true" >> "$GITHUB_OUTPUT"
-              exit 0
+              notarized=true
+            else
+              # A failed sign or notarization must not silently downgrade a
+              # release a successful run already published. The ad hoc
+              # fallback is allowed only for a version no release carries
+              # yet, or when the owner opts in with the workflow's
+              # "allow-adhoc-fallback" input.
+              if [ "$MODE" = resume ] && [ "$AD_HOC_FALLBACK" != true ]; then
+                echo "::error title=Notarized release already published::Signing or notarization failed, for instance because the Apple Developer Program membership lapsed, an agreement is unsigned or the certificate was revoked. A release already exists for $VERSION, so an ad hoc build would silently downgrade it. Fix Apple, or run the workflow again with the allow-adhoc-fallback input set."
+                exit 1
+              fi
+              echo "::warning title=Not notarized::Signing or notarization failed, for instance because the Apple Developer Program membership lapsed, an agreement is unsigned or the certificate was revoked. This release is built with the ad hoc signature and says so in its notes."
+              # Nothing signed with the Developer ID may stay in the packages.
+              rm -rf target/release/bundle/Euphoria.app target/release/bundle/*.dmg dist
             fi
-            echo "::warning title=Not notarized::Signing or notarization failed, for instance because the Apple Developer Program membership lapsed, an agreement is unsigned or the certificate was revoked. This release is built with the ad hoc signature and says so in its notes."
-            # Nothing signed with the Developer ID may stay in the packages.
-            rm -rf target/release/bundle/Euphoria.app target/release/bundle/*.dmg dist
           fi
-          echo "notarized=false" >> "$GITHUB_OUTPUT"
-          unset EUPHORIA_SIGN_IDENTITY EUPHORIA_NOTARY_KEY_PATH EUPHORIA_NOTARY_KEY_ID EUPHORIA_NOTARY_ISSUER_ID
-          # A real problem, such as a binary that fails codesign --verify, fails here too.
-          build_packages
+          if [ -n "$notarized" ]; then
+            echo "notarized=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "notarized=false" >> "$GITHUB_OUTPUT"
+            unset EUPHORIA_SIGN_IDENTITY EUPHORIA_NOTARY_KEY_PATH EUPHORIA_NOTARY_KEY_ID EUPHORIA_NOTARY_ISSUER_ID
+            # A real problem, such as a binary that fails codesign --verify, fails here too.
+            build_packages
+          fi
         env:
           SIGNING_AVAILABLE: ${{ steps.signing.outputs.available }}
       - name: Read the oldest macOS the app runs on
@@ -287,6 +309,16 @@ jobs:
           # The same disk image under a name without the version, so that
           # releases/latest/download/Euphoria.dmg always leads to the newest.
           cp "target/release/bundle/Euphoria-$VERSION.dmg" dist/Euphoria.dmg
+          # The public key of the signature the publish job writes on
+          # every file, so that install.sh can verify the release from the
+          # release itself. A tag made before the key existed has no file
+          # of its own; the key in the repository does not change, so
+          # main's copy is the one.
+          if git cat-file -e "v$VERSION:release/minisign.pub" 2> /dev/null; then
+            git show "v$VERSION:release/minisign.pub" > dist/minisign.pub
+          else
+            git show "origin/main:release/minisign.pub" > dist/minisign.pub
+          fi
           cd dist
           shasum -a 256 -- * > SHA256SUMS
           cat SHA256SUMS
@@ -355,6 +387,9 @@ jobs:
           # releases/latest/download/Euphoria-x86_64.AppImage always leads
           # to the newest.
           cp "target/release/bundle/Euphoria-$VERSION-x86_64.AppImage" dist/Euphoria-x86_64.AppImage
+          # The minisign public key is staged by the macOS build, which the
+          # publish job always runs; a file in both builds would stop the
+          # publish, which refuses two files of the same name.
       - name: Check that the files run on a clean system
         run: ./scripts/release/check-linux-packages.sh dist
       - name: Read the oldest glibc the files run on
@@ -484,6 +519,71 @@ jobs:
           else
             echo "v$VERSION has no scripts/install.sh; publishing without it."
           fi
+      - name: Sign the files with minisign
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MINISIGN_PRIVKEY_KEY: ${{ secrets.MINISIGN_PRIVKEY_KEY }}
+        run: |
+          # The key signs the files of every system at once, because this
+          # is the job where they are joined. A release made before the
+          # secret was set carries its files without their signatures;
+          # install.sh checks those with checksums only. Once the secret
+          # is set, every release and every run that finishes an existing
+          # release is signed. The minisign binary itself goes out as an
+          # asset, because install.sh verifies the signatures with it,
+          # without needing minisign installed; its checksum is in
+          # SHA256SUMS, so it is checked like every other file. An
+          # unsigned release carries no verifier at all: install.sh
+          # treats the absence of minisign.pub and the minisign binary as
+          # "no signatures to check", while a signed release missing its
+          # signatures still fails, because it does carry them.
+          # Pinned and checksummed like every other downloaded tool. The
+          # binary is a statically linked musl build.
+          tarball="$RUNNER_TEMP/minisign-0.12-linux.tar.gz"
+          curl --fail --silent --show-error --location \
+            --output "$tarball" \
+            https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-linux.tar.gz
+          echo "9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73  $tarball" | sha256sum --check --strict
+          tar -xzf "$tarball" -C "$RUNNER_TEMP"
+          minisign="$RUNNER_TEMP/minisign-linux/x86_64/minisign"
+          if [ -z "$MINISIGN_PRIVKEY_KEY" ]; then
+            if gh release view "v$VERSION" > /dev/null 2>&1; then
+              echo "::error::MINISIGN_PRIVKEY_KEY is not set, but a release exists for v$VERSION, so its files cannot be minisigned. Set the secret and run the workflow again to finish the release with its signatures."
+              exit 1
+            fi
+            echo "::warning title=Release files are not minisigned::MINISIGN_PRIVKEY_KEY is not set and no release exists for v$VERSION yet, so its files go out without minisign signatures. Set the secret and run the workflow again to finish the release with its signatures; every later release is signed."
+            # The release publishes no verifier: no signatures, so no key
+            # and no minisign binary, and SHA256SUMS holds no line for
+            # them. install.sh checks the files with their checksums only,
+            # and a signed release missing a signature still fails, because
+            # it does carry them.
+            rm dist/minisign.pub
+            sed -i '/minisign\.pub$/d' dist/SHA256SUMS
+            (cd dist && sha256sum --check SHA256SUMS)
+            exit 0
+          fi
+          cp "$minisign" dist/minisign-0.12-linux-x86_64
+          chmod 755 dist/minisign-0.12-linux-x86_64
+          (umask 077 && printf '%s\n' "$MINISIGN_PRIVKEY_KEY" > "$RUNNER_TEMP/minisign.key")
+          cd dist
+          # The binary went into dist after the checksums were written,
+          # so its line goes in before the files are signed, and the
+          # check below covers it like every other file.
+          sha256sum minisign-0.12-linux-x86_64 >> SHA256SUMS
+          # minisign asks for the key's password on its standard input.
+          for file in *; do
+            [ -f "$file" ] || continue
+            case "$file" in
+              *.minisig) continue ;;
+            esac
+            echo github-actions | "$minisign" -S -m "$file" -s "$RUNNER_TEMP/minisign.key"
+          done
+          sha256sum --check SHA256SUMS
+          # The files are right, the signatures hold: this run's own key
+          # verified this run's own signatures with the release's key.
+          "$minisign" -V -p minisign.pub -x minisign-0.12-linux-x86_64.minisig -m minisign-0.12-linux-x86_64
+          cat SHA256SUMS
+
       - name: Push the tag
         if: env.MODE == 'new'
         run: git push origin "refs/tags/v$VERSION"
@@ -530,3 +630,21 @@ jobs:
     secrets:
       JAZZ_GITHUB_APP_ID: ${{ secrets.JAZZ_GITHUB_APP_ID }}
       JAZZ_GITHUB_APP_PRIVATE_KEY: ${{ secrets.JAZZ_GITHUB_APP_PRIVATE_KEY }}
+
+  check-homebrew:
+    # The release is published when this job finishes, so a failed tap
+    # publish must fail the run, and it must not be skipped quietly: a
+    # reusable workflow's own failure does not fail the run that calls it,
+    # only the job that runs it.
+    name: Check that the tap is published
+    needs: [prepare, publish, homebrew]
+    if: always() && needs.publish.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - run: |
+          if [ "${{ needs.homebrew.result }}" != success ]; then
+            echo "::error::The release v${{ needs.prepare.outputs.version }} is published, but the Homebrew tap could not be pushed (the homebrew job ${{ needs.homebrew.result }}). Run the "Publish to Homebrew" workflow by hand with that version; a later release overwrites the tap too."
+            exit 1
+          fi
+          echo "The tap is up to date with v${{ needs.prepare.outputs.version }}."

@@ -31,4 +31,4 @@ for track in "${tracks[@]}"; do
     mv "${target}/${track}.part" "${target}/${track}"
   fi
 done
-echo "$(ls "${target}" | wc -l | tr -d ' ') lossless sources in ${target}"
+echo "$(find "${target}" -maxdepth 1 -type f | wc -l | tr -d ' ') lossless sources in ${target}"
