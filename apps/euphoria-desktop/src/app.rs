@@ -2949,6 +2949,7 @@ impl EuphoriaApp {
     /// steps are not all done.
     pub(crate) fn show_first_run(&mut self, cx: &mut Context<'_, Self>) {
         self.first_run.unhide();
+        self.save_first_run();
         cx.notify();
     }
 

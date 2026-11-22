@@ -160,6 +160,15 @@ fn not_now_hides_the_card_and_the_command_bringing_it_back_shows_it_again(cx: &m
         })
     });
     assert!(is_shown(window, "first-run", cx), "brought back");
+    assert_eq!(
+        Settings::load(&path)
+            .unwrap()
+            .first_run
+            .as_ref()
+            .map(|first_run| first_run.dismissed),
+        Some(false),
+        "bringing the card back is remembered"
+    );
 }
 
 #[gpui::test]

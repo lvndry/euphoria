@@ -380,13 +380,10 @@ impl EuphoriaApp {
                 this.background_jobs.finish(job);
                 match outcome {
                     Ok(done) => {
-                        if this
-                            .notice
-                            .iter()
-                            .any(|notice| notice.starts_with("Saving "))
-                        {
-                            this.notice.clear();
-                        }
+                        // Take back only the notice of this export; a save
+                        // that started later must not lose its "Saving …".
+                        let saving = format!("Saving {}\u{2026}", request.description());
+                        this.notice.retain(|notice| *notice != saving);
                         this.show_toast(
                             done.message(&request),
                             Some(crate::toast::ToastAction::Reveal(done.shown_path())),
