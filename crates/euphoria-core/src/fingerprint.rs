@@ -478,7 +478,7 @@ impl FingerprintIndex {
         // already frozen), because an unfrozen search would silently miss
         // matches instead of failing loudly.
         debug_assert!(
-            self.is_sorted || !self.entries.iter().any(|(hash, _), (next, _)| hash > next),
+            self.is_sorted || !self.entries.windows(2).any(|pair| pair[0].0 > pair[1].0),
             "freeze the index before searching it"
         );
         let mut passes: Vec<(Vec<(u32, u32)>, Playback)> = vec![(
