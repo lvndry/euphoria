@@ -401,7 +401,6 @@ fn a_relative_data_folder_is_taken_from_the_current_directory() {
     assert_success(&output);
     // The resolved location may carry Windows' \\\\?\\ long-path prefix
     // depending on the runner; strip it from both sides before comparing.
-    let strip_long = |path: &str| path.strip_prefix(r"\\?\").unwrap_or(path);
     let expected = working_directory
         .join("relative/data/analysis-cache.sqlite3")
         .to_string_lossy()
@@ -409,7 +408,13 @@ fn a_relative_data_folder_is_taken_from_the_current_directory() {
     let printed = String::from_utf8_lossy(&output.stdout)
         .trim_end()
         .to_string();
-    assert_eq!(strip_long(&printed), strip_long(&expected));
+    assert_eq!(strip_long_path(&printed), strip_long_path(&expected));
+}
+
+/// Windows may prefix resolved paths with the long-path marker; the runner
+/// image decides whether it is present, so the comparison removes it.
+fn strip_long_path(path: &str) -> &str {
+    path.strip_prefix(r"\\?\").unwrap_or(path)
 }
 
 #[test]
