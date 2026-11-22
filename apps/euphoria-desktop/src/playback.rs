@@ -183,6 +183,11 @@ pub(crate) struct VoiceState {
     /// the loop where a window's `set_loop` lands in a live run.
     #[cfg(test)]
     next_decode_hook: TestDecodeHook,
+    /// A test takes this after the decoder's last generation check but before
+    /// it publishes, to change the loop where a second `set_loop` would land
+    /// in a live run.
+    #[cfg(test)]
+    before_publish_hook: TestDecodeHook,
 }
 
 #[cfg(test)]
@@ -217,6 +222,8 @@ impl VoiceState {
             heard_wraps: AtomicU64::new(0),
             #[cfg(test)]
             next_decode_hook: TestDecodeHook(Mutex::new(None)),
+            #[cfg(test)]
+            before_publish_hook: TestDecodeHook(Mutex::new(None)),
         }
     }
 
@@ -398,6 +405,33 @@ impl VoiceState {
     pub(crate) fn fire_next_decode(&self) {
         if let Some(hook) = self
             .next_decode_hook
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+        {
+            hook();
+        }
+    }
+
+    /// A test takes this to change the loop after the decoder's last
+    /// generation check but before its publication, where a second
+    /// `set_loop` would land in a live run.
+    #[cfg(test)]
+    pub(crate) fn note_before_publish(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
+        *self
+            .before_publish_hook
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = hook;
+    }
+
+    /// Runs the seam a test left for the decoder's next publication, clearing
+    /// it.
+    #[cfg(test)]
+    pub(crate) fn fire_before_publish(&self) {
+        if let Some(hook) = self
+            .before_publish_hook
             .0
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -1027,7 +1061,7 @@ impl Decoder {
                 if generation != loop_generation {
                     self.input_frame = self.stream.seek_frame(read_from)?;
                     self.wraps = wraps_at_snapshot;
-                    self.folds = folds_at_snapshot;
+                    self.folds = folds_at_snapshot.clone();
                     segment.clear();
                     output.clear();
                     stale = true;
@@ -1077,10 +1111,36 @@ impl Decoder {
                 // empty here would read as the end of the sound to the sound.
                 continue;
             }
+            // A test takes this to change the loop after the check above but
+            // before the publication, where a second set_loop would land in a
+            // live run.
+            #[cfg(test)]
             {
+                self.state.fire_before_publish();
+            }
+            // The generation check and the publication hold the same lock: a
+            // loop change in between would read the pre-change counters for
+            // its recovery decision.
+            let published = {
                 let mut looping = self.state.lock_looping();
-                looping.decoded_input_frame = self.input_frame;
-                looping.decoded_wraps = self.wraps;
+                if looping.loop_generation != loop_generation {
+                    // A loop change landed after the check: restore the
+                    // decoder state, rewind, and read again under the new loop
+                    // instead of publishing audio decoded the old way.
+                    self.input_frame = self.stream.seek_frame(read_from)?;
+                    self.wraps = wraps_at_snapshot;
+                    self.folds = folds_at_snapshot.clone();
+                    segment.clear();
+                    output.clear();
+                    false
+                } else {
+                    looping.decoded_input_frame = self.input_frame;
+                    looping.decoded_wraps = self.wraps;
+                    true
+                }
+            };
+            if !published {
+                continue;
             }
             if output.is_empty() && !has_more {
                 return Ok(None);

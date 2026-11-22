@@ -412,3 +412,87 @@ fn a_loop_changed_while_the_decoder_reads_drops_the_chunk_decoded_under_the_old_
     assert_eq!(decoder.wraps, 0);
     assert_eq!(decoder.input_frame, start as u64 + samples.len() as u64);
 }
+
+#[test]
+fn a_loop_changed_between_the_check_and_the_publication_is_discarded() {
+    // The decoder reads the chunk that crosses the old loop's end, and the
+    // loop is doubled after the decoder's own generation check but before it
+    // publishes: only rechecking the generation while holding the
+    // publication lock can keep a chunk decoded the old way from being
+    // handed to the window.
+    let scratch = Scratch::new("stale-publication");
+    let path = scratch.file("ramp.wav");
+    write_float_wav(&path, &ramp(4.0), 1);
+
+    let (decoded, _receiver) = sync_channel(4);
+    let mut stream = euphoria_core::AudioStream::open(&path).unwrap();
+    let start = 43_800;
+    let reached = stream.seek_frame(start).unwrap();
+    assert_eq!(reached, start);
+    let state = VoiceState::for_tests(SAMPLE_RATE);
+    let mut decoder = Decoder {
+        stream: Reader::File(stream),
+        state: Arc::clone(&state),
+        decoded,
+        seek_count: 0,
+        next_frame: reached as f64,
+        is_at_end: false,
+        shift: Shift::new(1, 1, SAMPLE_RATE, 0, PlaybackTempo::default()).unwrap(),
+        input_frame: reached,
+        folds: VecDeque::new(),
+        wraps: 0,
+    };
+
+    // The loop ends 300 frames after the read starts, so the chunk the
+    // decoder reads next crosses its end and would wrap back to 0.
+    state.set_loop(Some((0.0, 1.0)), None);
+    // The seam lands after the decoder's generation check but before its
+    // publication: the loop doubles, as a window's second set_loop would in
+    // a live run.
+    let hooked = Arc::clone(&state);
+    state.note_before_publish(Some(Arc::new(move || {
+        hooked.set_loop(Some((0.0, 2.0)), None);
+    })));
+
+    let decoded = decoder.decode_next();
+    let Decoded::Chunk {
+        start_frame,
+        wraps,
+        samples,
+        ..
+    } = decoded
+    else {
+        panic!("the chunk was not decoded under the new loop");
+    };
+    assert_eq!(start_frame, start);
+    // The chunk reaches past the old loop's end, so publishing it as the old
+    // read decoded it would have wrapped back to 0 mid-chunk; it does not.
+    let last = frame_of(*samples.last().unwrap());
+    assert!(
+        last > 44_100,
+        "the chunk must cross the old loop's end: {last}"
+    );
+    assert_eq!(wraps, 0, "the wrap decoded under the old loop was counted");
+    let start = start as i64;
+    for (index, sample) in samples.iter().enumerate() {
+        assert_eq!(
+            frame_of(*sample),
+            start + index as i64,
+            "sample {index}: the old loop's wrap was published"
+        );
+    }
+    // And the window sees the state the loop change asked for, not what the
+    // discarded chunk published.
+    let looping = state.lock_looping();
+    assert_eq!(
+        looping.decoded_wraps, 0,
+        "the wrap decoded under the old loop was published to the window"
+    );
+    assert_eq!(
+        looping.decoded_input_frame,
+        start as u64 + samples.len() as u64
+    );
+    assert_eq!(looping.loop_generation, 2);
+    assert_eq!(decoder.wraps, 0);
+    assert_eq!(decoder.input_frame, start as u64 + samples.len() as u64);
+}
