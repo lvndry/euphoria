@@ -1220,6 +1220,7 @@ pub(crate) fn render(
     };
     page.child(
         div()
+            .key_context(crate::views::PLANNER_KEY_CONTEXT)
             .flex()
             .items_start()
             .gap(GAP_MEDIUM)

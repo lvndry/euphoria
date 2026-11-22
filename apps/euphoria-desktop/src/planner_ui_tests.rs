@@ -1893,3 +1893,101 @@ fn moving_b_to_a_during_a_test_transition_ends_it_without_stopping_the_sound(
         );
     });
 }
+
+#[gpui::test]
+fn the_planner_keys_favorite_preview_and_lock_the_shown_transition(cx: &mut TestAppContext) {
+    let setup = open_plans("plan-keys", &[0, 1], cx);
+    open_planner_view(&setup, cx);
+
+    press(setup.window, "l", cx);
+    settle(setup.window, cx);
+    cx.update(|cx| {
+        assert!(
+            setup.view.read(cx).planner_lock().is_some(),
+            "l locks the shown transition"
+        );
+    });
+    press(setup.window, "l", cx);
+    settle(setup.window, cx);
+    cx.update(|cx| {
+        assert!(
+            setup.view.read(cx).planner_lock().is_none(),
+            "l again unlocks it"
+        );
+    });
+
+    press(setup.window, "a", cx);
+    settle(setup.window, cx);
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        let from = app.selected_track().unwrap().path.clone();
+        let to = app
+            .session
+            .library()
+            .track(app.focus.selected_match.unwrap())
+            .unwrap()
+            .path
+            .clone();
+        assert!(
+            app.session.favorites().transition(&from, &to).is_some(),
+            "a saves the shown transition as a favorite"
+        );
+    });
+
+    press(setup.window, "p", cx);
+    settle(setup.window, cx);
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        assert!(
+            app.decks.is_open,
+            "p loads the shown transition on the decks"
+        );
+        assert!(!app.planner.is_open && !app.focus.is_open);
+        assert_eq!(
+            app.decks.view(crate::deck_audio::DeckId::A).track_index,
+            Some(0),
+            "A loads"
+        );
+        assert!(
+            app.decks
+                .view(crate::deck_audio::DeckId::B)
+                .track_index
+                .is_some(),
+            "B loads"
+        );
+    });
+
+    // Back to the library: the planner keys no longer reach the planner.
+    // Escape leaves the planner and the focus view; the decks close with
+    // their own toggle.
+    for _ in 0..8 {
+        let (planner_open, decks_open) = cx.update(|cx| {
+            let app = setup.view.read(cx);
+            (app.planner.is_open, app.decks.is_open)
+        });
+        if !planner_open && !decks_open {
+            break;
+        }
+        if !planner_open && decks_open {
+            cx.update(|cx| setup.view.update(cx, |app, cx| app.toggle_decks(cx)));
+        } else {
+            press(setup.window, "escape", cx);
+        }
+        settle(setup.window, cx);
+    }
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        assert!(!app.planner.is_open && !app.focus.is_open && !app.decks.is_open);
+    });
+    press(setup.window, "l", cx);
+    press(setup.window, "a", cx);
+    press(setup.window, "p", cx);
+    settle(setup.window, cx);
+    cx.update(|cx| {
+        let app = setup.view.read(cx);
+        assert!(
+            !app.planner.is_open && !app.decks.is_open,
+            "with the planner closed, the planner keys do nothing"
+        );
+    });
+}

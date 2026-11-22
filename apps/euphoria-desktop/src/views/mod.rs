@@ -67,6 +67,12 @@ pub(crate) const FOCUS_VIEW_KEY_CONTEXT: &str = "Library FocusView";
 /// selected one.
 pub(crate) const NEXT_RAIL_KEY_CONTEXT: &str = "NextRail";
 
+/// The key context of the two decks, where the deck keys are bound in.
+pub(crate) const DECKS_KEY_CONTEXT: &str = "Library Decks";
+
+/// The key context of the planner, where its keys are bound in.
+pub(crate) const PLANNER_KEY_CONTEXT: &str = "Library FocusView Planner";
+
 /// The key context of the command palette, where Command Enter plays the
 /// selected track.
 pub(crate) const PALETTE_KEY_CONTEXT: &str = "CommandPalette";
