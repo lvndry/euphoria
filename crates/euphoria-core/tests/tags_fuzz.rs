@@ -78,7 +78,7 @@ fn scratch_path(index: usize, label: &str) -> PathBuf {
             )
         },
     );
-    PathBuf::from(std::env::temp_dir())
+    std::env::temp_dir()
         .join(format!("euphoria-tags-fuzz-{file}"))
         .join(format!("{index}-{label}"))
 }
@@ -170,7 +170,7 @@ fn an_oversized_id3v2_header_is_an_error() {
     let mut file = Vec::new();
     file.extend_from_slice(b"ID3\x04\x00\x00");
     file.extend_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF]);
-    file.extend_from_slice(&vec![0_u8; 64]);
+    file.extend_from_slice(&[0_u8; 64]);
     let path = scratch_path(1_000_000, "oversized-id3v2");
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).expect("the scratch directory can be created");
