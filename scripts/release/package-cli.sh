@@ -72,11 +72,14 @@ cp "$repository/licenses/webpki-root-certs-CDLA-Permissive-2.0.txt" "$repository
 cp "$repository/crates/euphoria-core/vendor/signalsmith-stretch/LICENSE.txt" "$folder/licenses/signalsmith-stretch.txt"
 cp "$repository/crates/euphoria-core/vendor/signalsmith-linear/LICENSE.txt" "$folder/licenses/signalsmith-linear.txt"
 if [ "$system" = Linux ]; then
+  # $ORIGIN is the executable's own folder as the dynamic loader expands it;
+  # in the tarball that folder's parent holds the copied libraries.
+  run_path="\$ORIGIN/../lib"
   python3 "$repository/scripts/linux_libraries.py" bundle \
     --root "$folder" \
     --executable "$folder/bin/euphoria" \
     --libraries "$folder/lib" \
-    --run-path '$ORIGIN/../lib'
+    --run-path "$run_path"
   cp "$repository/LICENSE" "$repository/README.md" "$folder/"
   python3 "$repository/scripts/linux_libraries.py" verify --root "$folder" --executable "$folder/bin/euphoria"
 else

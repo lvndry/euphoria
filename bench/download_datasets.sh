@@ -20,16 +20,19 @@ fetch_dataset() {
   fi
   mkdir -p "${dataset_directory}/audio"
 
+  # The $1, $2 and $3 expand in the bash that xargs starts, not in this
+  # script, so the command goes into a single-quoted heredoc.
+  read -r -d '' download_one <<'DOWNLOAD'
+    track_name="$(basename "$3" .md5)"
+    target_file="$1/audio/${track_name}.mp3"
+    if [ ! -s "${target_file}" ]; then
+      curl --silent --fail --location --retry 3 \
+        --output "${target_file}" "$2/${track_name}.mp3" ||
+        { rm -f "${target_file}"; echo "failed: ${track_name}" >&2; }
+    fi
+DOWNLOAD
   find "${dataset_directory}/md5" -name '*.md5' -print0 |
-    xargs -0 -n 1 -P 8 bash -c '
-      track_name="$(basename "$3" .md5)"
-      target_file="$1/audio/${track_name}.mp3"
-      if [ ! -s "${target_file}" ]; then
-        curl --silent --fail --location --retry 3 \
-          --output "${target_file}" "$2/${track_name}.mp3" ||
-          { rm -f "${target_file}"; echo "failed: ${track_name}" >&2; }
-      fi
-    ' _ "${dataset_directory}" "${audio_base_url}"
+    xargs -0 -n 1 -P 8 bash -c "$download_one" _ "${dataset_directory}" "${audio_base_url}"
 
   local downloaded_count
   downloaded_count="$(find "${dataset_directory}/audio" -name '*.mp3' | wc -l | tr -d ' ')"
