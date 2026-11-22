@@ -28,7 +28,7 @@ appdir="$output/Euphoria.AppDir"
 binary="$repository/target/release/euphoria-desktop"
 tools="$repository/target/appimage-tools"
 icon_artwork="$repository/assets/logo/app-icon.svg"
-version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$repository/apps/euphoria-desktop/Cargo.toml" | head -n 1)
+version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$repository/apps/euphoria-desktop/Cargo.toml" | awk 'NR == 1 { print; exit }')
 architecture=$(uname -m)
 appimagetool_release="1.9.1"
 runtime_release="20251108"

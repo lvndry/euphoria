@@ -48,7 +48,7 @@ icon_artwork="$repository/assets/logo/app-icon.svg"
 # The line of the full size artwork thins out to nothing at 16 and 32 pixels,
 # so those sizes are drawn from the favicon, which has a heavier line.
 small_icon_artwork="$repository/assets/logo/favicon.svg"
-version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$repository/apps/euphoria-desktop/Cargo.toml" | head -n 1)
+version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$repository/apps/euphoria-desktop/Cargo.toml" | awk 'NR == 1 { print; exit }')
 dmgbuild_version="1.6.7"
 make_dmg=yes
 build=yes

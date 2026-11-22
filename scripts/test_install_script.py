@@ -39,18 +39,40 @@ def write_executable(path, text):
     path.write_text(text)
     path.chmod(0o755)
 
+MINISIGN_TOOL_NAME = "minisign-0.12-linux-x86_64"
+FAKE_MINISIGN = """#!/bin/sh
+if [ "$1" = -V ]; then
+  exit 0
+fi
+echo fake-minisign $* >&2
+exit 1
+"""
+
+REPO_MINISIGN_PUB = Path(__file__).resolve().parents[1] / "release" / "minisign.pub"
+
+
+def minisign_assets(directory):
+    """Stages the verifier assets a signed release publishes: the public key,
+    the minisign binary, and one .minisig per release file."""
+    (directory / "minisign.pub").write_text(REPO_MINISIGN_PUB.read_text())
+    write_executable(directory / MINISIGN_TOOL_NAME, FAKE_MINISIGN)
+    for path in directory.iterdir():
+        if path.is_file() and path.name not in ("minisign.pub", MINISIGN_TOOL_NAME):
+            (directory / f"{path.name}.minisig").write_text("fake signature\n")
+
 
 class FakeRelease:
-    def __init__(self, root):
+    def __init__(self, root, signed=False):
         self.api = root / "api"
         self.files = root / "files"
+        self.signed = signed
         (self.api / "tags").mkdir(parents=True)
         self.files.mkdir()
 
     def directory(self, version):
         return self.files / f"v{version}"
 
-    def add(self, version, target, latest=True, app_files=None):
+    def add(self, version, target, latest=True, app_files=None, signed=None):
         directory = self.directory(version)
         directory.mkdir()
         staging = directory.parent / f"staging-{version}"
@@ -67,6 +89,9 @@ class FakeRelease:
         shutil.rmtree(staging)
         for file_name, writer in (app_files or {}).items():
             writer(directory / file_name)
+        signed = self.signed if signed is None else signed
+        if signed:
+            minisign_assets(directory)
         assets = sorted(path.name for path in directory.iterdir())
         sums = "".join(
             f"{hashlib.sha256((directory / asset).read_bytes()).hexdigest()}  {asset}\n" for asset in assets
@@ -217,6 +242,60 @@ class InstallScriptTest(unittest.TestCase):
         result = self.run_script()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("checksum mismatch", result.stderr)
+        self.assertFalse(self.prefix.exists())
+
+    def test_unsigned_release_installs_with_checksums_only(self):
+        # A release the workflow published without the signing secret carries
+        # no minisign.pub and no minisign binary; install.sh checks the
+        # checksums and proceeds, with one warning.
+        self.release.add(VERSION, "x86_64-unknown-linux-gnu", app_files=linux_app_files(VERSION))
+        result = self.run_script()
+        self.assert_succeeded(result)
+        self.assertIn("no minisign signatures", result.stderr)
+        self.assertTrue((self.prefix / "bin" / "euphoria").exists())
+        self.assertIn("Installed euphoria", result.stdout)
+
+    def test_signed_release_verifies_with_the_pinned_key(self):
+        self.release.add(
+            VERSION, "x86_64-unknown-linux-gnu", app_files=linux_app_files(VERSION), signed=True
+        )
+        result = self.run_script()
+        self.assert_succeeded(result)
+        self.assertIn("Checking the signatures with minisign", result.stdout)
+        self.assertIn("Signature OK", result.stdout)
+        self.assertTrue((self.prefix / "bin" / "euphoria").exists())
+
+    def test_signed_release_with_a_missing_signature_fails(self):
+        self.release.add(
+            VERSION, "x86_64-unknown-linux-gnu", app_files=linux_app_files(VERSION), signed=True
+        )
+        asset = self.release.directory(VERSION) / f"euphoria-{VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+        (asset.with_name(asset.name + ".minisig")).unlink()
+        result = self.run_script()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("has no signature", result.stderr)
+        self.assertFalse(self.prefix.exists())
+
+    def test_signed_release_with_a_wrong_key_fails(self):
+        self.release.add(
+            VERSION, "x86_64-unknown-linux-gnu", app_files=linux_app_files(VERSION), signed=True
+        )
+        # Change the key line, then the sums, so that the failure is the
+        # pinned-key check, not the checksum of the key itself.
+        pub = self.release.directory(VERSION) / "minisign.pub"
+        lines = pub.read_text().splitlines()
+        lines[1] = "X" + lines[1][1:]
+        pub.write_text("\n".join(lines) + "\n")
+        directory = self.release.directory(VERSION)
+        sums = "".join(
+            f"{hashlib.sha256((directory / asset).read_bytes()).hexdigest()}  {asset}\n"
+            for asset in sorted(p.name for p in directory.iterdir())
+            if asset != "SHA256SUMS"
+        )
+        (directory / "SHA256SUMS").write_text(sums)
+        result = self.run_script()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not hold the key this install script was written with", result.stderr)
         self.assertFalse(self.prefix.exists())
 
     def test_rerun_upgrades_in_place_and_drops_stale_files(self):

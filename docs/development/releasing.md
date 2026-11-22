@@ -173,3 +173,25 @@ The Developer ID certificate has its own expiry date, which can come sooner than
 
 ## Not done yet
 - **Homebrew.** A cask for the app and a formula for the command line tool need a tap repository, such as `lvndry/homebrew-euphoria`, which is the owner's call. The formula can install the tarball's `bin/` and `lib/`. The workflow would then update the tap after each release, with a token that can push to it.
+
+## Signing the release's files
+
+Every file in a release is signed with [minisign](https://jedisct1.github.io/minisign/). `scripts/install.sh` verifies the checksums first, then the signatures: it fetches the release's `minisign.pub` and the `minisign-0.12-linux-x86_64` asset (both in `SHA256SUMS`), checks that the public key holds the key pinned in the script, and runs `minisign -V -p minisign.pub -x <file>.minisig -m <file>` for each file it downloads. A MITM could change the release, but not the key the script pins. The absence of `minisign.pub` and the minisign binary is what tells the script a release has no signatures, so an unsigned release publishes neither: those releases carry no `*.minisig` files, and `install.sh` checks them with checksums only and prints one warning. A signed release missing one of its signatures still fails, because it does carry them.
+
+The workflow downloads minisign 0.12 (a pinned, checksummed musl static binary), copies it into the release as `minisign-0.12-linux-x86_64`, and signs every file with `echo github-actions | minisign -S -m <file> -s <key>` — the password is read from standard input, minisign has no `-p` flag for it.
+
+The owner sets the key once, on the machine that made it:
+
+```
+gh secret set MINISIGN_PRIVKEY_KEY < <(base64 -i release/sec.key | tr -d '\n')
+```
+
+where `release/sec.key` is the minisign secret key, password `github-actions`. `release/minisign.pub` holds the public key and is published as an asset; the key it names must stay the one pinned in `scripts/install.sh`.
+
+## The allow-adhoc-fallback input
+
+Running the Release workflow by hand offers the boolean input `allow-adhoc-fallback`. When signing or notarization fails, the macOS build falls back to the ad hoc signature instead of failing. For a new version, where no release exists yet, that is allowed automatically; for a version a release already carries, an ad hoc build would silently downgrade the notarized files a successful run published, so it only proceeds with the input set.
+
+## The first release after this lands
+
+The assets are the usual files plus `minisign.pub`, one `*.minisig` per file, and `minisign-0.12-linux-x86_64`; a release published while `MINISIGN_PRIVKEY_KEY` is not set is the usual files only. `install.sh` from a signed release fetches the key and the binary from the release itself, verifies the pinned key, and checks every signature; `install.sh` from an unsigned release, or from older releases, keeps working with checksums alone.

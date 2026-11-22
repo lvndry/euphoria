@@ -50,8 +50,8 @@ if [ "$system" != "Darwin" ] && [ "$system" != "Linux" ]; then
   exit 1
 fi
 
-version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$repository/apps/euphoria-cli/Cargo.toml" | head -n 1)
-target=$(rustc -vV | sed -n 's/^host: //p')
+version=$(awk -F'"' '/^version = "/ { print $2; exit }' "$repository/apps/euphoria-cli/Cargo.toml")
+target=$(rustc -vV | awk -F'host: ' '/^host: / { print $2; exit }')
 name="euphoria-$version-$target"
 
 if [ "$build" = yes ]; then
