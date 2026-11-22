@@ -27,12 +27,16 @@ pub const DEFAULT_WIDTH: usize = 100;
 ///
 /// `EUPHORIA_WIDTH` overrides it, which is how a pipe or a script asks for a
 /// width when there is no terminal to measure. A non-positive or malformed
-/// value is ignored.
+/// value is ignored in favor of the measured terminal, and a value above
+/// [`u16::MAX`] is dropped because the width cannot be represented.
 fn wrap_width(term: &console::Term) -> Option<u16> {
     if let Ok(asked) = std::env::var("EUPHORIA_WIDTH") {
-        let width = asked.trim().parse::<i64>().ok()?;
-        if width > 0 {
-            return u16::try_from(width).ok();
+        if let Ok(width) = asked.trim().parse::<i64>() {
+            if width > 0 {
+                return u16::try_from(width)
+                    .ok()
+                    .or(term.size_checked().map(|(_, columns)| columns));
+            }
         }
     }
     term.size_checked().map(|(_, columns)| columns)
