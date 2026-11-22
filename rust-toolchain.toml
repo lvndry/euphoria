@@ -3,7 +3,5 @@
 # and `cargo build` on a contributor's machine installs the same channel.
 # Bump this when the floor of the workspace's rust-version moves up.
 channel = "stable"
-
-[profile]
 # rustfmt and clippy run from the pinned channel in CI and locally.
 components = ["clippy", "rustfmt"]
