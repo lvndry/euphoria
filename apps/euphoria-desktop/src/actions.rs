@@ -107,6 +107,25 @@ actions!(
         UseDeckTheme,
         /// Switches to the Graphite theme.
         UseGraphiteTheme,
+        /// Plays the last touched deck, or pauses it.
+        ToggleDeckPlay,
+        /// Loads the selected track on deck A.
+        LoadSelectedOnDeckA,
+        /// Loads the selected track on deck B.
+        LoadSelectedOnDeckB,
+        /// Makes deck B follow deck A's tempo, or play at its own.
+        ToggleDeckSync,
+        /// Loops 4 bars of the last touched deck, or leaves the loop.
+        ToggleDeckLoop,
+        /// Keeps the pitch of the last touched deck when its speed
+        /// changes, or lets it follow.
+        ToggleDeckKeylock,
+        /// Saves the shown transition as a favorite.
+        SavePlanFavorite,
+        /// Loads the shown transition on the decks, paused.
+        PreviewPlanOnDecks,
+        /// Locks the transition the planner shows, or unlocks it.
+        TogglePlannerLock,
     ]
 );
 

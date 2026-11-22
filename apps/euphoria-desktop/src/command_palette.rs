@@ -19,11 +19,12 @@ use gpui::{Action, Entity, ScrollHandle};
 
 use crate::actions::{
     AddCueAtPlayhead, AddFolder, AnalyzeAgain, CopyTrackPath, EditTags, ExportLibrary, FocusSearch,
-    OpenCommandPalette, OpenFocusView, OpenLive, OpenSetBuilder, OpenSettings, PlanTransition,
-    RescanFolders, ResetColumnWidths, RevealTrack, SelectAllTracks, SeparateStems, ShowFirstRun,
-    StopAnalysis, ToggleDecks, ToggleFavorite, ToggleMetronome, TogglePlayback, ToggleSidebar,
-    UndoCueEdit, UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UsePaperTheme, UseSlateTheme,
-    WriteTags,
+    LoadSelectedOnDeckA, LoadSelectedOnDeckB, OpenCommandPalette, OpenFocusView, OpenLive,
+    OpenSetBuilder, OpenSettings, PlanTransition, PreviewPlanOnDecks, RescanFolders,
+    ResetColumnWidths, RevealTrack, SavePlanFavorite, SelectAllTracks, SeparateStems, ShowFirstRun,
+    StopAnalysis, ToggleDeckKeylock, ToggleDeckLoop, ToggleDeckPlay, ToggleDeckSync, ToggleDecks,
+    ToggleFavorite, ToggleMetronome, TogglePlannerLock, TogglePlayback, ToggleSidebar, UndoCueEdit,
+    UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UsePaperTheme, UseSlateTheme, WriteTags,
 };
 use crate::library::Track;
 use crate::metronome::parse_bpm;
@@ -389,6 +390,69 @@ pub(crate) const COMMANDS: &[CommandEntry] = &[
             "warm"
         ],
         UseGraphiteTheme
+    ),
+    command!(
+        "deck-play",
+        "Play or Pause the Active Deck",
+        [
+            "deck",
+            "decks",
+            "play",
+            "pause",
+            "transport",
+            "start",
+            "stop",
+            "active"
+        ],
+        ToggleDeckPlay
+    ),
+    command!(
+        "deck-load-a",
+        "Load Selection on Deck A",
+        ["deck", "decks", "load", "cue", "track", "selected", "a"],
+        LoadSelectedOnDeckA
+    ),
+    command!(
+        "deck-load-b",
+        "Load Selection on Deck B",
+        ["deck", "decks", "load", "cue", "track", "selected", "b"],
+        LoadSelectedOnDeckB
+    ),
+    command!(
+        "deck-sync",
+        "Tempo Sync",
+        ["deck", "decks", "sync", "tempo", "bpm", "follow"],
+        ToggleDeckSync
+    ),
+    command!(
+        "deck-loop",
+        "Loop Four Bars",
+        ["deck", "decks", "loop", "bars", "repeat"],
+        ToggleDeckLoop
+    ),
+    command!(
+        "deck-keylock",
+        "Key Lock",
+        ["deck", "decks", "key", "keylock", "pitch", "lock"],
+        ToggleDeckKeylock
+    ),
+    command!(
+        "planner-save-favorite",
+        "Save as Favorite",
+        ["planner", "favorite", "save", "transition", "mark"],
+        SavePlanFavorite
+    ),
+    command!(
+        "planner-preview",
+        "Preview on Decks",
+        ["planner", "preview", "decks", "transition", "load", "both"],
+        PreviewPlanOnDecks
+    ),
+    command!(
+        "planner-lock",
+        "Lock or Unlock the Shown Transition",
+        ["planner", "lock", "unlock", "transition", "pin", "keep"],
+        TogglePlannerLock
     ),
 ];
 

@@ -423,6 +423,8 @@ pub(crate) struct Decks {
     pub(crate) requested_suggestion_plans: Option<(usize, Vec<usize>)>,
     pub(crate) mode: DeckMode,
     /// The tracks that layer over deck A's, best first.
+    /// The deck the user last touched: the deck the deck keys act on.
+    pub(crate) last_touched_deck: DeckId,
     pub(crate) ideas: Vec<MashupIdea>,
     /// The idea on deck B, as the arrows step through them.
     pub(crate) idea_index: Option<usize>,
@@ -517,6 +519,7 @@ impl Default for Decks {
             suggestions_scroll: gpui::ScrollHandle::new(),
             requested_suggestion_plans: None,
             mode: DeckMode::NextTrack,
+            last_touched_deck: DeckId::A,
             ideas: Vec::new(),
             idea_index: None,
             stem_library: StemLibrary::default(),
@@ -755,6 +758,7 @@ impl EuphoriaApp {
 
     /// Loads the selected track on `deck`.
     pub(crate) fn load_selected_on_deck(&mut self, deck: DeckId, cx: &mut Context<'_, Self>) {
+        self.decks.last_touched_deck = deck;
         if let Some(track_index) = self.selected {
             self.load_on_deck(deck, track_index, cx);
         }
@@ -780,6 +784,7 @@ impl EuphoriaApp {
         setup: DeckSetup,
         cx: &mut Context<'_, Self>,
     ) {
+        self.decks.last_touched_deck = deck;
         if !self.put_track_on_deck(deck, track_index, setup, cx) {
             return;
         }
@@ -840,6 +845,7 @@ impl EuphoriaApp {
     /// deck B, so the next track can go on B. B keeps playing until A has
     /// its sound, then A carries on from B's place without a gap.
     pub(crate) fn move_b_to_a(&mut self, cx: &mut Context<'_, Self>) {
+        self.decks.last_touched_deck = DeckId::A;
         let from = self.decks.view(DeckId::B);
         let Some(track_index) = from.track_index else {
             return;
@@ -1018,6 +1024,7 @@ impl EuphoriaApp {
     /// Plays `deck` with its upcoming downbeats aligned to the other deck
     /// when it plays, or pauses it.
     pub(crate) fn toggle_deck_play(&mut self, deck: DeckId, cx: &mut Context<'_, Self>) {
+        self.decks.last_touched_deck = deck;
         let view = self.decks.view(deck);
         if !self.decks.is_open
             || view.loading
@@ -1049,6 +1056,7 @@ impl EuphoriaApp {
 
     /// Moves `deck` to `fraction` of its track.
     pub(crate) fn seek_deck(&mut self, deck: DeckId, fraction: f32, cx: &mut Context<'_, Self>) {
+        self.decks.last_touched_deck = deck;
         if self.decks.view(deck).loading || self.decks.view(deck).problem.is_some() {
             return;
         }
@@ -1091,6 +1099,7 @@ impl EuphoriaApp {
         cue_index: usize,
         cx: &mut Context<'_, Self>,
     ) {
+        self.decks.last_touched_deck = deck;
         if !self.decks.is_open
             || self.decks.view(deck).loading
             || self.decks.view(deck).problem.is_some()

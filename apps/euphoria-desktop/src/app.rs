@@ -2091,10 +2091,6 @@ impl EuphoriaApp {
     /// already holds it, it is resumed or started instead, and left alone
     /// while it sounds.
     pub(crate) fn play_selection(&mut self, cx: &mut Context<'_, Self>) {
-        if self.decks.is_open {
-            self.toggle_playback(cx);
-            return;
-        }
         if !self.selection_is_in_player() {
             self.give_player_selection(true, cx);
         }
@@ -2102,6 +2098,25 @@ impl EuphoriaApp {
             self.toggle_playback(cx);
         }
         cx.notify();
+    }
+
+    /// The deck the deck keys act on: the last one the user touched while
+    /// it still holds a track, the first deck with a track, or deck A.
+    pub(crate) fn active_deck(&self) -> DeckId {
+        if self
+            .decks
+            .view(self.decks.last_touched_deck)
+            .track_index
+            .is_some()
+        {
+            return self.decks.last_touched_deck;
+        }
+        for deck in DeckId::BOTH {
+            if self.decks.view(deck).track_index.is_some() {
+                return deck;
+            }
+        }
+        DeckId::A
     }
 
     /// The space bar and the Play or Pause command: pauses the track that
@@ -3356,8 +3371,16 @@ impl Render for EuphoriaApp {
         div()
             .id("euphoria")
             .track_focus(&self.window_focus)
-            .key_context(if self.focus.is_open {
-                views::FOCUS_VIEW_KEY_CONTEXT
+            .key_context(if self.planner.is_open {
+                views::PLANNER_KEY_CONTEXT
+            } else if self.focus.is_open {
+                if self.decks.is_open {
+                    "Library FocusView Decks"
+                } else {
+                    views::FOCUS_VIEW_KEY_CONTEXT
+                }
+            } else if self.decks.is_open {
+                views::DECKS_KEY_CONTEXT
             } else {
                 views::LIBRARY_KEY_CONTEXT
             })

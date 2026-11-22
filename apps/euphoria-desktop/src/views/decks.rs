@@ -285,6 +285,7 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> im
         .children(favorites::deck_transition(app, cx));
     div()
         .id("decks")
+        .key_context(crate::views::DECKS_KEY_CONTEXT)
         .relative()
         .flex()
         .flex_col()

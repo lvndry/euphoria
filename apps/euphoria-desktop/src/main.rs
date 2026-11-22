@@ -30,6 +30,8 @@ mod cue_editing;
 mod deck_audio;
 #[cfg(test)]
 mod deck_drop_ui_tests;
+#[cfg(test)]
+mod deck_keys_ui_tests;
 mod decks;
 #[cfg(test)]
 mod decks_open_ui_tests;
@@ -211,15 +213,18 @@ use gpui::{
 
 use crate::actions::{
     AddCueAtPlayhead, AddFolder, AddToSet, AnalyzeAgain, BuildSet, CloseFocusView, CopyTrackPath,
-    DoubleLoop, EditTags, ExportLibrary, FocusSearch, HalveLoop, OpenCommandPalette, OpenEuphoria,
-    OpenFocusView, OpenLive, OpenSetBuilder, OpenSettings, PlanTransition, PlayNextRow,
-    PlayPaletteTrack, Quit, RescanFolders, ResetColumnWidths, RevealTrack, SelectAllTracks,
-    SeparateStems, ShowFirstRun, StopAnalysis, ToggleDecks, ToggleFavorite, ToggleLiveKeepRunning,
-    ToggleLiveListening, ToggleLiveOpenAtLogin, ToggleLoop, ToggleMetronome, TogglePlayback,
+    DoubleLoop, EditTags, ExportLibrary, FocusSearch, HalveLoop, LoadSelectedOnDeckA,
+    LoadSelectedOnDeckB, OpenCommandPalette, OpenEuphoria, OpenFocusView, OpenLive, OpenSetBuilder,
+    OpenSettings, PlanTransition, PlayNextRow, PlayPaletteTrack, PreviewPlanOnDecks, Quit,
+    RescanFolders, ResetColumnWidths, RevealTrack, SavePlanFavorite, SelectAllTracks,
+    SeparateStems, ShowFirstRun, StopAnalysis, ToggleDeckKeylock, ToggleDeckLoop, ToggleDeckPlay,
+    ToggleDeckSync, ToggleDecks, ToggleFavorite, ToggleLiveKeepRunning, ToggleLiveListening,
+    ToggleLiveOpenAtLogin, ToggleLoop, ToggleMetronome, TogglePlannerLock, TogglePlayback,
     ToggleSidebar, UndoCueEdit, UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UsePaperTheme,
     UseSlateTheme, WriteTags,
 };
 use crate::app::EuphoriaApp;
+use crate::deck_audio::DeckId;
 use crate::playback::SystemOutput;
 use crate::settings::Settings;
 use crate::state::Session;
@@ -240,6 +245,12 @@ pub(crate) const SPACE_BAR_CONTEXT: &str = "Library && !Input";
 
 /// Where the loop keys work: the focus view, outside a text field.
 pub(crate) const FOCUS_KEYS_CONTEXT: &str = "FocusView && !Input";
+
+/// Where the deck keys work: the decks are open, outside a text field.
+pub(crate) const DECKS_KEYS_CONTEXT: &str = "Decks && !Input";
+
+/// Where the planner keys work: the planner is open, outside a text field.
+pub(crate) const PLANNER_KEYS_CONTEXT: &str = "Planner && !Input";
 
 /// Opens the analysis cache the command line tool also uses and reads what
 /// it holds.
@@ -475,6 +486,18 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
         KeyBinding::new("enter", PlayNextRow, Some(views::NEXT_RAIL_KEY_CONTEXT)),
         KeyBinding::new("cmd-shift-r", RevealTrack, Some(SPACE_BAR_CONTEXT)),
         KeyBinding::new("cmd-alt-c", CopyTrackPath, Some(SPACE_BAR_CONTEXT)),
+        // The decks: transport and setup for the last touched deck, while
+        // the decks are open. They win over the library's same keys.
+        KeyBinding::new("space", ToggleDeckPlay, Some(DECKS_KEYS_CONTEXT)),
+        KeyBinding::new("a", LoadSelectedOnDeckA, Some(DECKS_KEYS_CONTEXT)),
+        KeyBinding::new("b", LoadSelectedOnDeckB, Some(DECKS_KEYS_CONTEXT)),
+        KeyBinding::new("s", ToggleDeckSync, Some(DECKS_KEYS_CONTEXT)),
+        KeyBinding::new("l", ToggleDeckLoop, Some(DECKS_KEYS_CONTEXT)),
+        KeyBinding::new("k", ToggleDeckKeylock, Some(DECKS_KEYS_CONTEXT)),
+        // The planner: favorite, preview and lock of the shown transition.
+        KeyBinding::new("a", SavePlanFavorite, Some(PLANNER_KEYS_CONTEXT)),
+        KeyBinding::new("p", PreviewPlanOnDecks, Some(PLANNER_KEYS_CONTEXT)),
+        KeyBinding::new("l", TogglePlannerLock, Some(PLANNER_KEYS_CONTEXT)),
         KeyBinding::new("cmd-,", OpenSettings, None),
         KeyBinding::new("cmd-shift-t", WriteTags, None),
         KeyBinding::new("cmd-i", EditTags, None),
@@ -532,6 +555,35 @@ pub(crate) fn register_commands(window: AnyWindowHandle, view: &Entity<EuphoriaA
     register_view_command::<UndoTagWrite>(view, cx, |view, cx| view.open_tag_undo(cx));
     register_view_command::<OpenSettings>(view, cx, |view, cx| view.open_settings(cx));
     register_view_command::<SelectAllTracks>(view, cx, |view, cx| view.select_all_shown(cx));
+    register_view_command::<ToggleDeckPlay>(view, cx, |view, cx| {
+        view.toggle_deck_play(view.active_deck(), cx);
+    });
+    register_view_command::<LoadSelectedOnDeckA>(view, cx, |view, cx| {
+        view.load_selected_on_deck(DeckId::A, cx);
+    });
+    register_view_command::<LoadSelectedOnDeckB>(view, cx, |view, cx| {
+        view.load_selected_on_deck(DeckId::B, cx);
+    });
+    register_view_command::<ToggleDeckSync>(view, cx, |view, cx| view.toggle_sync(cx));
+    register_view_command::<ToggleDeckLoop>(view, cx, |view, cx| {
+        view.toggle_deck_loop(view.active_deck(), 4, cx);
+    });
+    register_view_command::<ToggleDeckKeylock>(view, cx, |view, cx| {
+        view.toggle_keylock(view.active_deck(), cx);
+    });
+    register_view_command::<SavePlanFavorite>(view, cx, |view, cx| {
+        view.save_plan_as_favorite(view.planner.window, cx);
+    });
+    register_view_command::<PreviewPlanOnDecks>(view, cx, |view, cx| {
+        view.preview_on_decks(view.planner.window, cx);
+    });
+    register_view_command::<TogglePlannerLock>(view, cx, |view, cx| {
+        if view.planner_lock().is_some() {
+            view.unlock_planner_transition(cx);
+        } else {
+            view.lock_planner_window(cx);
+        }
+    });
     register_view_command::<AddCueAtPlayhead>(view, cx, |view, cx| view.add_cue_at_playhead(cx));
     register_view_command::<ToggleLoop>(view, cx, |view, cx| view.toggle_key_loop(cx));
     register_view_command::<HalveLoop>(view, cx, |view, cx| view.resize_loop(0.5, cx));
@@ -679,6 +731,19 @@ pub(crate) fn build_menus(current_theme: ThemeName, sidebar_folded: bool) -> Vec
             MenuItem::action("Edit Tags\u{2026}", EditTags),
             MenuItem::action("Write Tags\u{2026}", WriteTags),
             MenuItem::action("Undo Last Tag Write\u{2026}", UndoTagWrite),
+        ]),
+        Menu::new("Decks").items([
+            MenuItem::action("Play or Pause the Active Deck", ToggleDeckPlay),
+            MenuItem::action("Load Selection on Deck A", LoadSelectedOnDeckA),
+            MenuItem::action("Load Selection on Deck B", LoadSelectedOnDeckB),
+            MenuItem::action("Tempo Sync", ToggleDeckSync),
+            MenuItem::action("Loop Four Bars", ToggleDeckLoop),
+            MenuItem::action("Key Lock", ToggleDeckKeylock),
+        ]),
+        Menu::new("Planner").items([
+            MenuItem::action("Save as Favorite", SavePlanFavorite),
+            MenuItem::action("Preview on Decks", PreviewPlanOnDecks),
+            MenuItem::action("Lock or Unlock the Shown Transition", TogglePlannerLock),
         ]),
         Menu::new("Playback").items([
             MenuItem::action("Play or Pause", TogglePlayback),
