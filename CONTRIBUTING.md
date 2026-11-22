@@ -35,6 +35,14 @@ Then:
 cargo test --workspace
 ```
 
+A single test by name:
+
+```
+cargo test -p euphoria-core fingerprint
+CARGO_PROFILE_DEV_OPT_LEVEL=1 cargo test -p euphoria-desktop focus_ui_tests   # one UI test module
+```
+
+The full suite analyses real audio end to end, which is many times slower without optimisation; the `CARGO_PROFILE_DEV_OPT_LEVEL=1` prefix is the same setting CI uses ([continuous integration](docs/development/ci.md)).
 ## Running the app while you work
 
 ```

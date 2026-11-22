@@ -54,7 +54,7 @@ Your library, analysis cache and settings are not touched.
 Add the Euphoria tap once:
 
 ```
-brew tap lvndry/euphoria
+brew tap lvndry/homebrew-euphoria
 ```
 
 Then install the command line tool, for a Mac with Apple Silicon:

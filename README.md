@@ -48,7 +48,7 @@ It puts the command line tool in `~/.local/bin`, and the app in Applications on 
 On a Mac, with [Homebrew](https://brew.sh) instead:
 
 ```
-brew tap lvndry/euphoria
+brew tap lvndry/homebrew-euphoria
 brew install --cask euphoria
 ```
 
