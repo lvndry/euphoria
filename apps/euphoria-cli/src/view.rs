@@ -30,14 +30,16 @@ pub const DEFAULT_WIDTH: usize = 100;
 /// value is ignored in favor of the measured terminal, and a value above
 /// [`u16::MAX`] is dropped because the width cannot be represented.
 fn wrap_width(term: &console::Term) -> Option<u16> {
-    if let Ok(asked) = std::env::var("EUPHORIA_WIDTH") {
-        if let Ok(width) = asked.trim().parse::<i64>() {
-            if width > 0 {
-                return u16::try_from(width)
-                    .ok()
-                    .or(term.size_checked().map(|(_, columns)| columns));
-            }
-        }
+    if let Some(width) = std::env::var("EUPHORIA_WIDTH")
+        .ok()
+        .and_then(|asked| asked.trim().parse::<i64>().ok())
+        .filter(|width| *width > 0)
+    {
+        // A value above `u16::MAX` cannot be represented, so fall back to
+        // the measured terminal.
+        return u16::try_from(width)
+            .ok()
+            .or(term.size_checked().map(|(_, columns)| columns));
     }
     term.size_checked().map(|(_, columns)| columns)
 }
