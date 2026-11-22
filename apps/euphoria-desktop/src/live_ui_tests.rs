@@ -379,8 +379,7 @@ fn it_says_listening_and_shows_nothing_guessed_while_the_audio_is_silent(cx: &mu
     // Keep polling across a real interval: a regression that guesses after
     // continued silent input has to show up in these later reads.
     for _ in 0..10 {
-        cx.executor()
-            .advance_clock(std::time::Duration::from_millis(100));
+        cx.executor().advance_clock(Duration::from_millis(100));
         poll_until(&model, cx, |model| model.reading.heard_seconds >= 0.0);
     }
     cx.run_until_parked();

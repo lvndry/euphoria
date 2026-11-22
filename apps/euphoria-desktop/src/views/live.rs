@@ -241,14 +241,6 @@ impl PanelSizing {
         }
     }
 
-    /// How long it has been since the list was scrolled, for a test that
-    /// waits for the scroll to settle instead of sleeping.
-    #[cfg(test)]
-    pub(crate) fn since_scroll(&self) -> Option<std::time::Duration> {
-        self.scrolled_at
-            .map(|scrolled| std::time::Instant::now().saturating_duration_since(scrolled))
-    }
-
     /// What to do for content measured `content` tall with `structure`, in a
     /// window no taller than `maximum`.
     pub(crate) fn decide(
