@@ -289,7 +289,7 @@ impl EuphoriaApp {
                 }));
                 this.follow_written_playlists(&report.playlist_rewrites);
                 if !report.written.is_empty() {
-                    this.note_first_write();
+                    this.note_first_write(cx);
                 }
                 this.read_track_names(report.written.clone(), cx);
                 #[cfg(test)]

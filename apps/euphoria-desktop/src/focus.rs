@@ -550,9 +550,7 @@ impl EuphoriaApp {
 
     pub(crate) fn toggle_focus_lane(&mut self, lane: Lane, cx: &mut Context<'_, Self>) {
         self.focus.lanes.toggle(lane);
-        if let Some(problem) = self.save_settings() {
-            self.report(problem);
-        }
+        self.save_settings(cx);
         cx.notify();
     }
 

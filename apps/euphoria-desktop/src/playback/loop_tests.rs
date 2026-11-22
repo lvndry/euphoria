@@ -355,6 +355,7 @@ fn a_loop_changed_while_the_decoder_reads_drops_the_chunk_decoded_under_the_old_
         shift: Shift::new(1, 1, SAMPLE_RATE, 0, PlaybackTempo::default()).unwrap(),
         input_frame: reached,
         folds: VecDeque::new(),
+        folds_snapshot: VecDeque::new(),
         wraps: 0,
     };
 
@@ -440,6 +441,7 @@ fn a_loop_changed_between_the_check_and_the_publication_is_discarded() {
         shift: Shift::new(1, 1, SAMPLE_RATE, 0, PlaybackTempo::default()).unwrap(),
         input_frame: reached,
         folds: VecDeque::new(),
+        folds_snapshot: VecDeque::new(),
         wraps: 0,
     };
 
@@ -495,4 +497,55 @@ fn a_loop_changed_between_the_check_and_the_publication_is_discarded() {
     assert_eq!(looping.loop_generation, 2);
     assert_eq!(decoder.wraps, 0);
     assert_eq!(decoder.input_frame, start as u64 + samples.len() as u64);
+}
+
+#[test]
+fn a_loop_that_wraps_in_every_chunk_keeps_its_folds_bounded() {
+    // A loop short enough to wrap inside every chunk the decoder reads adds
+    // a fold per wrap; with no cap on the list, minutes of play would grow
+    // it without end, so the decoder keeps at most `MOST_FOLDS_HELD`.
+    use super::MOST_FOLDS_HELD;
+
+    let scratch = Scratch::new("folds-cap");
+    let path = scratch.file("ramp.wav");
+    write_float_wav(&path, &ramp(4.0), 1);
+
+    let (decoded, _receiver) = sync_channel(4);
+    let mut stream = euphoria_core::AudioStream::open(&path).unwrap();
+    let reached = stream.seek_frame(0).unwrap();
+    let state = VoiceState::for_tests(SAMPLE_RATE);
+    let mut decoder = Decoder {
+        stream: Reader::File(stream),
+        state: Arc::clone(&state),
+        decoded,
+        seek_count: 0,
+        next_frame: reached as f64,
+        is_at_end: false,
+        shift: Shift::new(1, 1, SAMPLE_RATE, 0, PlaybackTempo::default()).unwrap(),
+        input_frame: reached,
+        folds: VecDeque::new(),
+        folds_snapshot: VecDeque::new(),
+        wraps: 0,
+    };
+
+    // A 0.1 s loop wraps inside every chunk, so every chunk adds folds.
+    // A read ends with the folds moved into the snapshot, so what the
+    // decoder holds is the two deques combined.
+    state.set_loop(Some((0.0, 0.1)), None);
+    for _ in 0..10_000 {
+        let Some(read) = decoder.next_input().unwrap() else {
+            break;
+        };
+        assert!(!read.is_empty(), "the decoder went quiet in the loop");
+        let held = decoder.folds.len() + decoder.folds_snapshot.len();
+        assert!(
+            held <= MOST_FOLDS_HELD,
+            "the folds grew past the cap: {held}"
+        );
+    }
+    assert!(
+        decoder.folds_snapshot.len() == MOST_FOLDS_HELD,
+        "the cap was never reached: {}",
+        decoder.folds_snapshot.len()
+    );
 }

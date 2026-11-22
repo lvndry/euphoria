@@ -597,6 +597,7 @@ fn dragging_a_header_edge_resizes_that_column_and_is_remembered(cx: &mut TestApp
             Some(before.size.width / px(1.0) + 120.0)
         );
     });
+    cx.run_until_parked();
     let saved = Settings::load(&settings_path).unwrap();
     assert_eq!(
         saved.column_widths.get(ColumnId::Title),
@@ -612,6 +613,7 @@ fn dragging_a_header_edge_resizes_that_column_and_is_remembered(cx: &mut TestApp
     });
 
     cx.update(|cx| view.update(cx, |app, cx| app.reset_column_widths(cx)));
+    cx.run_until_parked();
     assert_eq!(
         Settings::load(&settings_path).unwrap().column_widths,
         crate::columns::ColumnWidths::default()

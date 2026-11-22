@@ -555,7 +555,7 @@ fn the_arrangement_is_written_to_the_settings_file_and_comes_back(cx: &mut TestA
         window.click("sidebar-toggle", cx);
     })
     .unwrap();
-
+    cx.run_until_parked();
     let saved = Settings::load(&settings_path);
     std::fs::remove_dir_all(&folder).unwrap();
     let saved = saved.unwrap();

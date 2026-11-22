@@ -55,6 +55,10 @@ pub(crate) const SHORTEST_LOOP_SECONDS: f64 = 0.05;
 /// shorter than a chunk of the file ever needs.
 const MOST_WRAPS_PER_CHUNK: usize = 64;
 
+/// Most loop folds the decoder keeps at once, so a loop that wraps inside
+/// every chunk for minutes of play never grows the list without end.
+const MOST_FOLDS_HELD: usize = 1024;
+
 /// Why a track cannot be played, in words short enough for the player.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum PlaybackProblem {
@@ -758,6 +762,9 @@ struct Decoder {
     /// Loops whose end the decoded sound will cross, after which the
     /// position the chunks carry moves back to the loop's start.
     folds: VecDeque<LoopFrames>,
+    /// Where the folds are moved while a chunk's reads run, so a discarded
+    /// chunk is undone with one move and no copy.
+    folds_snapshot: VecDeque<LoopFrames>,
     wraps: u64,
 }
 
@@ -998,7 +1005,9 @@ impl Decoder {
             self.state.note_tempo_mode(self.shift.tempo.mode());
             self.next_frame += (samples.len() / samples_per_frame) as f64 * rate;
             while let Some(fold) = self.folds.front().copied() {
-                if self.next_frame < fold.end as f64 {
+                // A fold whose end the playhead just reached is consumed in
+                // this chunk, so the first chunk after the join plays on.
+                if self.next_frame <= fold.end as f64 {
                     break;
                 }
                 self.next_frame -= fold.length() as f64;
@@ -1045,7 +1054,7 @@ impl Decoder {
             }
             let read_from = self.input_frame;
             let wraps_at_snapshot = self.wraps;
-            let folds_at_snapshot = self.folds.clone();
+            std::mem::swap(&mut self.folds_snapshot, &mut self.folds);
             let mut segment = Vec::new();
             let mut has_more = self.stream.read_chunk(&mut segment)?;
             let mut segment_start = self.input_frame;
@@ -1061,7 +1070,7 @@ impl Decoder {
                 if generation != loop_generation {
                     self.input_frame = self.stream.seek_frame(read_from)?;
                     self.wraps = wraps_at_snapshot;
-                    self.folds = folds_at_snapshot.clone();
+                    self.folds = std::mem::take(&mut self.folds_snapshot);
                     segment.clear();
                     output.clear();
                     stale = true;
@@ -1101,6 +1110,11 @@ impl Decoder {
                 crossfade_into(&mut head, &outgoing, samples_per_frame, crossfade_frames);
                 self.wraps += 1;
                 self.folds.push_back(region);
+                // A fold is only needed while the audible playhead is still
+                // before its loop's end; evict the oldest first.
+                while self.folds.len() > MOST_FOLDS_HELD {
+                    self.folds.pop_front();
+                }
                 segment = head;
                 segment_start = reached;
             }
@@ -1129,7 +1143,7 @@ impl Decoder {
                     // instead of publishing audio decoded the old way.
                     self.input_frame = self.stream.seek_frame(read_from)?;
                     self.wraps = wraps_at_snapshot;
-                    self.folds = folds_at_snapshot.clone();
+                    self.folds = std::mem::take(&mut self.folds_snapshot);
                     segment.clear();
                     output.clear();
                     false
@@ -1142,6 +1156,7 @@ impl Decoder {
             if !published {
                 continue;
             }
+            self.folds_snapshot = std::mem::take(&mut self.folds);
             if output.is_empty() && !has_more {
                 return Ok(None);
             }
@@ -1366,6 +1381,7 @@ impl TrackSource {
             shift,
             input_frame,
             folds: VecDeque::new(),
+            folds_snapshot: VecDeque::new(),
             wraps: 0,
         };
         std::thread::Builder::new()

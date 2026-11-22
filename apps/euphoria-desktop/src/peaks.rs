@@ -104,6 +104,47 @@ impl Filter {
         output
     }
 }
+/// Adds samples to a running measurement of one span of a band, and gives
+/// its root mean square and peak when asked.
+#[derive(Default)]
+pub(crate) struct AudioMeter {
+    sum_of_squares: f32,
+    peak: f32,
+    count: usize,
+}
+
+impl AudioMeter {
+    /// Adds the band value of one sample, remembering how loud it is.
+    pub(crate) fn feed(&mut self, sample: f32) {
+        self.sum_of_squares += sample * sample;
+        self.peak = self.peak.max(sample.abs());
+        self.count += 1;
+    }
+
+    /// The root of the mean of the squares of the samples added so far:
+    /// 0.0 before any is added.
+    pub(crate) fn rms(&self) -> f32 {
+        if self.count == 0 {
+            0.0
+        } else {
+            (self.sum_of_squares / self.count as f32).sqrt()
+        }
+    }
+
+    /// The loudest absolute sample added so far: 0.0 before any is added.
+    #[cfg(test)]
+    pub(crate) fn peak(&self) -> f32 {
+        self.peak
+    }
+
+    /// Removes everything measured so far.
+    #[cfg(test)]
+    pub(crate) fn reset(&mut self) {
+        self.sum_of_squares = 0.0;
+        self.peak = 0.0;
+        self.count = 0;
+    }
+}
 
 /// Splits `samples` into `column_count` equal spans and returns how loud the
 /// bass, the middle and the treble are in each, scaled so that the loudest
@@ -138,11 +179,12 @@ pub(crate) fn compute_band_peaks(
     let mut span_start = 0;
     for (column_index, column) in columns.iter_mut().enumerate() {
         let span_end = ((column_index + 1) * samples.len() / column_count).max(span_start);
-        let mut squares = BandPeaks::default();
-        let mut reduced_sample_count = 0_usize;
+        let mut low_meter = AudioMeter::default();
+        let mut mid_meter = AudioMeter::default();
+        let mut high_meter = AudioMeter::default();
         for sample in &samples[span_start..span_end] {
             let high = treble.filter(*sample);
-            squares.high += high * high;
+            high_meter.feed(high);
 
             without_treble_sum += sample - high;
             samples_in_sum += 1;
@@ -152,22 +194,14 @@ pub(crate) fn compute_band_peaks(
                 samples_in_sum = 0;
                 let low = bass.filter(without_treble);
                 let mid = below_treble.filter(above_bass.filter(without_treble));
-                squares.low += low * low;
-                squares.mid += mid * mid;
-                reduced_sample_count += 1;
+                low_meter.feed(low);
+                mid_meter.feed(mid);
             }
         }
-        let root_mean = |sum_of_squares: f32, count: usize| {
-            if count == 0 {
-                0.0
-            } else {
-                (sum_of_squares / count as f32).sqrt()
-            }
-        };
         *column = BandPeaks {
-            low: root_mean(squares.low, reduced_sample_count),
-            mid: root_mean(squares.mid, reduced_sample_count),
-            high: root_mean(squares.high, span_end - span_start),
+            low: low_meter.rms(),
+            mid: mid_meter.rms(),
+            high: high_meter.rms(),
         };
         span_start = span_end;
     }
@@ -207,6 +241,28 @@ pub(crate) fn bars_from_columns(columns: &[BandPeaks], bar_count: usize) -> Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_meter_adds_the_squares_and_keeps_the_loudest_sample() {
+        let mut meter = AudioMeter::default();
+        assert_eq!(meter.rms(), 0.0, "an empty meter measures nothing");
+        assert_eq!(meter.peak(), 0.0);
+
+        // Every sample is half a level, so the mean square is a quarter of a
+        // level and the root of that is exactly half a level again.
+        for sample in [0.5_f32, -0.5, 0.5, 0.5] {
+            meter.feed(sample);
+        }
+        assert_eq!(meter.rms(), 0.5);
+        assert_eq!(meter.peak(), 0.5);
+
+        meter.reset();
+        assert_eq!(meter.rms(), 0.0);
+        assert_eq!(meter.peak(), 0.0);
+        meter.feed(-1.0);
+        assert_eq!(meter.rms(), 1.0);
+        assert_eq!(meter.peak(), 1.0);
+    }
 
     const SAMPLE_RATE: u32 = 44_100;
 

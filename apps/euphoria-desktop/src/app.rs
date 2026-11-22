@@ -331,6 +331,9 @@ pub(crate) struct EuphoriaApp {
     /// Reads the waveform of the player's track when it is not the
     /// selected one and was not read yet.
     player_waveform_task: Option<Task<()>>,
+    /// The running write of the settings file, whose failure is
+    /// reported back on the main thread once it has finished.
+    settings_flush_task: Option<Task<()>>,
     is_following_playhead: bool,
     pub(crate) query: String,
     /// The tempo, quality and energy filters on the track list.
@@ -696,6 +699,7 @@ impl EuphoriaApp {
             voice: None,
             start_task: None,
             player_waveform_task: None,
+            settings_flush_task: None,
             is_following_playhead: false,
             query: String::new(),
             track_filters: settings.track_filters.clone(),
@@ -963,7 +967,7 @@ impl EuphoriaApp {
             self.forget_folder_if_gone();
         }
         if self.session.library().folders().len() != folder_count_before {
-            problems.extend(self.save_settings());
+            self.save_settings(cx);
         }
         if !problems.is_empty() {
             self.report(problems.join(" "));
@@ -973,7 +977,7 @@ impl EuphoriaApp {
         self.refresh_mixes();
         self.select_first_track_if_none(cx);
         self.start_collecting(cx);
-        self.note_first_run_progress();
+        self.note_first_run_progress(cx);
         cx.notify();
         self.reveal_pending(cx);
     }
@@ -1061,7 +1065,7 @@ impl EuphoriaApp {
                         cx.notify();
                     }
                     let is_active = this.session.progress().is_active();
-                    this.note_first_run_progress();
+                    this.note_first_run_progress(cx);
                     this.is_collecting = is_active;
                     is_active
                 });
@@ -1421,9 +1425,7 @@ impl EuphoriaApp {
     }
 
     fn remember_column_widths(&mut self, cx: &mut Context<'_, Self>) {
-        if let Some(problem) = self.save_settings() {
-            self.report(problem);
-        }
+        self.save_settings(cx);
         cx.notify();
     }
 
@@ -1557,9 +1559,7 @@ impl EuphoriaApp {
     fn suggestion_filter_changed(&mut self, cx: &mut Context<'_, Self>) {
         self.refresh_suggestions();
         self.refresh_mixes();
-        if let Some(problem) = self.save_settings() {
-            self.report(problem);
-        }
+        self.save_settings(cx);
         cx.notify();
     }
 
@@ -1833,9 +1833,7 @@ impl EuphoriaApp {
     }
 
     pub(crate) fn remember_tag_settings(&mut self, cx: &mut Context<'_, Self>) {
-        if let Some(problem) = self.save_settings() {
-            self.report(problem);
-        }
+        self.save_settings(cx);
         self.refresh_label_preview(cx);
         self.follow_tag_settings(cx);
         cx.notify();
@@ -1879,7 +1877,7 @@ impl EuphoriaApp {
         self.filter = LibraryFilter::AllTracks;
         self.folder = None;
         self.refresh_visible();
-        self.remember_folder_tree();
+        self.remember_folder_tree(cx);
         cx.notify();
     }
 
@@ -1902,7 +1900,7 @@ impl EuphoriaApp {
         self.folder = Some(path);
         self.refresh_visible();
         self.reveal_folder_row();
-        self.remember_folder_tree();
+        self.remember_folder_tree(cx);
         cx.notify();
     }
 
@@ -1912,7 +1910,7 @@ impl EuphoriaApp {
             self.expanded_folders.insert(path);
         }
         self.folder_rows = self.folder_tree.visible_rows(&self.expanded_folders);
-        self.remember_folder_tree();
+        self.remember_folder_tree(cx);
         cx.notify();
     }
 
@@ -1965,10 +1963,8 @@ impl EuphoriaApp {
         }
     }
 
-    fn remember_folder_tree(&mut self) {
-        if let Some(problem) = self.save_settings() {
-            self.report(problem);
-        }
+    fn remember_folder_tree(&mut self, cx: &mut Context<'_, Self>) {
+        self.save_settings(cx);
     }
 
     /// Sorts by `column`, or reverses the order when it is already the
@@ -2629,9 +2625,7 @@ impl EuphoriaApp {
         }
         self.next_energy = choice;
         self.refresh_next_rows();
-        if let Some(problem) = self.save_settings() {
-            self.report(problem);
-        }
+        self.save_settings(cx);
         cx.notify();
     }
 
@@ -2808,9 +2802,7 @@ impl EuphoriaApp {
         self.theme = AppTheme::named(name);
         self.theme.apply_to_components(cx);
         self.start_theme_fade(from);
-        if let Some(problem) = self.save_settings() {
-            self.notice = vec![problem.to_string()];
-        }
+        self.save_settings(cx);
         crate::install_menus(name, self.panels.sidebar_folded, cx);
         cx.refresh_windows();
         cx.notify();
@@ -2938,9 +2930,7 @@ impl EuphoriaApp {
     }
 
     fn remember_panels(&mut self, cx: &mut Context<'_, Self>) {
-        if let Some(problem) = self.save_settings() {
-            self.report(problem);
-        }
+        self.save_settings(cx);
         cx.notify();
     }
 
@@ -2975,29 +2965,27 @@ impl EuphoriaApp {
 
     /// Notes that the first analysis has ended once the library has tracks
     /// and nothing is queued or running, and remembers it.
-    pub(crate) fn note_first_run_progress(&mut self) {
+    pub(crate) fn note_first_run_progress(&mut self, cx: &mut Context<'_, Self>) {
         if self.first_run.is_done() || self.first_run.analysis_done {
             return;
         }
         let has_tracks = !self.session.library().tracks().is_empty();
         if has_tracks && !self.scans.is_running() && !self.session.progress().is_active() {
             self.first_run.analysis_done = true;
-            self.save_first_run();
+            self.save_first_run(cx);
         }
     }
 
     /// Notes that a write of tags finished, and remembers it.
-    pub(crate) fn note_first_write(&mut self) {
+    pub(crate) fn note_first_write(&mut self, cx: &mut Context<'_, Self>) {
         if !self.first_run.write_done {
             self.first_run.write_done = true;
-            self.save_first_run();
+            self.save_first_run(cx);
         }
     }
 
-    pub(crate) fn save_first_run(&mut self) {
-        if let Some(problem) = self.save_settings() {
-            self.report(problem);
-        }
+    pub(crate) fn save_first_run(&mut self, cx: &mut Context<'_, Self>) {
+        self.save_settings(cx);
     }
 
     /// True while the card of the three first steps shows.
@@ -3009,14 +2997,16 @@ impl EuphoriaApp {
     /// steps are not all done.
     pub(crate) fn show_first_run(&mut self, cx: &mut Context<'_, Self>) {
         self.first_run.unhide();
-        self.save_first_run();
+        self.save_first_run(cx);
         cx.notify();
     }
 
-    /// Writes the folders, the theme and the arrangement to disk. Returns what to tell the user
-    /// when that fails.
-    pub(crate) fn save_settings(&self) -> Option<String> {
-        let settings_path = self.settings_path.as_ref()?;
+    /// Writes the folders, the theme and the arrangement to disk off the
+    /// main thread, and reports back what to tell the user when that fails.
+    pub(crate) fn save_settings(&mut self, cx: &mut Context<'_, Self>) {
+        let Some(settings_path) = self.settings_path.clone() else {
+            return;
+        };
         let mut expanded: Vec<PathBuf> = self.expanded_folders.iter().cloned().collect();
         expanded.sort();
         let mut folders = self.session.library().folders().to_vec();
@@ -3041,10 +3031,19 @@ impl EuphoriaApp {
             stems: self.stem_settings,
             first_run: Some(self.first_run),
         };
-        settings
-            .save(settings_path)
-            .err()
-            .map(|error| format!("Could not save settings: {error}."))
+        self.settings_flush_task = Some(cx.spawn(async move |this, cx| {
+            let saved = cx
+                .background_executor()
+                .spawn(async move { settings.save(&settings_path) })
+                .await;
+            this.update(cx, |this, cx| {
+                if let Err(error) = saved {
+                    this.report(format!("Could not save settings: {error}."));
+                    cx.notify();
+                }
+            })
+            .ok();
+        }));
     }
 
     /// Reads the waveform of the player's track for the player bar, unless
@@ -3636,6 +3635,38 @@ mod waveform_task_tests {
                 view.read(cx).selected_waveform(),
                 Some(Waveform::Ready(_, Some(_)))
             ));
+        });
+    }
+
+    #[gpui::test]
+    fn a_failed_settings_save_is_reported_back_to_the_main_thread(cx: &mut TestAppContext) {
+        // The settings file lives under a regular file, so the write cannot
+        // happen: the failure must come back on the main thread as a notice.
+        let folder = crate::tag_writing::testing::ScratchFolder::new("settings-blocked");
+        let blocker = folder.0.join("blocker");
+        std::fs::write(&blocker, "not a folder").unwrap();
+        let path = blocker.join("settings.json");
+        let (_, view) = crate::ui_tests::open_window_with(
+            Vec::new(),
+            Box::new(crate::playback::testing::SilentOutput),
+            Settings::default(),
+            Some(path),
+            gpui::size(px(1440.0), px(900.0)),
+            cx,
+        );
+        cx.update(|cx| view.update(cx, |app, cx| app.save_settings(cx)));
+        for _ in 0..10 {
+            cx.run_until_parked();
+        }
+        cx.update(|cx| {
+            let app = view.read(cx);
+            assert!(
+                app.notice
+                    .iter()
+                    .any(|notice| notice.contains("Could not save settings")),
+                "{:?}",
+                app.notice
+            );
         });
     }
 }
