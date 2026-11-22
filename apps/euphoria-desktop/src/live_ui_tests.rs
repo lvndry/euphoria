@@ -279,7 +279,7 @@ fn poll_until(
 ) {
     settle(cx, Duration::from_secs(60), |cx| {
         cx.update(|cx| model.update(cx, |model, cx| model.poll(cx)));
-        ready(model.read(cx))
+        cx.update(|cx| ready(model.read(cx)))
     })
 }
 
@@ -376,6 +376,13 @@ fn it_says_listening_and_shows_nothing_guessed_while_the_audio_is_silent(cx: &mu
     start(&model, cx);
     let window = open_panel(&model, cx);
     poll_until(&model, cx, |model| model.reading.heard_seconds == 0.0);
+    // Keep polling across a real interval: a regression that guesses after
+    // continued silent input has to show up in these later reads.
+    for _ in 0..10 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(100));
+        poll_until(&model, cx, |model| model.reading.heard_seconds >= 0.0);
+    }
     cx.run_until_parked();
     cx.update(|cx| {
         let model = model.read(cx);
@@ -861,7 +868,7 @@ fn a_change_of_the_level_alone_moves_the_dot_and_leaves_the_next_list_alone(
     let renders_before = list_renders(&view, cx);
     let mut positions = Vec::new();
     for step in 0..6 {
-        let reading = with_level(&model, -40.0 + 12.0 * (step % 3) as f32);
+        let reading = cx.update(|cx| with_level(model.read(cx), -40.0 + 12.0 * (step % 3) as f32));
         let target = reading.level.unwrap().meter_position();
         // The dot moves at most once per crate::motion::FAST, so wait for
         // the timer instead of sleeping for the full duration.
@@ -946,13 +953,15 @@ fn scrolling_the_next_list_never_resizes_the_window_and_a_change_waits_for_it_to
         )
     });
 
-    // The opened picker resizes the window once the scroll has settled,
-    // so wait for that resize instead of sleeping past the settle timer.
+    // The opened picker resizes the window once the scroll has settled, so
+    // wait for that resize instead of sleeping past the settle timer. The
+    // resize is recorded while rendering, so each tick draws before it reads
+    // the count.
     settle(cx, Duration::from_secs(5), |cx| {
         cx.executor().advance_clock(crate::motion::LAYOUT);
+        draw_frames(window, cx);
         cx.update(|cx| view.read(cx).resizes.len() == 1)
     });
-    draw_frames(window, cx);
     cx.update(|cx| {
         assert_eq!(
             view.read(cx).resizes.len(),

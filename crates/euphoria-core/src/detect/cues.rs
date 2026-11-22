@@ -1183,23 +1183,68 @@ mod tests {
                 prop_assert_eq!(CueSection::from_name(&section.name()), Some(section));
             }
 
-            /// The numbered cues are the sorted cue times, capped at one per
-            /// hot cue pad: sorted, one each, and at most eight.
+            /// The numbered cues the detector keeps are the capped cue times:
+            /// the start first, then the largest changes of at least the
+            /// numbered strength, at most eight, in time order numbered from 2.
             #[test]
             fn the_numbered_cues_are_sorted_unique_and_capped(
-                times in prop::collection::vec(any::<f64>(), 0..64).prop_map(|mut v| {
-                    for time in v.iter_mut() {
-                        *time = time.abs().min(100.0);
-                    }
-                    v
-                })
+                generated in prop::collection::vec((any::<f64>(), any::<f32>()), 0..64)
             ) {
-                let mut cues = times;
-                cues.sort_by(f64::total_cmp);
-                cues.dedup();
-                cues.truncate(MAXIMUM_CUES);
-                prop_assert!(cues.windows(2).all(|pair| pair[0] < pair[1]));
+                // Distinct times in (0, 100] and distinct strengths, so the
+                // expected top set has no ties.
+                let (seconds, strengths): (Vec<f64>, Vec<f32>) = generated
+                    .iter()
+                    .enumerate()
+                    .map(|(offset, (time, strength))| {
+                        let offset = offset as f64;
+                        let value = time.abs() % 100.0;
+                        let seconds = ((offset + value) / 65.0 * 100.0).max(0.001);
+                        let raw = f64::from(strength.abs()) % 1.0;
+                        (seconds, ((offset + raw) / 65.0 * 1.5) as f32)
+                    })
+                    .unzip();
+                let start = Segment {
+                    start: 0,
+                    bars: 1,
+                    seconds: 0.0,
+                    strength: 1.0,
+                };
+                let rest: Vec<Segment> = seconds
+                    .iter()
+                    .zip(strengths)
+                    .map(|(&seconds, strength)| Segment {
+                        start: 0,
+                        bars: 1,
+                        seconds,
+                        strength,
+                    })
+                    .collect();
+                // The rest are the largest qualifying changes, capped, in
+                // time order, numbered from 2. Work from `rest` before it is
+                // moved into `segments`.
+                let mut expected: Vec<(f64, f32)> = rest
+                    .iter()
+                    .map(|segment| (segment.seconds, segment.strength))
+                    .filter(|(_, strength)| *strength >= NUMBERED_SECTION_STRENGTH)
+                    .collect();
+                expected.sort_by(|left, right| right.1.total_cmp(&left.1));
+                expected.truncate(MAXIMUM_CUES - 1);
+                expected.sort_by(|left, right| left.0.total_cmp(&right.0));
+                let segments = std::iter::once(start).chain(rest).collect::<Vec<_>>();
+                let cues = numbered_cues(&segments);
                 prop_assert!(cues.len() <= MAXIMUM_CUES);
+                expected.truncate(MAXIMUM_CUES - 1);
+                expected.sort_by(|left, right| left.0.total_cmp(&right.0));
+                prop_assert_eq!(cues.len(), 1 + expected.len());
+                if !cues.is_empty() {
+                    prop_assert_eq!(cues[0], (0.0, CueSection::Start));
+                    for (offset, ((seconds, section), (want_seconds, _))) in
+                        cues[1..].iter().zip(&expected).enumerate()
+                    {
+                        prop_assert_eq!(*seconds, *want_seconds);
+                        prop_assert_eq!(*section, CueSection::Section((offset + 2) as u8));
+                    }
+                }
             }
 
             /// Every pad from A to H is a valid pad and its letter is its
@@ -1215,21 +1260,41 @@ mod tests {
                 }
             }
 
-            /// The median of a section's bars, the value the detector reads
-            /// out of them, is one of the bars, never below the lowest or
-            /// above the highest.
+            /// The level the detector reads out of a section's bars is the
+            /// median of those bars, never below the lowest bar or above the
+            /// highest.
             #[test]
-            fn the_median_of_bars_is_a_value_of_the_bars(
-                bars in prop::collection::vec(any::<f32>(), 1..=64)
+            fn the_level_of_a_section_is_the_median_of_its_bars(
+                bars in prop::collection::vec((any::<f32>(), any::<f32>()), 1..=64)
             ) {
-                let mut ordered = bars.clone();
-                ordered.sort_by(f32::total_cmp);
-                let median = ordered[ordered.len() / 2];
-                let lowest = ordered.first().copied().unwrap_or_default();
-                let highest = *ordered.last().unwrap_or(&lowest);
-                prop_assert!(!median.is_nan());
-                prop_assert!(median >= lowest);
-                prop_assert!(median <= highest);
+                let measures: Vec<BarMeasure> = bars
+                    .into_iter()
+                    .map(|(low, kick)| BarMeasure {
+                        loudness: 0.0,
+                        low: low.abs(),
+                        high: 0.0,
+                        kick: kick.abs(),
+                    })
+                    .collect();
+                let segment = Segment {
+                    start: 0,
+                    bars: measures.len(),
+                    seconds: 0.0,
+                    strength: 1.0,
+                };
+                let level = section_level(&segment, &measures);
+                let lowest = measures
+                    .iter()
+                    .map(|measure| measure.low)
+                    .fold(f32::INFINITY, f32::min);
+                let highest = measures
+                    .iter()
+                    .map(|measure| measure.low)
+                    .fold(f32::NEG_INFINITY, f32::max);
+                prop_assert!(!level.low.is_nan());
+                prop_assert!(level.low >= lowest);
+                prop_assert!(level.low <= highest);
+                prop_assert!((0.0_f32..=1.0).contains(&level.kick_share));
             }
         }
     }
