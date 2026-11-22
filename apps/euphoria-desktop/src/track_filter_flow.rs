@@ -79,9 +79,7 @@ impl EuphoriaApp {
         }
         self.track_filters = filters;
         self.refresh_visible();
-        if let Some(problem) = self.save_settings() {
-            self.report(problem);
-        }
+        self.save_settings(cx);
         cx.notify();
     }
 

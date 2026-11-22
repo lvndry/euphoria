@@ -261,9 +261,7 @@ impl EuphoriaApp {
                 Err(problem) => self.notice = vec![problem.message().to_string()],
             }
         }
-        if let Some(problem) = self.save_settings() {
-            self.report(problem);
-        }
+        self.save_settings(cx);
         cx.notify();
     }
 }

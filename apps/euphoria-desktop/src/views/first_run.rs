@@ -142,7 +142,7 @@ pub(crate) fn card(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Div 
         .id("first-run-not-now")
         .on_click(cx.listener(|this, _, _, cx| {
             this.first_run.dismiss();
-            this.save_first_run();
+            this.save_first_run(cx);
             cx.notify();
         }))
         .test_support();

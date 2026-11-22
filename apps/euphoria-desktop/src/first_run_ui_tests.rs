@@ -59,7 +59,7 @@ fn the_steps_advance_as_analysis_and_the_first_write_finish(cx: &mut TestAppCont
     assert!(!is_shown(window, "first-run-write-tags", cx), "not yet");
     assert!(is_shown(window, "first-run-analysis-line", cx));
 
-    cx.update(|cx| view.update(cx, |app, _| app.note_first_run_progress()));
+    cx.update(|cx| view.update(cx, |app, view_cx| app.note_first_run_progress(view_cx)));
     cx.update(|cx| assert!(view.read(cx).first_run.analysis_done));
     assert!(is_shown(window, "first-run", cx));
     assert!(
@@ -68,7 +68,7 @@ fn the_steps_advance_as_analysis_and_the_first_write_finish(cx: &mut TestAppCont
     );
     assert!(!is_shown(window, "first-run-analysis-line", cx));
 
-    cx.update(|cx| view.update(cx, |app, _| app.note_first_write()));
+    cx.update(|cx| view.update(cx, |app, view_cx| app.note_first_write(view_cx)));
     assert!(!is_shown(window, "first-run", cx), "both steps are done");
 }
 
@@ -76,7 +76,7 @@ fn the_steps_advance_as_analysis_and_the_first_write_finish(cx: &mut TestAppCont
 fn while_analysis_runs_the_second_step_counts_the_tracks(cx: &mut TestAppContext) {
     let (_window, view) = open_with(deck_tracks(), new_user(), None, cx);
     cx.update(|cx| {
-        view.update(cx, |app, _| {
+        view.update(cx, |app, view_cx| {
             app.session.pretend_queued(575);
             for _ in 0..312 {
                 app.session.pretend_finished();
@@ -86,7 +86,7 @@ fn while_analysis_runs_the_second_step_counts_the_tracks(cx: &mut TestAppContext
                 Some("312 of 575"),
                 "no time left before ten seconds of data"
             );
-            app.note_first_run_progress();
+            app.note_first_run_progress(view_cx);
             assert!(!app.first_run.analysis_done, "a run is going");
         })
     });
@@ -113,11 +113,12 @@ fn the_card_never_comes_back_once_both_steps_are_done(cx: &mut TestAppContext) {
     let path = folder.0.join("settings.json");
     let (_window, view) = open_with(deck_tracks(), new_user(), Some(path.clone()), cx);
     cx.update(|cx| {
-        view.update(cx, |app, _| {
-            app.note_first_run_progress();
-            app.note_first_write();
+        view.update(cx, |app, view_cx| {
+            app.note_first_run_progress(view_cx);
+            app.note_first_write(view_cx);
         })
     });
+    cx.run_until_parked();
     let stored = Settings::load(&path).unwrap();
     assert_eq!(stored.first_run, Some(FirstRun::already_done()));
 
@@ -141,8 +142,8 @@ fn not_now_hides_the_card_and_the_command_bringing_it_back_shows_it_again(cx: &m
     let path = folder.0.join("settings.json");
     let (window, view) = open_with(deck_tracks(), new_user(), Some(path.clone()), cx);
     assert!(is_shown(window, "first-run", cx), "the card is on");
-
     click(window, "first-run-not-now", cx);
+    cx.run_until_parked();
     assert!(!is_shown(window, "first-run", cx), "hidden");
     let stored = Settings::load(&path).unwrap();
     assert_eq!(
@@ -160,6 +161,7 @@ fn not_now_hides_the_card_and_the_command_bringing_it_back_shows_it_again(cx: &m
         })
     });
     assert!(is_shown(window, "first-run", cx), "brought back");
+    cx.run_until_parked();
     assert_eq!(
         Settings::load(&path)
             .unwrap()

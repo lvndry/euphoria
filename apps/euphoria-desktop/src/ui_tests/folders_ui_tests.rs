@@ -414,6 +414,7 @@ fn the_tree_and_the_folder_on_show_come_back_and_gone_folders_are_tolerated(
         window.click(folder_row_id(deep), cx);
     })
     .unwrap();
+    cx.run_until_parked();
     let saved = Settings::load(&settings_path);
     std::fs::remove_dir_all(&folder).unwrap();
     let saved = saved.unwrap();

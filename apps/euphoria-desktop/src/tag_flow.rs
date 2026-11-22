@@ -489,7 +489,7 @@ impl EuphoriaApp {
                     this.read_track_names(report.written.clone(), cx);
                 }
                 if !is_edit && !report.written.is_empty() {
-                    this.note_first_write();
+                    this.note_first_write(cx);
                 }
                 #[cfg(test)]
                 {
