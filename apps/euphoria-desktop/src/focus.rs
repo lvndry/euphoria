@@ -16,6 +16,8 @@ use gpui::Context;
 use serde::{Deserialize, Serialize};
 
 use crate::app::EuphoriaApp;
+use crate::format::clock;
+
 use crate::focus_loops::{ActiveLoop, LoopDrag};
 use crate::library::Track;
 use crate::track_overview::{EnergyCurve, EnergyStep};
@@ -354,12 +356,6 @@ pub(crate) fn energy_at(steps: &[EnergyStep], fraction: f32) -> Option<u8> {
         .iter()
         .find(|step| fraction >= step.start && fraction < step.end)
         .and_then(|step| step.rating)
-}
-
-/// The time as minutes and whole seconds, rounded down, as a clock reads.
-pub(crate) fn clock(seconds: f64) -> String {
-    let whole = seconds.max(0.0) as u64;
-    format!("{}:{:02}", whole / 60, whole % 60)
 }
 
 /// What the line under the lanes says about the moment under the cursor,
