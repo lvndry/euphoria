@@ -39,12 +39,13 @@ fn tagged_fixtures_directory() -> PathBuf {
 
 fn resolved(path: &Path) -> PathBuf {
     // Canonicalization on Windows may return the extended-length \\\\?\\
-    // form; strip it so it compares equal to the plain path the CLI prints.
+    // form; strip it from the string form, where the marker crosses a
+    // component boundary that Path::strip_prefix cannot match, so it
+    // compares equal to the plain path the CLI prints.
     let resolved = path.canonicalize().expect("the path resolves");
-    resolved
-        .strip_prefix(r"\\?\")
-        .map(PathBuf::from)
-        .unwrap_or(resolved)
+    let s = resolved.to_string_lossy().into_owned();
+    let s = s.strip_prefix(r"\\?\").unwrap_or(&s);
+    PathBuf::from(s)
 }
 
 fn assert_success(output: &Output) {

@@ -1459,8 +1459,29 @@ fn resolve(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
 
 /// Drops the Windows long-path prefix, so the paths the user is shown and
 /// compared against keep the plain form, e.g. `C:\Music` and not `\\?\C:\Music`.
+/// `Path::strip_prefix` is component-based and never matches the marker, so
+/// the prefix is removed from the path's string form instead.
 fn plain(path: PathBuf) -> PathBuf {
-    path.strip_prefix(r"\\?\")
-        .map(PathBuf::from)
-        .unwrap_or(path)
+    let s = path.to_string_lossy().into_owned();
+    let s = s.strip_prefix(r"\\?\").unwrap_or(&s);
+    PathBuf::from(s)
+}
+
+#[cfg(test)]
+mod plain_tests {
+    use super::plain;
+    use std::path::PathBuf;
+
+    #[test]
+    fn the_long_path_prefix_is_dropped() {
+        assert_eq!(
+            plain(PathBuf::from(r"\\?\C:\Music\a.mp3")),
+            PathBuf::from("C:\\Music\\a.mp3")
+        );
+    }
+
+    #[test]
+    fn a_path_without_the_prefix_is_untouched() {
+        assert_eq!(plain(PathBuf::from("/C:/x")), PathBuf::from("/C:/x"));
+    }
 }
