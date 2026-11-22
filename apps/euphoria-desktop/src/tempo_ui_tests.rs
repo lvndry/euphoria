@@ -386,7 +386,7 @@ fn changing_the_tempo_writes_nothing_to_the_file_or_the_cache(cx: &mut TestAppCo
                     ..Settings::default()
                 };
                 let output: Box<dyn AudioOutput> = Box::new(SilentOutput);
-                EuphoriaApp::new(session, settings, None, None, output, window, cx)
+                EuphoriaApp::new(session, settings, None, vec![], output, window, cx)
             })
         })
         .unwrap();

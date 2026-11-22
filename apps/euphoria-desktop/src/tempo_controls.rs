@@ -299,7 +299,7 @@ impl EuphoriaApp {
             Some(rate) => self.set_tempo_rate(rate, cx),
             None => {
                 self.notice =
-                    Some("Type a tempo from 30 to 300, such as 124 or 124,5.".to_string());
+                    vec!["Type a tempo from 30 to 300, such as 124 or 124,5.".to_string()];
             }
         }
         self.window_focus.focus(window, cx);

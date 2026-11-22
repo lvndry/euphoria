@@ -94,6 +94,9 @@ actions!(
         AnalyzeAgain,
         /// Stops the analysis of the tracks still waiting.
         StopAnalysis,
+        /// Brings back the card of the three first steps after it was
+        /// hidden with "Not now".
+        ShowFirstRun,
         /// Separates the stems of the selected track.
         SeparateStems,
         /// Switches to the Slate theme.

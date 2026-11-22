@@ -20,9 +20,10 @@ use gpui::{Action, Entity, ScrollHandle};
 use crate::actions::{
     AddCueAtPlayhead, AddFolder, AnalyzeAgain, CopyTrackPath, EditTags, ExportLibrary, FocusSearch,
     OpenCommandPalette, OpenFocusView, OpenLive, OpenSetBuilder, OpenSettings, PlanTransition,
-    RescanFolders, ResetColumnWidths, RevealTrack, SelectAllTracks, SeparateStems, StopAnalysis,
-    ToggleDecks, ToggleFavorite, ToggleMetronome, TogglePlayback, ToggleSidebar, UndoCueEdit,
-    UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UsePaperTheme, UseSlateTheme, WriteTags,
+    RescanFolders, ResetColumnWidths, RevealTrack, SelectAllTracks, SeparateStems, ShowFirstRun,
+    StopAnalysis, ToggleDecks, ToggleFavorite, ToggleMetronome, TogglePlayback, ToggleSidebar,
+    UndoCueEdit, UndoTagWrite, UseDeckTheme, UseGraphiteTheme, UsePaperTheme, UseSlateTheme,
+    WriteTags,
 };
 use crate::library::Track;
 use crate::metronome::parse_bpm;
@@ -233,6 +234,14 @@ pub(crate) const COMMANDS: &[CommandEntry] = &[
         "Stop analysis",
         ["stop", "cancel", "analysis", "analyze", "abort", "halt"],
         StopAnalysis
+    ),
+    command!(
+        "show-first-run",
+        "Show first run",
+        [
+            "first", "run", "start", "get", "going", "setup", "welcome", "steps", "not now"
+        ],
+        ShowFirstRun
     ),
     command!(
         "separate-stems",

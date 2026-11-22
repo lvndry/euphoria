@@ -15,6 +15,10 @@ pub(crate) struct FirstRun {
     pub(crate) analysis_done: bool,
     /// The first write of tags finished.
     pub(crate) write_done: bool,
+    /// The person hid the card with "Not now"; it stays hidden until the
+    /// command brings it back. Missing in an old settings file.
+    #[serde(default)]
+    pub(crate) dismissed: bool,
 }
 
 impl FirstRun {
@@ -23,6 +27,7 @@ impl FirstRun {
         Self {
             analysis_done: true,
             write_done: true,
+            dismissed: false,
         }
     }
 
@@ -40,6 +45,25 @@ impl FirstRun {
     /// True once both steps are done. The card never comes back after this.
     pub(crate) fn is_done(&self) -> bool {
         self.analysis_done && self.write_done
+    }
+
+    /// True while the card of the three first steps shows: the steps are not
+    /// all done and the person has not hidden it.
+    pub(crate) fn is_shown(&self) -> bool {
+        !self.is_done() && !self.dismissed
+    }
+
+    /// Hides the card until the command brings it back, and does nothing
+    /// once it would be gone anyway.
+    pub(crate) fn dismiss(&mut self) {
+        if !self.is_done() {
+            self.dismissed = true;
+        }
+    }
+
+    /// Brings the card back once it was hidden and the steps are not done.
+    pub(crate) fn unhide(&mut self) {
+        self.dismissed = false;
     }
 }
 
@@ -117,6 +141,7 @@ mod tests {
         let analyzed = FirstRun {
             analysis_done: true,
             write_done: false,
+            dismissed: false,
         };
         assert_eq!(
             Steps::of(analyzed, true),
@@ -142,7 +167,8 @@ mod tests {
         assert!(
             !FirstRun {
                 analysis_done: true,
-                write_done: false
+                write_done: false,
+                dismissed: false,
             }
             .is_done()
         );
@@ -156,6 +182,7 @@ mod tests {
         let half = FirstRun {
             analysis_done: true,
             write_done: false,
+            dismissed: false,
         };
         assert_eq!(FirstRun::from_stored(Some(half), true), half);
     }
@@ -177,6 +204,7 @@ mod tests {
             first_run: Some(FirstRun {
                 analysis_done: true,
                 write_done: false,
+                dismissed: false,
             }),
             ..Default::default()
         };

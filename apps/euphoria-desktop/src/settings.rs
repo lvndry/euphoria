@@ -282,6 +282,7 @@ mod tests {
             first_run: Some(FirstRun {
                 analysis_done: true,
                 write_done: false,
+                dismissed: false,
             }),
         };
         settings.save(&path).unwrap();

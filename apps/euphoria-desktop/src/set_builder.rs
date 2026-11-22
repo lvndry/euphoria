@@ -467,7 +467,7 @@ impl EuphoriaApp {
             return;
         }
         if planned.locked[position] || planned.locked[other] {
-            self.notice = Some(LOCKED_TRACK_STAYS.to_string());
+            self.notice = vec![LOCKED_TRACK_STAYS.to_string()];
             cx.notify();
             return;
         }
@@ -489,10 +489,10 @@ impl EuphoriaApp {
     /// it says how to get one.
     pub(crate) fn add_paths_to_set(&mut self, paths: &[PathBuf], cx: &mut Context<'_, Self>) {
         let Some(planned) = &mut self.set_builder.planned else {
-            self.notice = Some(
+            self.notice = vec![
                 "There is no set to add to yet. Build one in the set builder, then add tracks to it."
                     .to_string(),
-            );
+            ];
             cx.notify();
             return;
         };
@@ -510,7 +510,7 @@ impl EuphoriaApp {
             planned.locked.push(false);
             added += 1;
         }
-        self.notice = Some(if set_is_full {
+        self.notice = vec![if set_is_full {
             format!("A set holds at most {MOST_TRACKS} tracks.")
         } else if added == 0 {
             "Already in the set.".to_string()
@@ -518,7 +518,7 @@ impl EuphoriaApp {
             "Added 1 track to the end of the set.".to_string()
         } else {
             format!("Added {added} tracks to the end of the set.")
-        });
+        }];
         if added > 0 {
             self.explain_planned_set();
         }
@@ -558,7 +558,7 @@ impl EuphoriaApp {
             return;
         }
         if planned.locked[position] {
-            self.notice = Some(UNLOCK_TO_REMOVE.to_string());
+            self.notice = vec![UNLOCK_TO_REMOVE.to_string()];
             cx.notify();
             return;
         }
@@ -654,7 +654,7 @@ impl EuphoriaApp {
             return;
         };
         let Some(index) = self.session.library().index_of(&path) else {
-            self.notice = Some("That track is no longer in the library.".to_string());
+            self.notice = vec!["That track is no longer in the library.".to_string()];
             cx.notify();
             return;
         };

@@ -599,10 +599,10 @@ impl EuphoriaApp {
                 .await;
             if let Err(error) = kept {
                 this.update(cx, |this, cx| {
-                    this.notice = Some(format!(
+                    this.notice = vec![format!(
                         "The loop shows, but it could not be kept for next time: {}",
                         error.chain()
-                    ));
+                    )];
                     cx.notify();
                 })
                 .ok();

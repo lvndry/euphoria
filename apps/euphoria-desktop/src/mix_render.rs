@@ -252,10 +252,10 @@ impl EuphoriaApp {
                 .track_by_path(path)
                 .and_then(|track| Some((track, plan_side(track, self)?)));
             let Some((track, side)) = side else {
-                self.notice = Some(format!(
+                self.notice = vec![format!(
                     "The mix cannot be planned: {} is not analyzed yet.",
                     path.display()
-                ));
+                )];
                 cx.notify();
                 return None;
             };
@@ -304,7 +304,7 @@ impl EuphoriaApp {
                 Ok(Ok(None)) | Err(_) => return,
                 Ok(Err(error)) => {
                     this.update(cx, |this, cx| {
-                        this.notice = Some(format!("Could not open the save dialog: {error:#}"));
+                        this.notice = vec![format!("Could not open the save dialog: {error:#}")];
                         cx.notify();
                     })
                     .ok();
@@ -329,10 +329,10 @@ impl EuphoriaApp {
             .into_iter()
             .find(|path| !replaces_mix && path.symlink_metadata().is_ok())
         {
-            self.notice = Some(format!(
+            self.notice = vec![format!(
                 "Could not render the mix: {} already exists. Choose another mix name or move its side files first.",
                 existing.display()
-            ));
+            )];
             cx.notify();
             return;
         }
@@ -414,7 +414,7 @@ impl EuphoriaApp {
                 self.show_toast("Rendering the mix was cancelled".to_string(), None, cx);
             }
             Err(error) => {
-                self.notice = Some(format!("Could not render the mix: {}", error.chain()));
+                self.notice = vec![format!("Could not render the mix: {}", error.chain())];
             }
         }
         cx.notify();

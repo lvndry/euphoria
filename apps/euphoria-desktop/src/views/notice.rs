@@ -57,7 +57,10 @@ pub(crate) fn render(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Op
 
 fn render_strip(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Option<impl IntoElement> {
     let palette = app.theme.palette;
-    let message = app.notice.clone()?;
+    if app.notice.is_empty() {
+        return None;
+    }
+    let lines = app.notice.clone();
     Some(
         div()
             .id("notice")
@@ -75,8 +78,10 @@ fn render_strip(app: &EuphoriaApp, cx: &mut Context<'_, EuphoriaApp>) -> Option<
                 div()
                     .flex_1()
                     .min_w_0()
+                    .flex()
+                    .flex_col()
                     .text_color(palette.danger)
-                    .child(message),
+                    .children(lines.into_iter().map(|line| div().child(line))),
             )
             .child(
                 div()

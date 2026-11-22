@@ -108,7 +108,7 @@ fn a_notice_strip_is_at_full_height_at_once_under_reduce_motion(cx: &mut TestApp
     let (window, view) = open_fixture_library(cx);
     cx.update(|cx| {
         view.update(cx, |app, cx| {
-            app.notice = Some("Something went wrong".to_string());
+            app.notice = vec!["Something went wrong".to_string()];
             cx.notify();
         })
     });
@@ -138,7 +138,7 @@ fn a_notice_strip_grows_to_its_height_on_the_clock(cx: &mut TestAppContext) {
     });
     cx.update(|cx| {
         view.update(cx, |app, cx| {
-            app.notice = Some("Something went wrong".to_string());
+            app.notice = vec!["Something went wrong".to_string()];
             cx.notify();
         })
     });

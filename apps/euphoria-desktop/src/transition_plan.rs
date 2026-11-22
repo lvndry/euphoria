@@ -733,7 +733,7 @@ impl EuphoriaApp {
             }
             None => {
                 self.planner.open_when_ready = false;
-                self.notice = Some("This pair of tracks cannot be planned yet.".to_string());
+                self.notice = vec!["This pair of tracks cannot be planned yet.".to_string()];
                 cx.notify();
             }
         }

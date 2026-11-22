@@ -161,7 +161,7 @@ fn open_library(name: &str, files: &[&str], cx: &mut TestAppContext) -> RescanLi
                     session,
                     settings,
                     None,
-                    None,
+                    vec![],
                     Box::new(SilentOutput),
                     window,
                     cx,

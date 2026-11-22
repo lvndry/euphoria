@@ -738,7 +738,7 @@ impl EuphoriaApp {
                     }
                 }
             }
-            Err(problem) => self.notice = Some(problem.message().to_string()),
+            Err(problem) => self.notice = vec![problem.message().to_string()],
         }
         cx.notify();
     }
