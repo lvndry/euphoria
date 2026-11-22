@@ -171,8 +171,18 @@ mod tests {
         let resolved = std::fs::canonicalize(&present).unwrap();
         std::fs::remove_dir_all(&folder).unwrap();
 
-        assert!(tracks.paths.contains(&present));
-        assert!(tracks.paths.contains(&resolved));
+        // A collection stores its locations as URIs, so the listed paths keep
+        // forward slashes on every platform while a PathBuf uses the system
+        // separator; compare on the URI's spelling.
+        let on_disk = present.to_string_lossy().replace('\\', "/");
+        let canonical = resolved.to_string_lossy().replace('\\', "/");
+        let paths = tracks
+            .paths
+            .iter()
+            .map(|path| path.to_string_lossy().replace('\\', "/"))
+            .collect::<Vec<_>>();
+        assert!(paths.contains(&on_disk));
+        assert!(paths.contains(&canonical));
         assert_eq!(
             tracks.unmatched,
             vec![
