@@ -145,6 +145,9 @@ fn small_library_matches_the_golden_file() {
         .join("expected.xml");
     let expected = std::fs::read_to_string(golden_path)
         .expect("the golden file is readable")
+        // A checkout may hand the golden file CRLF line endings while the
+        // export writes LF; the comparison is about the content.
+        .replace("\r\n", "\n")
         .replace("{version}", env!("CARGO_PKG_VERSION"));
 
     assert_eq!(export(&golden_library()), expected);

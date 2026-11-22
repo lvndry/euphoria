@@ -1,0 +1,4 @@
+# Test fixtures are compared byte-for-byte against LF-written output;
+# keep their line endings stable no matter how they are checked out.
+tests/** eol=lf
+*/tests/** eol=lf
