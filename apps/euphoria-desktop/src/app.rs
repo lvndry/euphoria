@@ -996,10 +996,13 @@ impl EuphoriaApp {
                 })
                 .await;
             this.update(cx, |this, cx| {
+                // A fetch that found nothing is a no-op: reporting is what
+                // redraws, and an idle re-render on focus would race the
+                // window's settle and resize logic.
                 if let Some(notice) = notice {
                     this.report(notice);
+                    cx.notify();
                 }
-                cx.notify();
             })
             .ok();
         })
