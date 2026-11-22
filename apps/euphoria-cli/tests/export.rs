@@ -38,7 +38,13 @@ fn tagged_fixtures_directory() -> PathBuf {
 }
 
 fn resolved(path: &Path) -> PathBuf {
-    path.canonicalize().expect("the path resolves")
+    // Canonicalization on Windows may return the extended-length \\\\?\\
+    // form; strip it so it compares equal to the plain path the CLI prints.
+    let resolved = path.canonicalize().expect("the path resolves");
+    resolved
+        .strip_prefix(r"\\?\")
+        .map(PathBuf::from)
+        .unwrap_or(resolved)
 }
 
 fn assert_success(output: &Output) {

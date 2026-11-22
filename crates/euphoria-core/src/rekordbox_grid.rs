@@ -337,8 +337,8 @@ impl TrackAnalysis {
 }
 
 /// The path of a `file://localhost/` URL as rekordbox writes it, with its
-/// percent escapes decoded: `/Users/dj/a.mp3` for a Mac location, and
-/// `C:/Music/a.mp3` for a Windows one. `None` for any other URL.
+/// percent escapes and any Windows long-path prefix removed: `/Users/dj/a.mp3`
+/// for a Mac location, and `C:\Music\a.mp3` for a Windows one. `None` for any other URL.
 pub fn rekordbox_location_path(location: &str) -> Option<PathBuf> {
     let encoded = location.strip_prefix(LOCATION_PREFIX)?;
     let mut bytes = Vec::with_capacity(encoded.len());
@@ -355,12 +355,41 @@ pub fn rekordbox_location_path(location: &str) -> Option<PathBuf> {
     }
     let path = String::from_utf8(bytes).ok()?;
     let without_slash = path.strip_prefix('/')?;
+    // Windows may write the long-path prefix in front of the drive letter:
+    // drop it, so the letter still reads as the first component.
+    let without_slash = without_slash.strip_prefix(r"\\?\").unwrap_or(without_slash);
     let drive = without_slash.as_bytes();
-    let has_drive_letter =
-        drive.len() >= 3 && drive[0].is_ascii_alphabetic() && drive[1] == b':' && drive[2] == b'/';
+    let has_drive_letter = drive.len() >= 3
+        && drive[0].is_ascii_alphabetic()
+        && drive[1] == b':'
+        && matches!(drive[2], b'/' | b'\\');
     Some(PathBuf::from(if has_drive_letter {
         without_slash
     } else {
         &path
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rekordbox_location_path;
+    use std::path::PathBuf;
+
+    #[test]
+    fn windows_locations_read_the_drive_letter() {
+        let path = rekordbox_location_path(r"file://localhost/C:\a.mp3").unwrap();
+        assert_eq!(path, PathBuf::from(r"C:\a.mp3"));
+    }
+
+    #[test]
+    fn windows_locations_strip_the_long_path_prefix() {
+        let path = rekordbox_location_path(r"file://localhost/\\?\C:\a.mp3").unwrap();
+        assert_eq!(path, PathBuf::from(r"C:\a.mp3"));
+    }
+
+    #[test]
+    fn mac_locations_keep_their_leading_slash() {
+        let path = rekordbox_location_path("file://localhost/Users/dj/a.mp3").unwrap();
+        assert_eq!(path, PathBuf::from("/Users/dj/a.mp3"));
+    }
 }
