@@ -193,6 +193,7 @@ mod track_overview;
 mod transition_plan;
 #[cfg(test)]
 mod ui_tests;
+mod update_check;
 mod views;
 mod waveforms;
 #[cfg(test)]

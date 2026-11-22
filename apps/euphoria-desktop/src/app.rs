@@ -356,6 +356,10 @@ pub(crate) struct EuphoriaApp {
     /// What the Folder column was worked out for: the library's structure
     /// revision and the folder on show.
     folder_column_basis: Option<(u64, Option<PathBuf>)>,
+    /// Asks the project's releases whether a newer version is out.
+    update_check: crate::update_check::UpdateChecker,
+    /// Whether the check has already been made, so it is made once a session.
+    update_checked: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -373,6 +377,12 @@ impl EuphoriaApp {
     ) -> Self {
         let window_focus = cx.focus_handle();
         window_focus.focus(window, cx);
+        // The first paint focuses the window before anything else does;
+        // whoever brings it back to the front is the same gesture that
+        // asks for the check to be made.
+        let update_on_focus = cx.on_focus(&window_focus, window, |this, _, cx| {
+            this.check_for_updates(cx);
+        });
         let search_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search file name, key or BPM"));
         let search_changed = cx.subscribe(
@@ -657,6 +667,8 @@ impl EuphoriaApp {
             player_wave_peaks: Rc::default(),
             window_focus,
             output,
+            update_check: Default::default(),
+            update_checked: false,
             by_ear: crate::key_by_ear::ByEar::default(),
             stems: {
                 let mut stems = crate::stems::StemSession::new(crate::stems::model_separation);
@@ -706,6 +718,7 @@ impl EuphoriaApp {
             folder_tree_revisions: None,
             folder_column_basis: None,
             _subscriptions: vec![
+                update_on_focus,
                 playlist_named,
                 transition_noted,
                 bpm_entered,
@@ -738,6 +751,7 @@ impl EuphoriaApp {
             this.forget_folder_if_gone();
         }
         this.select_first_track_if_none(cx);
+        this.check_for_updates(cx);
         this
     }
 
@@ -962,6 +976,37 @@ impl EuphoriaApp {
         self.note_first_run_progress();
         cx.notify();
         self.reveal_pending(cx);
+    }
+
+    /// Asks the project's releases whether a newer version is out and, when
+    /// it is, notes it in the notice strip. Any failure stays quiet, so a
+    /// machine without a connection sees nothing.
+    fn check_for_updates(&mut self, cx: &mut Context<'_, Self>) {
+        if self.update_checked {
+            return;
+        }
+        self.update_checked = true;
+        let fetch = self.update_check.fetch;
+        cx.spawn(async move |this, cx| {
+            let notice = cx
+                .background_executor()
+                .spawn(async move {
+                    let latest = (fetch)().ok()?;
+                    crate::update_check::decide(&latest, env!("CARGO_PKG_VERSION"))
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                // A fetch that found nothing is a no-op: reporting is what
+                // redraws, and an idle re-render on focus would race the
+                // window's settle and resize logic.
+                if let Some(notice) = notice {
+                    this.report(notice);
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Shows a problem in the notice strip, after any that is already there
