@@ -295,7 +295,7 @@ fn exports_every_fixture_with_its_location_key_and_tempo() {
     assert_eq!(analyzed.len(), AUDIO_FIXTURES.len());
     for (name, analysis) in AUDIO_FIXTURES.iter().zip(&analyzed) {
         let path = fixtures.join(name);
-        assert_eq!(analysis["path"], text(&path));
+        assert_eq!(analysis["path"], text(&export_path(&path)));
         let track = library.track(&path);
         assert!(track.path.is_file(), "{track:?}");
         assert_eq!(track.total_time, "1", "{track:?}");
@@ -1260,7 +1260,7 @@ fn cues_are_written_only_for_tracks_without_cues_in_the_collection() {
             .iter()
             .map(|track| track.path.clone())
             .collect::<Vec<_>>(),
-        vec![other.clone()]
+        vec![export_path(&other)]
     );
     assert_eq!(
         library.playlists,

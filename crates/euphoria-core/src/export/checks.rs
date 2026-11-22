@@ -114,7 +114,7 @@ pub fn check_output_is_not_an_input(
     for audio_file in audio_files {
         if audio_file
             .canonicalize()
-            .is_ok_and(|resolved_input| resolved_input == resolved_output)
+            .is_ok_and(|resolved_input| plain(resolved_input) == resolved_output)
         {
             return Err(CheckError::message(format!(
                 "{} is one of the files to export, and the export would replace it. Choose another output file.",
@@ -224,7 +224,8 @@ mod tests {
                 .unwrap_or_else(|| Path::new("."))
                 .to_path_buf(),
         );
-        let error = check_output_is_not_an_input(&sub.join("in.MP3"), &[], &[sub.clone()]);
+        let error =
+            check_output_is_not_an_input(&sub.join("in.MP3"), &[], std::slice::from_ref(&sub));
         assert!(error.is_err(), "{error:?}");
     }
 }
