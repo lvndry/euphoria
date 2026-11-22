@@ -15,7 +15,6 @@
 //!
 //! Following the decks, the chosen track is called A and a candidate B.
 
-use std::cmp::Ordering;
 use std::fmt;
 
 use super::mix::{
@@ -641,12 +640,8 @@ where
             Some(found)
         })
         .collect();
-    ranked.sort_by(|first, second| {
-        first
-            .cost
-            .partial_cmp(&second.cost)
-            .unwrap_or(Ordering::Equal)
-    });
+    ranked.retain(|found| found.cost.is_finite());
+    ranked.sort_by(|first, second| first.cost.total_cmp(&second.cost));
     ranked
 }
 
