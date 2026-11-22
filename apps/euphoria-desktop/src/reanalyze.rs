@@ -33,12 +33,7 @@ impl EuphoriaApp {
     /// alone otherwise. Tracks that are waiting, being analyzed or missing
     /// are left out.
     pub(crate) fn rows_to_analyze_again(&self, track_index: usize) -> Vec<PathBuf> {
-        let indexes = if self.is_marked(track_index) {
-            self.selected_tracks()
-        } else {
-            vec![track_index]
-        };
-        self.reanalyzable_paths(indexes)
+        self.reanalyzable_paths(self.row_tracks(track_index))
     }
 
     fn reanalyzable_paths(&self, indexes: Vec<usize>) -> Vec<PathBuf> {

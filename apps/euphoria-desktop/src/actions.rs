@@ -77,6 +77,8 @@ actions!(
         AddToSet,
         /// Reveals the selected track in the file manager.
         RevealTrack,
+        /// Copies the paths of the selected tracks, one per line.
+        CopyTrackPath,
         /// Selects every track the table shows.
         SelectAllTracks,
         /// Returns every column of the table to its usual width.
