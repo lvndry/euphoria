@@ -399,16 +399,17 @@ fn a_relative_data_folder_is_taken_from_the_current_directory() {
         .expect("the euphoria binary runs");
 
     assert_success(&output);
+    // The resolved location may carry Windows' \\\\?\\ long-path prefix
+    // depending on the runner; strip it from both sides before comparing.
+    let strip_long = |path: &str| path.strip_prefix(r"\\?\").unwrap_or(path);
     let expected = working_directory
-        // The CLI prints the resolved location; normalize the base the same
-        // way so Windows' long-path form cannot skew the comparison.
-        .canonicalize()
-        .expect("the working directory exists")
-        .join("relative/data/analysis-cache.sqlite3");
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout).trim_end(),
-        text(&expected)
-    );
+        .join("relative/data/analysis-cache.sqlite3")
+        .to_string_lossy()
+        .to_string();
+    let printed = String::from_utf8_lossy(&output.stdout)
+        .trim_end()
+        .to_string();
+    assert_eq!(strip_long(printed), strip_long(expected));
 }
 
 #[test]

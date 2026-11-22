@@ -661,6 +661,13 @@ impl StemReader {
         for index in 0..self.streams.len() {
             while self.pending[index].is_empty() && !self.is_at_end[index] {
                 if self.streams[index].read_chunk(&mut self.chunk)? {
+                    // The buffer must hold a frame of every stem, so it is
+                    // reserved once, on the first read, and not grown on
+                    // every read after.
+                    let minimum = channel_count * self.streams.len();
+                    if self.chunk.capacity() < minimum {
+                        self.chunk.reserve(minimum);
+                    }
                     self.pending[index].extend(self.chunk.drain(..));
                 } else {
                     self.is_at_end[index] = true;
