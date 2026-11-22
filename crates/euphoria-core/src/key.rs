@@ -561,4 +561,87 @@ mod tests {
         assert_eq!("12B".parse::<Key>().unwrap(), Key::new(4, Mode::Major));
         assert_eq!("12d".parse::<Key>().unwrap(), Key::new(5, Mode::Major));
     }
+
+    #[cfg(test)]
+    mod properties {
+        use ::proptest::prelude::*;
+
+        use super::*;
+
+        proptest! {
+            /// Shifting the pitch and shifting it back lands on the same key.
+            #[test]
+            fn transposing_and_transposing_back_keeps_the_key(
+                tonic in any::<u8>(),
+                minor in 0..=1u8,
+                semitones in -127i8..=127i8
+            ) {
+                let mode = if minor == 0 { Mode::Major } else { Mode::Minor };
+                let key = Key::new(tonic, mode);
+                assert_eq!(key.transposed(semitones).transposed(semitones.wrapping_neg()), key);
+            }
+
+            /// A whole number of octaves is the same pitch class.
+            #[test]
+            fn transposing_by_a_whole_number_of_octaves_keeps_the_key(
+                tonic in any::<u8>(),
+                minor in 0..=1u8,
+                octaves in -10i8..=10i8
+            ) {
+                let mode = if minor == 0 { Mode::Major } else { Mode::Minor };
+                let key = Key::new(tonic, mode);
+                assert_eq!(key.transposed(octaves * 12), key);
+            }
+
+            /// Every key Euphoria writes as a Camelot code reads back as that key.
+            #[test]
+            fn the_camelot_code_round_trips_through_parse(
+                tonic in any::<u8>(),
+                minor in 0..=1u8
+            ) {
+                let mode = if minor == 0 { Mode::Major } else { Mode::Minor };
+                let key = Key::new(tonic, mode);
+                assert_eq!(key.camelot().parse::<Key>().ok(), Some(key));
+            }
+
+            /// Tags write the code in lowercase too: "8a" is the key of "8A".
+            #[test]
+            fn the_lowercased_camelot_code_parses_to_the_same_key(
+                tonic in any::<u8>(),
+                minor in 0..=1u8
+            ) {
+                let mode = if minor == 0 { Mode::Major } else { Mode::Minor };
+                let key = Key::new(tonic, mode);
+                let lowercase = key.camelot().to_ascii_lowercase();
+                assert_eq!(lowercase.parse::<Key>().ok(), Some(key));
+            }
+
+            /// File key fields pad the code to two digits; both spellings name
+            /// the same key. "012A" has three digits, so the padding only
+            /// applies to one digit numbers.
+            #[test]
+            fn padded_camelot_codes_read_back_the_same_key(
+                tonic in any::<u8>(),
+                minor in 0..=1u8
+            ) {
+                let mode = if minor == 0 { Mode::Major } else { Mode::Minor };
+                let key = Key::new(tonic, mode);
+                assert_eq!(Key::parse_file_key(&key.camelot()), Some(key));
+                if key.camelot_number() < 10 {
+                    assert_eq!(Key::parse_file_key(&format!("0{}", key.camelot())), Some(key));
+                }
+            }
+
+            /// The position on the Camelot wheel is 1 to 12, never 0 or 13.
+            #[test]
+            fn the_camelot_number_is_a_position_on_the_wheel(
+                tonic in any::<u8>(),
+                minor in 0..=1u8
+            ) {
+                let mode = if minor == 0 { Mode::Major } else { Mode::Minor };
+                let key = Key::new(tonic, mode);
+                prop_assert!(key.camelot_number() >= 1 && key.camelot_number() <= 12);
+            }
+        }
+    }
 }

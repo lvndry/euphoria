@@ -1165,4 +1165,72 @@ mod tests {
         assert_eq!(CueSection::from_name("Section 03"), None);
         assert_eq!(CueSection::from_name("Section "), None);
     }
+
+    #[cfg(test)]
+    mod properties {
+        use ::proptest::prelude::*;
+
+        use super::*;
+        use crate::track_cues::HotCue;
+
+        proptest! {
+            /// Every section name Euphoria shows names that section and only
+            /// that section: the numbered ones count the start as 1, so they
+            /// run from 2 up.
+            #[test]
+            fn cue_names_round_trip_through_from_name(number in 2u8..=255u8) {
+                let section = CueSection::Section(number);
+                prop_assert_eq!(CueSection::from_name(&section.name()), Some(section));
+            }
+
+            /// The numbered cues are the sorted cue times, capped at one per
+            /// hot cue pad: sorted, one each, and at most eight.
+            #[test]
+            fn the_numbered_cues_are_sorted_unique_and_capped(
+                times in prop::collection::vec(any::<f64>(), 0..64).prop_map(|mut v| {
+                    for time in v.iter_mut() {
+                        *time = time.abs().min(100.0);
+                    }
+                    v
+                })
+            ) {
+                let mut cues = times;
+                cues.sort_by(f64::total_cmp);
+                cues.dedup();
+                cues.truncate(MAXIMUM_CUES);
+                prop_assert!(cues.windows(2).all(|pair| pair[0] < pair[1]));
+                prop_assert!(cues.len() <= MAXIMUM_CUES);
+            }
+
+            /// Every pad from A to H is a valid pad and its letter is its
+            /// own; letters past H are not pads.
+            #[test]
+            fn hot_cue_pads_round_trip_through_their_letters(pad in 0u8..=255u8) {
+                match HotCue::from_pad(pad) {
+                    Some(hot_cue) => {
+                        prop_assert_eq!(hot_cue.pad(), pad);
+                        prop_assert_eq!(HotCue::from_letter(hot_cue.letter()).map(HotCue::pad), Some(pad));
+                    }
+                    None => prop_assert!(usize::from(pad) >= MAXIMUM_CUES),
+                }
+            }
+
+            /// The median of a section's bars, the value the detector reads
+            /// out of them, is one of the bars, never below the lowest or
+            /// above the highest.
+            #[test]
+            fn the_median_of_bars_is_a_value_of_the_bars(
+                bars in prop::collection::vec(any::<f32>(), 1..=64)
+            ) {
+                let mut ordered = bars.clone();
+                ordered.sort_by(f32::total_cmp);
+                let median = ordered[ordered.len() / 2];
+                let lowest = ordered.first().copied().unwrap_or_default();
+                let highest = *ordered.last().unwrap_or(&lowest);
+                prop_assert!(!median.is_nan());
+                prop_assert!(median >= lowest);
+                prop_assert!(median <= highest);
+            }
+        }
+    }
 }

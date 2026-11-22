@@ -126,6 +126,18 @@ impl LiveLevel {
         self.holds_still = false;
     }
 
+    /// True when [`follow`], called with `target` at `now`, would move the
+    /// dot: the last move was at least [`crate::motion::FAST`] ago, or the
+    /// dot is already at rest.
+    #[cfg(test)]
+    pub(crate) fn can_move(&self, target: f32, now: Instant) -> bool {
+        self.holds_still
+            || target == 0.0
+            || self
+                .moved_at
+                .is_none_or(|moved| now.saturating_duration_since(moved) >= crate::motion::FAST)
+    }
+
     /// Moves the dot towards `target` in whole steps, at most once per
     /// [`crate::motion::FAST`], and not at all under Reduce motion. True when
     /// it moved.

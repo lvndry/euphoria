@@ -1386,4 +1386,84 @@ mod tests {
             0
         );
     }
+
+    #[cfg(test)]
+    mod properties {
+        use ::proptest::prelude::*;
+
+        use super::*;
+
+        proptest! {
+            /// A DJ's downbeat, however far outside the track, lands in the
+            /// first bar: re-reading the same grid keeps it there.
+            #[test]
+            fn the_imported_downbeat_lands_in_the_first_bar(
+                bpm in 40.0f64..220.0f64,
+                offset in -2.0f64..=2.0f64
+            ) {
+                let bar = (60.0 / bpm) * BEATS_PER_BAR as f64;
+                let grid = BeatGrid::imported(offset * bar, bpm);
+                prop_assert!(grid.first_downbeat_seconds >= 0.0);
+                prop_assert!(grid.first_downbeat_seconds < grid.bar_seconds());
+                prop_assert_eq!(
+                    BeatGrid::imported(grid.first_downbeat_seconds, bpm),
+                    grid
+                );
+            }
+
+            /// Counting the same grid near the same tempo twice is the same
+            /// as counting it once.
+            #[test]
+            fn near_tempo_is_idempotent(
+                bpm in 40.0f64..220.0f64,
+                target in 40.0f64..220.0f64,
+                offset in -2.0f64..=2.0f64
+            ) {
+                let grid = BeatGrid::imported(offset * (60.0 / bpm) * BEATS_PER_BAR as f64, bpm);
+                prop_assert_eq!(grid.near_tempo(target).near_tempo(target), grid.near_tempo(target));
+            }
+
+            /// Counting near another tempo keeps the downbeat a downbeat of
+            /// the first bar of the new count.
+            #[test]
+            fn near_tempo_keeps_the_downbeat_in_the_first_bar(
+                bpm in 40.0f64..220.0f64,
+                target in 40.0f64..220.0f64,
+                offset in -2.0f64..=2.0f64
+            ) {
+                let grid = BeatGrid::imported(offset * (60.0 / bpm) * BEATS_PER_BAR as f64, bpm);
+                let moved = grid.near_tempo(target);
+                prop_assert!(moved.first_downbeat_seconds >= 0.0);
+                prop_assert!(moved.first_downbeat_seconds < moved.bar_seconds());
+            }
+
+            /// Counting near a tempo only changes the octave, so the tempo
+            /// never moves more than a factor of two away from it.
+            #[test]
+            fn near_tempo_stays_within_an_octave_of_the_target(
+                bpm in 40.0f64..220.0f64,
+                target in 40.0f64..220.0f64,
+                offset in -2.0f64..=2.0f64
+            ) {
+                let grid = BeatGrid::imported(offset * (60.0 / bpm) * BEATS_PER_BAR as f64, bpm);
+                let moved = grid.near_tempo(target);
+                prop_assert!((moved.bpm / target).ln().abs() <= (2.0f64).ln() * 1.000001);
+            }
+
+            /// A moment in the track lies no further than half a beat from
+            /// the beat nearest it.
+            #[test]
+            fn the_nearest_beat_is_within_half_a_beat(
+                bpm in 40.0f64..220.0f64,
+                moment in 0.0f64..=30.0f64,
+                offset in -2.0f64..=2.0f64
+            ) {
+                let grid = BeatGrid::imported(offset * (60.0 / bpm) * BEATS_PER_BAR as f64, bpm);
+                let beat_seconds = grid.beat_seconds();
+                let snapped = grid.first_downbeat_seconds
+                    + ((moment - grid.first_downbeat_seconds) / beat_seconds).round() * beat_seconds;
+                prop_assert!((snapped - moment).abs() <= 0.5 * beat_seconds + 1e-9);
+            }
+        }
+    }
 }
