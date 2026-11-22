@@ -130,20 +130,26 @@ fn process_objects() -> Vec<AudioObjectID> {
     }
     // The reported size comes from the system, not from us: cap it so a bad
     // value cannot ask for a huge allocation before we read it back.
-    let mut objects = vec![0_u32; (size as usize / size_of::<u32>()).min(1024)];
-    // SAFETY: the buffer holds `size` bytes.
+    let capacity = 1024;
+    let mut objects = vec![0_u32; (size as usize / size_of::<u32>()).min(capacity)];
+    // Hand the system the size of the buffer we actually handed over, not the
+    // size it reported: passing the uncapped value could let it write past
+    // the end of the capped allocation.
+    let mut capacity_bytes = (objects.len() * size_of::<u32>()) as u32;
+    // SAFETY: the buffer holds `capacity_bytes` bytes and stays alive for the
+    // call.
     let status = unsafe {
         AudioObjectGetPropertyData(
             kAudioObjectSystemObject as AudioObjectID,
             NonNull::from(&property),
             0,
             std::ptr::null(),
-            NonNull::from(&mut size),
+            NonNull::from(&mut capacity_bytes),
             NonNull::new(objects.as_mut_ptr().cast()).expect("a vector has an address"),
         )
     };
     if status == NO_ERROR {
-        objects.truncate((size as usize / size_of::<u32>()).min(objects.len()));
+        objects.truncate((capacity_bytes as usize / size_of::<u32>()).min(objects.len()));
         objects
     } else {
         Vec::new()
