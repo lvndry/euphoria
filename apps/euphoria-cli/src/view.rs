@@ -1266,11 +1266,10 @@ mod tests {
 
     #[test]
     fn a_wide_table_shows_every_column_without_the_common_folder() {
-        let expected = "\
-Key             BPM  Energy              Quality  Time  Review  File
- 8A  A minor  124.9       7  ━━━━━━━───  weak     6:48          house/low tide.flac
- 8A  A minor  124.9       7  ━━━━━━━───  weak     6:48  key     techno/a rather long name of a track (extended mix).mp3
-";
+        let separator = std::path::MAIN_SEPARATOR.to_string();
+        let expected = format!(
+            "Key             BPM  Energy              Quality  Time  Review  File\n 8A  A minor  124.9       7  ━━━━━━━───  weak     6:48          house{separator}low tide.flac\n 8A  A minor  124.9       7  ━━━━━━━───  weak     6:48  key     techno{separator}a rather long name of a track (extended mix).mp3\n"
+        );
         assert_eq!(table(200), expected);
     }
 

@@ -118,11 +118,14 @@ cp "$repository/licenses/lame-LGPL-2.0.txt" "$repository/licenses/mp3lame-LGPL-3
 # Copies every library the executable needs from outside the base system
 # into usr/lib, following needed libraries the way the dynamic loader does,
 # and fails if any of them cannot be found.
+# $ORIGIN is the executable's own folder as the dynamic loader expands it;
+# in the bundle that folder's parent holds the copied libraries.
+run_path="\$ORIGIN/../lib"
 python3 "$repository/scripts/linux_libraries.py" bundle \
   --root "$appdir" \
   --executable "$executable" \
   --libraries "$appdir/usr/lib" \
-  --run-path '$ORIGIN/../lib'
+  --run-path "$run_path"
 
 cp "$icon_artwork" "$appdir/usr/share/icons/hicolor/scalable/apps/euphoria.svg"
 rsvg-convert --width 256 --height 256 --output "$appdir/usr/share/icons/hicolor/256x256/apps/euphoria.png" "$icon_artwork"
