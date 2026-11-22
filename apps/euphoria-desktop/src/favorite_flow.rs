@@ -198,10 +198,10 @@ impl EuphoriaApp {
                     }
                 }
                 Err(error) => {
-                    this.notice = Some(format!(
+                    this.notice = vec![format!(
                         "The favorites could not be kept: {}",
                         error.chain()
-                    ));
+                    )];
                     cx.notify();
                 }
             })

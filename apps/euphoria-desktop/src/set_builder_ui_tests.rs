@@ -345,8 +345,8 @@ fn the_decks_keep_the_player_from_a_set_row(cx: &mut TestAppContext) {
     click_play(window, 0, cx);
     cx.update(|cx| {
         let app = view.read(cx);
-        assert_eq!(
-            app.notice, None,
+        assert!(
+            app.notice.is_empty(),
             "the decks hold the sound without a notice"
         );
         assert!(!app.player.offers_pause());
@@ -376,8 +376,8 @@ fn a_locked_track_cannot_be_removed_until_it_is_unlocked(cx: &mut TestAppContext
     assert_eq!(planned_paths(&view, cx), before);
     cx.update(|cx| {
         assert_eq!(
-            view.read(cx).notice.as_deref(),
-            Some(crate::set_builder::UNLOCK_TO_REMOVE)
+            view.read(cx).notice.as_slice(),
+            [crate::set_builder::UNLOCK_TO_REMOVE]
         )
     });
 

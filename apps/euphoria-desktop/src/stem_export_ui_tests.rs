@@ -159,10 +159,15 @@ fn export(
 fn notice(view: &Entity<EuphoriaApp>, cx: &mut TestAppContext) -> String {
     cx.update(|cx| {
         let app = view.read(cx);
-        app.notice
-            .clone()
-            .or_else(|| app.toasts.current().map(|toast| toast.message.clone()))
-            .unwrap_or_default()
+        let joined = app.notice.join(" ");
+        if !joined.is_empty() {
+            joined
+        } else {
+            app.toasts
+                .current()
+                .map(|toast| toast.message.clone())
+                .unwrap_or_default()
+        }
     })
 }
 

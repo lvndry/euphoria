@@ -82,7 +82,7 @@ fn open_stubbed(
                     session,
                     settings,
                     None,
-                    None,
+                    vec![],
                     Box::new(SilentOutput),
                     window,
                     cx,

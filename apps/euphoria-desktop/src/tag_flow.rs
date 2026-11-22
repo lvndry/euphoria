@@ -649,10 +649,7 @@ impl EuphoriaApp {
     }
 
     fn report_problem(&mut self, problem: &str, cx: &mut Context<'_, Self>) {
-        self.notice = Some(match self.notice.take() {
-            Some(earlier) => format!("{earlier} {problem}"),
-            None => problem.to_string(),
-        });
+        self.report(problem.to_string());
         cx.notify();
     }
 

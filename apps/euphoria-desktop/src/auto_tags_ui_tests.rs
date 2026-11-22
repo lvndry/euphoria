@@ -169,7 +169,7 @@ fn files_that_cannot_be_written_are_reported_in_one_notice(cx: &mut TestAppConte
     cx.run_until_parked();
 
     cx.update(|cx| {
-        let notice = view.read(cx).notice.clone().expect("a notice");
+        let notice = view.read(cx).notice.join(" ");
         assert!(notice.contains("2 tracks"), "{notice}");
         assert_eq!(
             notice.matches("could not be written").count(),

@@ -74,7 +74,7 @@ fn open_with_missing_files(name: &str, cx: &mut TestAppContext) -> MissingLibrar
                     session,
                     Settings::default(),
                     None,
-                    None,
+                    vec![],
                     Box::new(SilentOutput),
                     window,
                     cx,
@@ -152,8 +152,8 @@ fn a_moved_file_is_located_by_content_and_other_audio_is_refused(cx: &mut TestAp
         let app = view.read(cx);
         assert!(
             app.notice
-                .as_deref()
-                .is_some_and(|notice| notice.contains("holds other audio")),
+                .iter()
+                .any(|notice| notice.contains("holds other audio")),
             "{:?}",
             app.notice
         );
@@ -162,7 +162,7 @@ fn a_moved_file_is_located_by_content_and_other_audio_is_refused(cx: &mut TestAp
 
     cx.update(|cx| {
         view.update(cx, |app, cx| {
-            app.notice = None;
+            app.notice.clear();
             app.locate_track(library.moved_from.clone(), library.moved_to.clone(), cx)
         })
     });
@@ -369,8 +369,8 @@ fn only_a_remembered_folder_stays_remembered_while_it_is_gone(cx: &mut TestAppCo
         assert!(app.unavailable_folders.is_empty());
         assert!(
             app.notice
-                .as_deref()
-                .is_some_and(|notice| notice.contains("is missing"))
+                .iter()
+                .any(|notice| notice.contains("is missing"))
         );
     });
 }
@@ -391,7 +391,7 @@ fn a_remembered_folder_that_is_gone_is_kept_for_the_next_launch(cx: &mut TestApp
                     Session::start(None).unwrap(),
                     settings,
                     None,
-                    None,
+                    vec![],
                     Box::new(SilentOutput),
                     window,
                     cx,

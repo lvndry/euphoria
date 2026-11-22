@@ -11,7 +11,7 @@ use crate::playback::testing::SilentOutput;
 use crate::settings::Settings;
 use crate::tag_settings::ProgramChoice;
 use crate::tag_writing::testing::ScratchFolder;
-use crate::ui_tests::{deck_tracks, is_shown, open_window_with};
+use crate::ui_tests::{click, deck_tracks, is_shown, open_window_with};
 
 fn open_with(
     tracks: Vec<crate::demo::DemoTrack>,
@@ -132,5 +132,45 @@ fn someone_with_folders_and_an_old_settings_file_never_sees_the_card(cx: &mut Te
     assert_eq!(old.first_run, None);
     let (window, view) = open_with(deck_tracks(), old, None, cx);
     assert!(!is_shown(window, "first-run", cx));
+    cx.update(|cx| assert!(!view.read(cx).shows_first_run()));
+}
+
+#[gpui::test]
+fn not_now_hides_the_card_and_the_command_bringing_it_back_shows_it_again(cx: &mut TestAppContext) {
+    let folder = ScratchFolder::new("first-run-not-now");
+    let path = folder.0.join("settings.json");
+    let (window, view) = open_with(deck_tracks(), new_user(), Some(path.clone()), cx);
+    assert!(is_shown(window, "first-run", cx), "the card is on");
+
+    click(window, "first-run-not-now", cx);
+    assert!(!is_shown(window, "first-run", cx), "hidden");
+    let stored = Settings::load(&path).unwrap();
+    assert_eq!(
+        stored
+            .first_run
+            .as_ref()
+            .map(|first_run| first_run.dismissed),
+        Some(true),
+        "the dismissal is remembered"
+    );
+
+    cx.update(|cx| {
+        view.update(cx, |app, cx| {
+            app.show_first_run(cx);
+        })
+    });
+    assert!(is_shown(window, "first-run", cx), "brought back");
+}
+
+#[gpui::test]
+fn a_dismissed_first_run_stays_hidden_when_reopened(cx: &mut TestAppContext) {
+    let folder = ScratchFolder::new("first-run-stays-hidden");
+    let path = folder.0.join("settings.json");
+    let (window, _view) = open_with(deck_tracks(), new_user(), Some(path.clone()), cx);
+    click(window, "first-run-not-now", cx);
+    let stored = Settings::load(&path).unwrap();
+
+    let (window, view) = open_with(deck_tracks(), stored, None, cx);
+    assert!(!is_shown(window, "first-run", cx), "the card stays hidden");
     cx.update(|cx| assert!(!view.read(cx).shows_first_run()));
 }

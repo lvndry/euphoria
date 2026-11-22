@@ -275,8 +275,8 @@ fn adding_without_a_set_says_how_to_get_one(cx: &mut TestAppContext) {
         assert!(app.set_builder.planned.is_none());
         assert!(
             app.notice
-                .as_deref()
-                .is_some_and(|notice| notice.contains("no set to add to"))
+                .iter()
+                .any(|notice| notice.contains("no set to add to"))
         );
     });
 }

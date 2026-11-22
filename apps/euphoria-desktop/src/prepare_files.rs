@@ -458,7 +458,7 @@ impl EuphoriaApp {
             let message = format!("{verb} {}", files(written.len()));
             self.show_toast(message, Some(ToastAction::Reveal(first)), cx);
             if !failed.is_empty() {
-                self.notice = Some(format!(
+                self.notice = vec![format!(
                     "{} could not be prepared: {}",
                     files(failed.len()),
                     failed
@@ -471,7 +471,7 @@ impl EuphoriaApp {
                         ))
                         .collect::<Vec<_>>()
                         .join("; ")
-                ));
+                )];
             }
             self.close_prepare_files(cx);
         } else if let Some(panel) = &mut self.prepare_panel {
@@ -539,7 +539,7 @@ impl EuphoriaApp {
                 }
                 this.show_toast(message, None, cx);
                 if let Some((_, reason)) = problems.first() {
-                    this.notice = Some(format!("A run could not be reverted: {reason}"));
+                    this.notice = vec![format!("A run could not be reverted: {reason}")];
                 }
                 cx.notify();
             })

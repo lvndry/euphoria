@@ -913,7 +913,7 @@ fn the_focus_view_stays_when_the_decks_cannot_open(cx: &mut TestAppContext) {
     assert!(!cx.update(|cx| view.read(cx).decks.is_open));
     assert!(is_open(&view, cx));
     assert!(is_shown(window, "focus-view", cx));
-    assert!(cx.update(|cx| view.read(cx).notice.is_some()));
+    assert!(cx.update(|cx| !view.read(cx).notice.is_empty()));
 }
 
 #[gpui::test]

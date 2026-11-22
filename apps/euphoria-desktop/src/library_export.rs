@@ -1047,7 +1047,7 @@ impl EuphoriaApp {
                     }
                     Err(problem) => {
                         if !dry_run {
-                            this.notice = Some(problem.clone());
+                            this.notice = vec![problem.clone()];
                         }
                         panel.stage = ExportStage::Setup;
                         panel.problem = Some(problem);

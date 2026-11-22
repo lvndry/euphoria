@@ -363,10 +363,10 @@ impl EuphoriaApp {
                     }
                 }
                 Err(error) => {
-                    this.notice = Some(format!(
+                    this.notice = vec![format!(
                         "The playlists could not be kept: {}",
                         error.chain()
-                    ));
+                    )];
                     cx.notify();
                 }
             })
@@ -409,7 +409,7 @@ impl EuphoriaApp {
                 Ok(Ok(None)) | Err(_) => return,
                 Ok(Err(error)) => {
                     this.update(cx, |this, cx| {
-                        this.notice = Some(format!("Could not open the save dialog: {error:#}"));
+                        this.notice = vec![format!("Could not open the save dialog: {error:#}")];
                         cx.notify();
                     })
                     .ok();
@@ -441,7 +441,7 @@ impl EuphoriaApp {
                             cx,
                         );
                     }
-                    Err(message) => this.notice = Some(message),
+                    Err(message) => this.notice = vec![message],
                 }
                 cx.notify();
             })

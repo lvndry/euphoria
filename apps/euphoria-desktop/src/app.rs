@@ -209,8 +209,8 @@ pub(crate) struct EuphoriaApp {
     pub(crate) key_shift: i8,
     pub(crate) table_scroll: UniformListScrollHandle,
     pub(crate) table_focus: FocusHandle,
-    /// A problem to tell the user about, shown until dismissed.
-    pub(crate) notice: Option<String>,
+    /// Problems to tell the user about, one line each, shown until dismissed.
+    pub(crate) notice: Vec<String>,
     /// Folders being searched for audio files right now.
     pub(crate) scans: crate::scan_status::RunningScans,
     /// The window this view is in, for work that needs the window from a task.
@@ -366,7 +366,7 @@ impl EuphoriaApp {
         session: Session,
         settings: Settings,
         settings_path: Option<PathBuf>,
-        notice: Option<String>,
+        notice: Vec<String>,
         output: Box<dyn AudioOutput>,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
@@ -832,14 +832,18 @@ impl EuphoriaApp {
         cx.spawn(async move |this, cx| {
             let outcome = match chosen.await {
                 Ok(Ok(Some(paths))) => Ok(paths),
-                Ok(Ok(None)) | Err(_) => Ok(Vec::new()),
+                Ok(Ok(None)) => Ok(Vec::new()),
                 Ok(Err(error)) => Err(format!("Could not open the folder picker: {error:#}")),
+                Err(_) => Ok(Vec::new()),
             };
             this.update(cx, |this, cx| match outcome {
-                Ok(paths) if paths.is_empty() => {}
+                Ok(paths) if paths.is_empty() => {
+                    this.notice = vec!["No folder chosen".to_string()];
+                    cx.notify();
+                }
                 Ok(paths) => this.add_paths(paths, true, cx),
                 Err(problem) => {
-                    this.notice = Some(problem);
+                    this.notice = vec![problem.to_string()];
                     cx.notify();
                 }
             })
@@ -963,10 +967,15 @@ impl EuphoriaApp {
     /// Shows a problem in the notice strip, after any that is already there
     /// so that an earlier one is not lost.
     pub(crate) fn report(&mut self, problem: String) {
-        self.notice = Some(match self.notice.take() {
-            Some(earlier) => format!("{earlier} {problem}"),
-            None => problem,
-        });
+        if self
+            .notice
+            .last()
+            .is_some_and(|earlier| earlier == &problem)
+        {
+            return;
+        }
+        self.notice.push(problem);
+        self.notice.drain(0..self.notice.len().saturating_sub(5));
     }
 
     /// Selects the first row when nothing is selected, so the inspector has
@@ -1693,7 +1702,8 @@ impl EuphoriaApp {
             .sync(Modal::Prepare, self.prepare_panel.is_some());
         self.modal_fades.drive(window);
         let holds_tags = !self.auto_tags.held_by().is_empty() && self.auto_tags.pending_count() > 0;
-        self.strip_growth.sync(Strip::Notice, self.notice.is_some());
+        self.strip_growth
+            .sync(Strip::Notice, !self.notice.is_empty());
         self.strip_growth.sync(Strip::HeldTags, holds_tags);
         self.strip_growth
             .sync(Strip::LinkConfirmation, self.pending_link.is_some());
@@ -2739,7 +2749,7 @@ impl EuphoriaApp {
         self.theme.apply_to_components(cx);
         self.start_theme_fade(from);
         if let Some(problem) = self.save_settings() {
-            self.notice = Some(problem);
+            self.notice = vec![problem.to_string()];
         }
         crate::install_menus(name, self.panels.sidebar_folded, cx);
         cx.refresh_windows();
@@ -2754,7 +2764,7 @@ impl EuphoriaApp {
 
     /// Hides the notice.
     pub(crate) fn dismiss_notice(&mut self, cx: &mut Context<'_, Self>) {
-        self.notice = None;
+        self.notice.clear();
         cx.notify();
     }
 
@@ -2924,7 +2934,7 @@ impl EuphoriaApp {
         }
     }
 
-    fn save_first_run(&mut self) {
+    pub(crate) fn save_first_run(&mut self) {
         if let Some(problem) = self.save_settings() {
             self.report(problem);
         }
@@ -2932,7 +2942,14 @@ impl EuphoriaApp {
 
     /// True while the card of the three first steps shows.
     pub(crate) fn shows_first_run(&self) -> bool {
-        !self.first_run.is_done()
+        self.first_run.is_shown()
+    }
+
+    /// Brings the card back after it was hidden with "Not now", once the
+    /// steps are not all done.
+    pub(crate) fn show_first_run(&mut self, cx: &mut Context<'_, Self>) {
+        self.first_run.unhide();
+        cx.notify();
     }
 
     /// Writes the folders, the theme and the arrangement to disk. Returns what to tell the user

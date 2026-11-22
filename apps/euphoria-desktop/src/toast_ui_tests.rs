@@ -75,7 +75,7 @@ fn a_write_ends_with_a_toast_that_counts_the_files(cx: &mut TestAppContext) {
     cx.update(|cx| {
         let app = view.read(cx);
         assert!(app.tag_panel.is_none(), "no sheet is left to dismiss");
-        assert!(app.notice.is_none());
+        assert!(app.notice.is_empty());
         assert_eq!(
             app.toasts.current().unwrap().action,
             Some(ToastAction::UndoTagWrite)
