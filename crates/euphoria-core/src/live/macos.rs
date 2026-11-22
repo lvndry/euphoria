@@ -128,7 +128,9 @@ fn process_objects() -> Vec<AudioObjectID> {
     if status != NO_ERROR || size == 0 {
         return Vec::new();
     }
-    let mut objects = vec![0_u32; size as usize / size_of::<u32>()];
+    // The reported size comes from the system, not from us: cap it so a bad
+    // value cannot ask for a huge allocation before we read it back.
+    let mut objects = vec![0_u32; (size as usize / size_of::<u32>()).min(1024)];
     // SAFETY: the buffer holds `size` bytes.
     let status = unsafe {
         AudioObjectGetPropertyData(
@@ -141,7 +143,7 @@ fn process_objects() -> Vec<AudioObjectID> {
         )
     };
     if status == NO_ERROR {
-        objects.truncate(size as usize / size_of::<u32>());
+        objects.truncate((size as usize / size_of::<u32>()).min(objects.len()));
         objects
     } else {
         Vec::new()

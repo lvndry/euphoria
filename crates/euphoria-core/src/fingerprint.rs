@@ -26,7 +26,7 @@
 //! The hashes of a track are kept in memory or stored by the caller; the
 //! audio is not.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::f32::consts::TAU;
 
 use rustfft::FftPlanner;
@@ -473,7 +473,14 @@ impl FingerprintIndex {
     /// grid, with the pitch following it and without; one rebuilt from
     /// hashes only at the track's own speed.
     pub fn find(&self, query: &Fingerprint) -> Option<Match> {
-        debug_assert!(self.is_sorted, "freeze the index before searching it");
+        // The index is frozen before it is shared for searching, so this is
+        // true; checked at runtime too (a single linear pass, O(1) when
+        // already frozen), because an unfrozen search would silently miss
+        // matches instead of failing loudly.
+        debug_assert!(
+            self.is_sorted || !self.entries.iter().any(|(hash, _), (next, _)| hash > next),
+            "freeze the index before searching it"
+        );
         let mut passes: Vec<(Vec<(u32, u32)>, Playback)> = vec![(
             self.usable(&query.hashes, false),
             Playback {
@@ -579,7 +586,7 @@ impl FingerprintIndex {
         neighbours: bool,
     ) -> Vec<(u32, i64, u32)> {
         let mut votes: HashMap<(u32, i64), u32> = HashMap::new();
-        let mut counted: Vec<(u32, i64)> = Vec::new();
+        let mut counted: HashSet<(u32, i64)> = HashSet::new();
         for (hash, query_frame) in hashes {
             counted.clear();
             let near: Vec<u32> = if neighbours {
@@ -592,8 +599,7 @@ impl FingerprintIndex {
                     let track = (packed >> FRAME_BITS) as u32;
                     let offset =
                         (packed & ((1 << FRAME_BITS) - 1)) as i64 - i64::from(*query_frame);
-                    if !counted.contains(&(track, offset)) {
-                        counted.push((track, offset));
+                    if counted.insert((track, offset)) {
                         *votes.entry((track, offset)).or_default() += 1;
                     }
                 }
