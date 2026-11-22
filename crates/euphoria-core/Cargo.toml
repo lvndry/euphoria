@@ -14,7 +14,7 @@ rust-version.workspace = true
 [dependencies]
 blake3.workspace = true
 ebur128.workspace = true
-flacenc.workspace = true
+flacenc = { workspace = true, optional = true }
 hound.workspace = true
 # Reads the cover art of a track, and in the tests writes it to check against.
 lofty.workspace = true
@@ -80,14 +80,17 @@ drone = ["dep:matrixmultiply"]
 # Changing the key of a track with Signalsmith Stretch, a C++ library vendored
 # in vendor/ and compiled with the crate: it needs a C++ compiler but not
 # libclang.
-pitch-shift = ["dep:cc"]
+pitch-shift = ["dep:cc", "dep:flacenc"]
 # Writing rendered mixes as MP3 with LAME, a C library vendored in the
 # mp3lame-sys crate and compiled with the crate: it needs a C compiler, no
 # system library.
 mp3 = ["pitch-shift", "dep:mp3lame-encoder"]
 # Separating tracks into stems with Demucs htdemucs through ONNX Runtime,
 # which is linked statically and adds tens of megabytes to the binary.
-stems = ["pitch-shift", "dep:ort", "dep:rubato", "dep:sha2", "dep:ureq", "dep:tempfile"]
+# Exporting stems, which can shift their key, also needs `pitch-shift`; a
+# program that only separates can leave Signalsmith Stretch out, so it can
+# link another copy of it without the two clashing.
+stems = ["dep:ort", "dep:rubato", "dep:sha2", "dep:ureq", "dep:tempfile"]
 
 [[example]]
 name = "drone_features"

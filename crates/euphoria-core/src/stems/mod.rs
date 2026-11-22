@@ -10,6 +10,7 @@
 //! triangular weights, as Demucs does without random shifts.
 
 mod cache;
+#[cfg(feature = "pitch-shift")]
 mod export;
 mod input;
 mod levels;
@@ -40,6 +41,7 @@ use spectrogram::{
 };
 
 pub use cache::{DEFAULT_STEM_CACHE_LIMIT_BYTES, STEM_CACHE_LIMIT_VARIABLE, StemCache, StemFiles};
+#[cfg(feature = "pitch-shift")]
 pub use export::{
     MixExport, Mixdown, StemShift, StemsExport, export_mix, export_stems, publish_stems,
 };
