@@ -623,7 +623,9 @@ fn tonality(key: Key, notation: KeyNotation) -> String {
 /// The `file://localhost/` URL of an absolute path, or `None` when the path
 /// starts with neither a slash nor a drive letter.
 fn location_url(path: &Path) -> Option<String> {
-    let bytes = path.as_os_str().as_encoded_bytes();
+    let mut bytes = path.as_os_str().as_encoded_bytes();
+    // A canonicalized Windows path may carry the long-path marker.
+    bytes = strip_long_path_prefix(bytes);
     let has_drive_letter = bytes.len() >= 3
         && bytes[0].is_ascii_alphabetic()
         && bytes[1] == b':'
@@ -649,6 +651,12 @@ fn location_url(path: &Path) -> Option<String> {
         }
     }
     Some(url)
+}
+
+/// Windows prefixes long paths with the extended-length marker; the
+/// remainder is an ordinary absolute path.
+fn strip_long_path_prefix(bytes: &[u8]) -> &[u8] {
+    bytes.strip_prefix(b"\\\\?\\").unwrap_or(bytes)
 }
 
 /// True when `character` is XML 1.0 Char: tab, line feed, carriage return,
@@ -717,6 +725,18 @@ pub(crate) fn escape_attribute_value(value: &str) -> Result<String, EuphoriaErro
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_long_path_is_recognized_as_absolute() {
+        assert_eq!(
+            location_url(Path::new(r"\\?\C:\Music\a.mp3")).as_deref(),
+            Some("file://localhost/C:/Music/a.mp3")
+        );
+        assert_eq!(
+            location_url(Path::new("/Music/a.mp3")).as_deref(),
+            Some("file://localhost/Music/a.mp3")
+        );
+    }
 
     fn scratch_folder(name: &str) -> PathBuf {
         let folder = std::env::temp_dir().join(format!(
